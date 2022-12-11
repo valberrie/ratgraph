@@ -1,0 +1,6 @@
+callgrind*
+zig-out
+zig-cache
+*.log
+fonts/
+debug
