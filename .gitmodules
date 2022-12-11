@@ -1,0 +1,7 @@
+[submodule "zig_libs/zalgebra"]
+	path = zig_libs/zalgebra
+	url = https://github.com/kooparse/zalgebra.git
+[submodule "c_libs/libspng"]
+	path = c_libs/libspng
+	url = https://github.com/randy408/libspng.git
+	branch = bab9f94

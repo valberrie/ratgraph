@@ -4,3 +4,4 @@ zig-cache
 *.log
 fonts/
 debug
+std
