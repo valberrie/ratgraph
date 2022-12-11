@@ -8,8 +8,6 @@ const aabb = @import("col.zig");
 
 const ecs = @import("registry.zig");
 
-const tree_sit = @import("tree_sit.zig");
-
 const c = @cImport(@cInclude("tree_sitter/api.h"));
 
 const SubTileset = graph.SubTileset;

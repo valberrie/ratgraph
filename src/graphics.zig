@@ -328,8 +328,8 @@ pub const Atlas = struct {
                     @intCast(u32, set.tw),
                     @intCast(u32, set.th),
                     &bit,
-                    rect.x + @intCast(u32, @mod(i, set.num.x) * set.tw),
-                    rect.y + @intCast(u32, @divFloor(i, set.num.x) * set.th),
+                    @intCast(u32, rect.x) + @intCast(u32, @mod(i, set.num.x) * set.tw),
+                    @intCast(u32, rect.y) + @intCast(u32, @divFloor(i, set.num.x) * set.th),
                 );
             }
         }
@@ -1200,8 +1200,8 @@ pub const Font = struct {
                 for (packing_rects.items) |rect, i| {
                     //const g = &result.glyphs.items[@intCast(usize, rect.id) + 1];
                     const g = try result.glyph_set.getPtr(@intCast(u21, rect.id));
-                    g.tr.x = @intToFloat(f32, rect.x + padding) - @intToFloat(f32, padding) / 2;
-                    g.tr.y = @intToFloat(f32, rect.y + padding) - @intToFloat(f32, padding) / 2;
+                    g.tr.x = @intToFloat(f32, @intCast(u32, rect.x) + padding) - @intToFloat(f32, padding) / 2;
+                    g.tr.y = @intToFloat(f32, @intCast(u32, rect.y) + padding) - @intToFloat(f32, padding) / 2;
                     const bitmap = &bitmaps.items[i];
                     if (bitmap.buffer.items.len > 0) {
                         var row: usize = 0;

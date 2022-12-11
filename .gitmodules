@@ -5,3 +5,11 @@
 	path = c_libs/libspng
 	url = https://github.com/randy408/libspng.git
 	branch = bab9f94
+[submodule "c_libs/tree-sitter"]
+	path = c_libs/tree-sitter
+	url = https://github.com/tree-sitter/tree-sitter.git
+	branch = master
+[submodule "c_libs/stb"]
+	path = c_libs/stb
+	url = https://github.com/nothings/stb.git
+	branch = master
