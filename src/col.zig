@@ -12,7 +12,7 @@ pub const SparseSet = graph.SparseSet;
 //    h: f32,
 //};
 
-fn containsPoint(low: f32, high: f32, point: f32) bool {
+pub fn containsPoint(low: f32, high: f32, point: f32) bool {
     return (low - point > 0) != (high - point > 0);
 }
 
@@ -20,7 +20,7 @@ pub fn doLinesOverlap(low1: f32, high1: f32, low2: f32, high2: f32) bool {
     return !(low1 > high2 or high1 < low2);
 }
 
-fn slope(x1: f32, x2: f32, y1: f32, y2: f32) Vec2f {
+pub fn slope(x1: f32, x2: f32, y1: f32, y2: f32) Vec2f {
     return .{ .y = (y2 - y1), .x = x2 - x1 };
 }
 
@@ -32,7 +32,7 @@ pub const Collision = struct {
 
     normal: bool,
 
-    other: ColRect,
+    //other: ColRect,
     other_i: u32,
 };
 
@@ -41,7 +41,7 @@ pub fn sortByCompletion(goal: Vec2f, a: Collision, b: Collision) bool {
     return a.perc < b.perc;
 }
 
-fn lerpPoint(start: f32, end: f32, point: f32) f32 {
+pub fn lerpPoint(start: f32, end: f32, point: f32) f32 {
     return (point - start) / (end - start);
 }
 
@@ -49,7 +49,7 @@ fn lerpPoint(start: f32, end: f32, point: f32) f32 {
 pub fn detectCollision(r1: ColRect, r2: ColRect, goal: Vec2f, other_i: u32) Collision {
     const m = slope(r1.x, goal.x, r1.y, goal.y);
 
-    var result = Collision{ .x = null, .y = null, .overlaps = false, .perc = 1.0, .other = r2, .normal = false, .other_i = other_i };
+    var result = Collision{ .x = null, .y = null, .overlaps = false, .perc = 1.0, .normal = false, .other_i = other_i };
     if (m.x > 0 and containsPoint(r1.x, goal.x, r2.x - r1.w)) {
         const mm = m.y / m.x;
         const c1 = r1.y - ((r1.x + r1.w) * mm);
@@ -96,6 +96,19 @@ pub const Vec2f = struct {
     y: f32,
 };
 
+//Entity
+//Coord
+//Collidable
+//
+//
+//fn(reg:*Registry, dt){
+//When do collisions occur/
+//During physics moves
+//
+//
+//}
+//
+
 pub const eps = 0.01;
 pub fn CollisionContext() type {
     return struct {
@@ -138,7 +151,7 @@ pub fn CollisionContext() type {
             var cols = std.ArrayList(Collision).init(alloc.*);
             defer cols.deinit();
 
-            var ret = Collision{ .x = null, .y = null, .perc = 0, .normal = false, .other = graph.Rec(0, 0, 0, 0), .overlaps = false, .other_i = 0 };
+            var ret = Collision{ .x = null, .y = null, .perc = 0, .normal = false, .overlaps = false, .other_i = 0 };
             const pl = try self.rect_set.getPtr(id);
             for (self.rect_set.dense.items) |other_opt| {
                 if (other_opt.i == id) continue;

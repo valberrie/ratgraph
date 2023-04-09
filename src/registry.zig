@@ -6,7 +6,7 @@ pub const FieldList = []const MapField;
 
 pub const ID_TYPE = u32;
 
-pub fn GenTileMapStructTypes(comptime fields: FieldList) struct {
+pub fn GenRegistryStructs(comptime fields: FieldList) struct {
     json: type,
     reg: type,
     component_enum: type,
@@ -26,14 +26,14 @@ pub fn GenTileMapStructTypes(comptime fields: FieldList) struct {
         const inner_struct = struct { item: f.ftype, i: ID_TYPE };
         reg_fields[lt_i] = .{
             .name = f.name,
-            .field_type = SparseSet(inner_struct, ID_TYPE), //TODO add logic for nested arraylists
+            .field_type = SparseSet(inner_struct, ID_TYPE),
             .default_value = null,
             .is_comptime = false,
             .alignment = 0,
         };
         json_fields[lt_i] = .{
             .name = f.name,
-            .field_type = []inner_struct, //TODO add logic for nested arraylists
+            .field_type = []inner_struct,
             .default_value = null,
             .is_comptime = false,
             .alignment = 0,
@@ -83,12 +83,11 @@ pub fn GenTileMapStructTypes(comptime fields: FieldList) struct {
     };
 }
 
-//The name should probably be changed to suggest it is an ECS
 pub fn Registry(comptime field_names_l: FieldList) type {
     return struct {
         const Self = @This();
 
-        pub const Types = GenTileMapStructTypes(field_names_l);
+        pub const Types = GenRegistryStructs(field_names_l);
         pub const field_list = field_names_l;
         pub const DeletionType = struct { id: ID_TYPE, component: Types.component_enum };
 
@@ -97,11 +96,6 @@ pub fn Registry(comptime field_names_l: FieldList) type {
         //TODO make the api for regisetry stricter.
         //Should Iterating directly through a dense array be disallowed.
         //How do we remember to apply queued changes?
-
-        queued_additions: Types.queued,
-
-        //queued_entities:
-        queued_deletions: std.ArrayList(DeletionType),
 
         //TODO deal with deletion
         entities: std.ArrayList(Types.component_bit_set),
@@ -239,13 +233,11 @@ pub fn Registry(comptime field_names_l: FieldList) type {
 
         pub fn initFromJson(self: *Self, json_map: *Types.json, alloc: *const std.mem.Allocator) !void {
             self.entities = std.ArrayList(Types.component_bit_set).init(alloc.*);
-            self.queued_deletions = std.ArrayList(DeletionType).init(alloc.*);
 
             inline for (field_names_l) |field, comp_i| {
                 const fname = field.name;
 
                 @field(self.data, fname) = try @TypeOf(@field(self.data, fname)).fromOwnedDenseSlice(alloc.*, @field(json_map, fname));
-                @field(self.queued_additions, fname) = @TypeOf(@field(self.queued_additions, fname)).init(alloc.*);
 
                 for (@field(self.data, fname).dense.items) |item| {
                     if (item.i >= self.entities.items.len)
@@ -285,9 +277,7 @@ pub fn Registry(comptime field_names_l: FieldList) type {
 
         pub fn deinit(self: *Self) void {
             self.entities.deinit();
-            self.queued_deletions.deinit();
             inline for (field_names_l) |field| {
-                @field(self.queued_additions, field.name).deinit();
                 @field(self.data, field.name).deinit();
             }
         }

@@ -22,51 +22,9 @@ pub fn restrictFloat(num: f32, min: f32, max: f32) f32 {
     return num;
 }
 
-//GUI interface design
-//functions that add elements should except generic args for numbers etc
-//
-//The functions themselves should call a getBoundRect() that calculates where items can be placed
-//
-//Problems:
-//better mouse and/or keyboard abstractions
-
-pub fn drawSlider(
-    x: f32,
-    y: f32,
-    l: f32,
-    h: f32,
-    handle: f32,
-    bg: Color,
-    fg: Color,
-    cbuf: *CmdBuf,
-) void {
-    cbuf.append(.{ .rect = .{ .z = -1, .rect = Rec(x, y, l, h), .col = bg } }) catch return;
-    const di = 5;
-    if (handle < l)
-        cbuf.append(.{ .rect = .{ .z = -1, .rect = Rec(handle + x, y + di, h, h - (di * 2)), .col = fg } }) catch return;
-}
-
 pub fn rectContainsPoint(r: Rect, x: f32, y: f32) bool {
     return (x >= r.x and x <= r.x + r.w and y >= r.y and y <= r.y + r.h);
 }
-
-//Commands:
-//Rect x y w h col
-//Text *str x y fsize col
-//
-
-const Border1 = [3]Color{
-    //intToColor(0x404040ff),
-    intToColor(0xff4040ff),
-    intToColor(0xd4d0c8ff),
-    intToColor(0xffffffff),
-};
-
-const Border2 = [3]Color{
-    intToColor(0xd4d0c8ff),
-    intToColor(0x000000ff),
-    intToColor(0x404040ff),
-};
 
 pub const DrawCommand = struct {
     pub const DRect = struct {
@@ -102,15 +60,6 @@ pub const DrawCommand = struct {
         text: DText,
         texRect: DTexRect,
     };
-
-    pub fn drawOutsetBorder(cmd_buf: *CmdBuf, rect: Rect, w: f32, cols: [3]Color) void {
-        const colors = [_]Color{ cols[0], cols[0], cols[1], cols[1], cols[2], cols[2] };
-
-        const borders = genBorderRects(rect, w);
-        for (borders) |border, i| {
-            cmd_buf.append(.{ .rect = .{ .z = -10, .rect = border, .col = colors[i] } }) catch return;
-        }
-    }
 
     pub fn drawRect(cmd_buf: *CmdBuf, rect: Rect, z: f32, col: Color) void {
         cmd_buf.append(.{ .rect = .{ .rect = rect, .z = z, .col = col } }) catch return;
@@ -215,75 +164,124 @@ pub const SaveData = struct {
     x: f32,
     y: f32,
 };
-//TODO
-//Cool json seriel and deserial for arbitrary objects
-//you provide a default struct
-//specify what fields you want to load and write
-//any missing fields get taken from the default
-//
-//eaisly allow persistant change through gui of things like styling etc.
-//
-//Multi window support
-//How to ensure mouse clicks get sent to correct window?
-//Basic window managment?
-//how are overlapping windows handled
-//is there own gctx context with multiple windows that are all drawn at once?
-//This makes it simple
 
-//DElete lol
-pub const TextEditor = struct {
+const GUIDOC =
+    \\How the gui system works:
+    \\  Layouting and elements are seperate functions.
+    \\  Everything is drawn through a Fat Cursor.
+    \\  The layout is specified by the user and subsequent elements that are added "button, floatSlide etc" are drawn to fill the provide cursor.
+    \\  For instance, the function button() will fill fully the current cursor with what a button. In order to not use the whole window, 
+    \\  helper functions that divide up cursors into smaller cursors that can be iterated are helpful
+;
+
+pub const Layout = union(enum) {
     const Self = @This();
+    column: struct {
+        num_items: u32,
+        item_height: f32,
+        index: u32 = 0,
+    },
 
-    x: f32 = 400,
-    y: f32 = 500,
-
-    rows: u32 = 100,
-    cols: u32 = 140,
-    lines: std.ArrayList(std.ArrayList(u8)),
-
-    cy: u32 = 0,
-
-    pub fn init(alloc: *const std.mem.Allocator, str: []const u8) !Self {
-        var ret = Self{ .lines = std.ArrayList(std.ArrayList(u8)).init(alloc.*) };
-        var it = std.mem.SplitIterator(u8){ .buffer = str, .index = 0, .delimiter = "\n" };
-        while (it.next()) |line| {
-            try ret.lines.append(std.ArrayList(u8).init(alloc.*));
-            try ret.lines.items[ret.lines.items.len - 1].appendSlice(line);
-        }
-        return ret;
-    }
-
-    pub fn deinit(self: *Self) void {
-        for (self.lines.items) |*line| {
-            line.deinit();
-        }
-        self.lines.deinit();
-    }
-
-    pub fn draw(self: *Self, ctx: *graph.GraphicsContext, font: *graph.Font, point_size: f32) !void {
-        const sf = point_size / font.font_size;
-        const lines = self.lines.items[self.cy..];
-
-        ctx.drawRect(Rec(self.x, self.y, font.max_advance * @intToFloat(f32, self.cols) * sf, font.line_gap * @intToFloat(f32, self.rows) * sf), itc(0x111111ff));
-
-        for (lines) |line, i| {
-            const slice = if (line.items.len > self.cols) line.items[0..self.cols] else line.items[0..];
-            ctx.drawText(self.x, sf * font.ascent + self.y + (font.line_gap * sf) * @intToFloat(f32, i), slice, font, point_size, itc(0xffffffff));
-            if (i >= self.rows)
-                break;
+    pub fn nextCursor(self: *Self, section_cursor: FatCursor) FatCursor {
+        switch (self.*) {
+            .column => |col| {
+                defer self.column.index += 1;
+                var co = section_cursor;
+                co.co = graph.Rec(
+                    co.co.x,
+                    co.co.y + (@intToFloat(f32, col.index) * col.item_height),
+                    co.co.w,
+                    col.item_height,
+                );
+                return co;
+            },
         }
     }
 };
 
+pub const FatCursor = struct {
+    const Self = @This();
+
+    ctx: *graph.GraphicsContext,
+    font: *graph.Font,
+
+    co: graph.Rect,
+    layout: Layout = .{ .column = .{ .num_items = 0, .item_height = 10 } },
+
+    pub fn init(xin: f32, yin: f32, win: f32, hin: f32, ctx: *graph.GraphicsContext, font: *graph.Font) Self {
+        return Self{
+            .co = .{
+                .x = 72 * xin,
+                .y = 72 * yin,
+                .w = 72 * win,
+                .h = 72 * hin,
+            },
+            .ctx = ctx,
+            .font = font,
+        };
+    }
+
+    pub fn rect(self: *Self, col: Color) void {
+        self.ctx.ptRect(self.co.x, self.co.y, self.co.w, self.co.h, col);
+    }
+
+    pub fn text(self: *Self, str: []const u8, col: Color) void {
+        self.ctx.drawText(self.co.x, self.co.y, str, self.font, self.co.h, col);
+    }
+
+    pub fn margin(self: *Self, w: f32) void {
+        self.co.x += w;
+        self.co.y += w;
+        self.co.w -= w * 2;
+        self.co.h -= w * 2;
+    }
+
+    pub fn ymargin(self: *Self, h: f32) void {
+        self.co.y += h;
+        self.co.h -= h;
+    }
+
+    pub fn beginCursor(self: *Self, cursor: graph.Rect) graph.Rect {
+        const old = self.co;
+        self.co = cursor;
+        return old;
+    }
+    pub fn endCursor(self: *Self, cursor: graph.Rect) void {
+        self.co = cursor;
+    }
+
+    pub fn begin3D(self: *Self, param: struct { light: Color, dark: Color, bg: Color, border_w: f32 }) Rect {
+        const old_co = self.co;
+        self.rect(param.light);
+        self.co.x += param.border_w;
+        self.co.y += param.border_w;
+        self.co.w -= param.border_w;
+        self.co.h -= param.border_w;
+        self.rect(param.dark);
+        self.co.w -= param.border_w;
+        self.co.h -= param.border_w;
+        self.rect(param.bg);
+
+        return old_co;
+    }
+
+    pub fn end3D(self: *Self, co: Rect) void {
+        self.co = co;
+    }
+};
+
+pub fn nColumns(cr: FatCursor, index: u32, n: u32) FatCursor {
+    const w = cr.co.w / @intToFloat(f32, n);
+    var co = cr;
+    co.co.w = w;
+    co.co.x += @intToFloat(f32, index) * w;
+
+    return co;
+}
+
 pub const Window = struct {
     const Self = @This();
     const DRect = DrawCommand.drawRect;
-
-    //Private variables
-    //Describe the top left corner of current element outside of all padding and margin
-    x: f32 = 0,
-    y: f32 = 0,
-    w: f32 = 0,
 
     //Any function that needs to id itself for input must increment this value
     //If the set of context calls is constant it allows a function call to identify itself
@@ -297,97 +295,20 @@ pub const Window = struct {
     m_old_y: f32 = undefined,
     m_down: bool = false,
 
-    //Style vars
-    slider_h: f32 = 25,
-    label_fsize: f32 = 40,
-    padding: f32 = 15,
-    bg: Color = itc(0x5b595aff),
-
-    //default_style: ElementStyle = .{ .margin = BRect.single(2), .padding = BRect.single(0) },
-
-    //User provided constants
-    y_init: f32,
-    x_init: f32,
-    width: f32,
-    title: []const u8,
-    font_size: f32,
-
-    cmd_buf: *CmdBuf = undefined,
-    str_buf_stream: std.io.FixedBufferStream([]u8) = undefined,
+    dpi: f32,
 
     mouse_state: graph.SDL.MouseState = undefined,
 
-    style: Style,
-
     font: *graph.Font,
 
-    //PRIVATES
-    line_gap: f32,
-    scale_factor: f32,
+    cr: FatCursor,
+    init_cursor: Rect = graph.Rec(4 * 72, 4 * 72, 8 * 72, 5 * 72),
 
-    last_active_drop_down: ?usize = null,
-
-    pub fn drawText(self: *Self, x: f32, y: f32, text: []const u8, pt_size: f32, col: Color) void {
-        DrawCommand.drawText(self.cmd_buf, &self.str_buf_stream, text, x, y, 0, pt_size, col);
-    }
-
-    pub const Style = struct {
-        const Margin = struct {
-            left: f32,
-            right: f32,
-            bottom: f32,
-            top: f32,
-
-            pub fn initEqual(val: f32) Margin {
-                return Margin{ .left = val, .right = val, .bottom = val, .top = val };
-            }
-        };
-
-        const BoxStyle = struct {
-            margin: Margin,
-            text_size_pt: f32,
-            border_w_pt: f32,
-            border_color: Color,
-        };
-
-        title_style: BoxStyle = BoxStyle{ .margin = Margin.initEqual(12), .text_size_pt = 12, .border_w_pt = 1, .border_color = itc(0x000000ff) },
-
-        title_bg: Color = itc(0x2f52a2ff),
-        title_fg: Color = itc(0xd5dcecff),
-        title_sep: Color = itc(0x242933ff),
-        item_border: Color = itc(0x1e1e1eff),
-        item_bg: Color = itc(0x323232ff),
-        item_fg: Color = itc(0xd5dcecff),
-        bg: Color = itc(0x2d3548ff),
-        toggled_on_bg: Color = itc(0xffb532ff),
-        toggled_off_bg: Color = itc(0x2d2d2dff),
-        toggled_on_fg: Color = itc(0x111111ff),
-        toggled_off_fg: Color = itc(0xd5dcecff),
-
-        title_size_pt: f32 = 8,
-        title_margin_pt: Margin = Margin.initEqual(1),
-        title_spacing_pt: f32 = 2,
-
-        checkbox_size_pt: f32 = 12,
-        checkbox_margin_pt: Margin = Margin.initEqual(1),
-        checkbox_spacing_pt: f32 = 2,
-
-        title_size: f32 = 12,
-        border_w: f32 = 3,
-    };
-
-    pub fn init(font: *graph.Font, style: Style, window_x: f32, window_y: f32, width: f32, title: []const u8) Self {
-        const sf = style.title_size / font.font_size;
+    pub fn init(font: *graph.Font, ctx: *graph.GraphicsContext, dpi: f32) Self {
         return Self{
-            .scale_factor = sf,
-            .line_gap = (font.ascent - font.descent) * sf,
-            .style = style,
             .font = font,
-            .x_init = window_x,
-            .y_init = window_y,
-            .width = width,
-            .title = title,
-            .font_size = style.title_size,
+            .cr = FatCursor.init(4, 4, 5, 6, ctx, font),
+            .dpi = dpi,
         };
     }
 
@@ -396,219 +317,176 @@ pub const Window = struct {
         return self.item_index - 1;
     }
 
-    pub fn begin(self: *Self, cmd_buf: *CmdBuf, str_buf: []u8, new_pos: Vec2f, m_delta: Vec2f, m_down: bool, mouse_state: graph.SDL.MouseState) void {
-        defer self.x += self.font.ptToPixel(2);
+    pub fn begin(self: *Self, new_pos: Vec2f, m_delta: Vec2f, m_down: bool, mouse_state: graph.SDL.MouseState) void {
+        //defer self.x += self.font.ptToPixel(2);
         self.mouse_state = mouse_state;
         self.item_index = 0;
         const this_item = self.requestItemIndex();
-        self.y = self.y_init;
-        self.x = self.x_init;
-        self.w = self.width - self.padding * 2;
 
-        self.cmd_buf = cmd_buf;
-        self.str_buf_stream = std.io.FixedBufferStream([]u8){ .buffer = str_buf, .pos = 0 };
+        const sf = 72 / self.dpi;
+        const new_p = new_pos.smul(sf);
 
-        self.m_delta = m_delta;
-        self.m_old_x = new_pos.x - self.m_delta.x;
-        self.m_old_y = new_pos.y - self.m_delta.y;
+        self.m_delta = m_delta.smul(sf);
+        self.m_old_x = new_p.x - self.m_delta.x;
+        self.m_old_y = new_p.y - self.m_delta.y;
         self.m_down = m_down;
         if (!self.m_down)
             self.click_index = null;
 
-        const scaled_vert_margin = self.font.ptToPixel(self.style.title_margin_pt.top + self.style.title_margin_pt.bottom);
-        var title_rect: Rect = Rec(
-            self.x,
-            self.y,
-            self.width,
-            self.line_gap + scaled_vert_margin,
-        );
+        const BG = itc(0x29809bff);
+        const TITLEBG = itc(0xa1a1a1ff);
 
-        if (self.click_index) |cindex| {
-            if (cindex == this_item) {
-                self.y_init += self.m_delta.y;
-                self.x_init += self.m_delta.x;
-                self.x = self.x_init;
-                self.y = self.y_init;
-            }
-        } else {
-            if (self.m_down and rectContainsPoint(title_rect, self.m_old_x, self.m_old_y)) {
-                self.click_index = this_item;
-                self.y_init += self.m_delta.y;
-                self.x_init += self.m_delta.x;
-                self.x = self.x_init;
-                self.y = self.y_init;
+        const cri = &self.cr;
+
+        cri.co = self.init_cursor;
+        cri.layout = .{ .column = .{ .num_items = 10, .item_height = 20 } };
+
+        var cr = self.cr.layout.nextCursor(self.cr);
+        {
+            if (self.click_index) |cindex| {
+                if (cindex == this_item) {
+                    self.init_cursor.x += self.m_delta.x;
+                    self.init_cursor.y += self.m_delta.y;
+                }
+            } else {
+                if (self.m_down and rectContainsPoint(cr.co, self.m_old_x, self.m_old_y)) {
+                    self.click_index = this_item;
+                    self.init_cursor.x += self.m_delta.x;
+                    self.init_cursor.y += self.m_delta.y;
+                }
             }
         }
+        cr.co = self.init_cursor;
+        cri.layout = .{ .column = .{ .num_items = 10, .item_height = 20 } };
+        cr = self.cr.layout.nextCursor(self.cr);
 
-        //Update title position so it doesn't lag behind on window movement
-        //title_rect = Rec(self.x, self.y, self.width - self.padding * 2, title_height);
-        title_rect = Rec(self.x, self.y, self.width, self.line_gap + scaled_vert_margin);
-        DRect(self.cmd_buf, .{ .x = self.x_init, .y = self.y_init, .w = self.width, .h = 0 }, -10, self.style.bg);
-
-        DRect(
-            self.cmd_buf,
-            title_rect,
-            -10,
-            self.style.title_bg,
-            //itc(0xc48214ff),
-        );
-
-        self.drawText(
-            self.x + self.font.ptToPixel(self.style.title_margin_pt.left),
-            self.y + self.font.ascent * self.scale_factor + self.font.ptToPixel(self.style.title_margin_pt.top),
-            self.title,
-            self.font_size,
-            self.style.title_fg,
-        );
-        self.y += self.line_gap + scaled_vert_margin + self.font.ptToPixel(self.style.title_spacing_pt);
+        cr.rect(BG);
+        cr.rect(itc(0x000000ff));
+        cr.margin(2);
+        cr.rect(TITLEBG);
     }
 
     pub fn end(self: *Self) void {
-        self.y += self.padding;
-        self.cmd_buf.items[0].rect.rect.h = self.y - self.y_init;
+        _ = self;
+        //self.cmd_buf.items[0].rect.rect.h = self.y - self.y_init;
 
-        //DrawCommand.drawOutsetBorder(self.cmd_buf, Rec(self.x_init, self.y_init, self.width, self.y - self.y_init), 2, Border1);
-    }
-
-    pub fn listRadio(self: *Self, index: *usize, count: usize, labels: []std.ArrayList(u8)) void {
-        self.y += self.default_style.getTop();
-        defer self.y += self.default_style.getBottom();
-        const adjx = self.x + self.default_style.getLeft();
-
-        {
-            var i: usize = 0;
-            while (i < count) : (i += 1) {
-                const rec = Rec(adjx, self.y, self.w / 2, self.slider_h);
-                DrawCommand.drawRect(self.cmd_buf, rec, 0, if (index.* == i) WHITE else BLACK);
-                self.drawText(adjx, self.y + self.font_size, labels[i].items, self.font_size, BLACK);
-                if (self.m_down and rectContainsPoint(rec, self.m_old_x, self.m_old_y)) {
-                    index.* = i;
-                }
-                self.y += self.slider_h * 1.2;
-            }
-        }
     }
 
     pub fn floatSlide(self: *Self, lab: ?[]const u8, item: *f32, min: f32, max: f32) void {
+        const val = item.*;
+        const perc = ((val - min) / (max - min));
         const this_item = self.requestItemIndex();
 
-        self.y += 0;
-        defer self.y += 0;
+        //CALL
+        //const co = nextCursor()
+        //
+        //GuiContext needs to hold some nextCursor() function
+        //What data does nextCursor need?
+        //Type
+        //Are third party nextCursor types needed?
+        //
+        //User calls some kind of setLayout function
+        //set layout: grid, column
+        //
+        //current_Layout: Layout
+        //
+        //Layout = tagged union
+        //grid = struct {
+        //
 
-        const adjx = self.x;
-        const h = self.line_gap;
-        defer self.y += h;
-        const val = item.*;
+        var cr = self.cr.layout.nextCursor(self.cr);
+        //const cr = self.layout.nextCursor(self.cr.co);
+        //const cr = &self.cr;
+        //const button_h: f32 = 15;
+        //const sec1 = cr.beginRestrictHeight(button_h);
+        {
+            cr.margin(1);
+            cr.rect(itc(0x330033ff));
+            cr.margin(1);
+            cr.rect(itc(0x334433ff));
+            //cr.text(lab orelse "_", itc(0xffffffff));
+            var buf: [128]u8 = undefined;
+            var fbs = std.io.FixedBufferStream([]u8){ .buffer = &buf, .pos = 0 };
+            var w = fbs.writer();
+            w.print("{s}: {d}", .{ lab orelse " ", val }) catch unreachable;
+            cr.text(fbs.getWritten(), itc(0x00ff00ff));
 
-        const perc = ((val - min) / (max - min));
-        const handle_pos = perc * (self.w - h);
+            const handle_sec = cr.beginCursor(graph.Rec((perc * cr.co.w) + cr.co.x, cr.co.y, 13, cr.co.h));
+            {
+                cr.rect(itc(0xff0000ff));
+                if (self.click_index) |cindex| {
+                    if (cindex == this_item) {
+                        item.* = ((self.m_delta.x + (cr.co.x - handle_sec.x)) / (handle_sec.w)) * (max - min) + min;
+                    }
+                } else {
+                    if (self.m_down and rectContainsPoint(cr.co, self.m_old_x, self.m_old_y)) {
+                        self.click_index = this_item;
+                        self.focused_textbox = null;
 
-        var select = false;
-        if (self.click_index) |cindex| {
-            if (cindex == this_item) {
-                if (self.m_old_x >= adjx + handle_pos and self.m_old_x <= adjx + handle_pos + self.slider_h) {
-                    item.* = (self.m_delta.x + handle_pos) / (self.w - h) * (max - min) + min;
-                    item.* = restrictFloat(item.*, min, max);
-                }
-                select = true;
-            }
-        } else {
-            if (self.m_down and rectContainsPoint(Rec(adjx + handle_pos, self.y, h, h), self.m_old_x, self.m_old_y)) {
-                self.click_index = this_item;
-                self.focused_textbox = null;
-
-                item.* = (self.m_delta.x + handle_pos) / (self.w - h) * (max - min) + min;
-                item.* = restrictFloat(item.*, min, max);
-                select = true;
-            }
-        }
-
-        drawSlider(adjx, self.y, self.w, h, handle_pos, itc(0x1a1a1aff), if (select) GRAY else WHITE, self.cmd_buf);
-
-        if (lab) |l| {
-            DrawCommand.drawTextFmt(
-                self.cmd_buf,
-                &self.str_buf_stream,
-                adjx,
-                self.y + h - (h * 0.3),
-                self.font_size,
-                "{s}: {d}",
-                .{ l, @intToFloat(f32, @floatToInt(i32, val * 1000)) / 1000 },
-            );
-        } else {
-            DrawCommand.drawTextFmt(
-                self.cmd_buf,
-                &self.str_buf_stream,
-                adjx,
-                self.y + h,
-                h,
-                "{d}",
-                .{@floatToInt(i32, val)},
-            );
-        }
-    }
-
-    pub fn dropDownEnum(self: *Self, comptime enum_type: type, enum_value: *enum_type) void {
-        const id = self.requestItemIndex();
-        _ = enum_value;
-
-        const info = @typeInfo(enum_type);
-        switch (info) {
-            .Enum => {
-                self.drawText(self.x, self.y + self.font.ascent * self.scale_factor, "Drop down", self.font_size, BLACK);
-                if (rectContainsPoint(Rec(self.x, self.y, self.width, self.line_gap), self.m_old_x, self.m_old_y) and self.mouse_state.left_down) {
-                    if (self.last_active_drop_down == null) {
-                        self.last_active_drop_down = id;
-                        //Display the drop down
+                        item.* = ((self.m_delta.x + (cr.co.x - handle_sec.x)) / (handle_sec.w)) * (max - min) + min;
                     }
                 }
 
-                if (self.last_active_drop_down == id) {
-                    inline for (info.Enum.fields) |field, i| {
-                        DrawCommand.drawRect(self.cmd_buf, Rec(self.x, self.y + @intToFloat(f32, i + 1) * self.line_gap, self.width, self.line_gap), 0, WHITE);
-                        self.drawText(self.x, self.y + @intToFloat(f32, i + 1) * self.line_gap + self.font.ascent * self.scale_factor, field.name, self.font_size, BLACK);
-                    }
-                }
-            },
-            else => @compileError("Only enums supported"),
+                cr.margin(1);
+                cr.rect(itc(0x880000ff));
+            }
+            cr.endCursor(handle_sec);
         }
-        self.y += self.line_gap;
+        //cr.endRestrictHeight(sec1);
     }
 
     pub fn checkBox(self: *Self, val: *bool, lab: ?[]const u8) void {
-        const w = if (lab != null) self.font.measureText(lab.?) * self.scale_factor + self.line_gap else self.line_gap;
+        //const cr = &self.cr;
+        var cr = self.cr.layout.nextCursor(self.cr);
 
-        const r = Rec(self.x, self.y, w, self.line_gap + self.style.border_w * 2);
-
-        if (rectContainsPoint(r, self.m_old_x, self.m_old_y)) {
-            if (self.mouse_state.left_down) {
-                val.* = !val.*;
+        //const button_h: f32 = 18;
+        //const sec1 = cr.beginRestrictHeight(button_h);
+        {
+            if (rectContainsPoint(cr.co, self.m_old_x, self.m_old_y)) {
+                if (self.mouse_state.left_down) {
+                    val.* = !val.*;
+                }
             }
+            cr.margin(2);
+            cr.rect(itc(0x333333ff));
+            cr.ymargin(1);
+            cr.text(lab orelse "fuck", if (val.*) itc(0x00ff00ff) else itc(0xff0000ff));
         }
+        //cr.endRestrictHeight(sec1);
+        //cr.rect()
 
-        DrawCommand.drawRect(self.cmd_buf, r, 0, self.style.item_border);
-        DrawCommand.drawRect(
-            self.cmd_buf,
-            .{
-                .x = r.x + self.style.border_w,
-                .y = r.y + self.style.border_w,
-                .w = r.w - self.style.border_w * 2,
-                .h = r.h - self.style.border_w * 2,
+    }
+
+    pub fn modify(self: *Self, comptime T: type, itemptr: *T, lab: ?[]const u8) void {
+        const info = @typeInfo(T);
+        switch (info) {
+            .Struct => {
+                inline for (info.Struct.fields) |field| {
+                    self.cr.co.x += 12;
+                    self.cr.co.w -= 24;
+                    defer self.cr.co.w += 24;
+                    defer self.cr.co.x -= 12;
+                    self.modify(field.field_type, &@field(itemptr.*, field.name), field.name);
+                }
             },
-            0,
-            if (val.*) self.style.toggled_on_bg else self.style.toggled_off_bg,
-        );
-
-        if (lab) |l|
-            self.drawText(
-                self.x + self.line_gap / 2,
-                self.y + self.style.border_w + self.font.ascent * self.scale_factor,
-                l,
-                self.font_size,
-                if (val.*) self.style.toggled_on_fg else self.style.toggled_off_fg,
-            );
-
-        self.y += self.line_gap + self.style.border_w * 2 + self.font.ptToPixel(self.style.checkbox_spacing_pt);
+            .Float => {
+                self.floatSlide(lab orelse "", itemptr, 0, 100);
+            },
+            .Pointer => |p| {
+                switch (p.size) {
+                    .Slice => {
+                        self.label("pointer: " ++ @typeName(p.child));
+                    },
+                    else => {},
+                }
+            },
+            else => {
+                self.label(@typeName(T));
+                return;
+                //@compileLog(@typeName(T)[0..]);
+                //@compileError("Type not supported for gui.modify");
+            },
+        }
     }
 
     //progress bar
@@ -643,6 +521,15 @@ pub const Window = struct {
     //Have a similar system to html box model for margin and padding calcualtion?
 
     pub fn button(self: *Self) bool {
+        var cr = self.cr.layout.nextCursor(self.cr);
+        {
+            const sec2 = cr.begin3D(.{ .light = itc(0xffffffff), .dark = itc(0x000000ff), .bg = itc(0x222222ff), .border_w = 1 });
+
+            cr.end3D(sec2);
+        }
+
+        if (true)
+            return false;
         const this_item = self.requestItemIndex();
         const adjx = self.x;
         const w = self.width - self.padding * 2;
@@ -675,91 +562,10 @@ pub const Window = struct {
     }
 
     pub fn label(self: *Self, str: []const u8) void {
-        const adjx = self.x;
-        //TODO ensure text doesn't overlap
-        //const w = self.width - self.default_style.getWidth() - self.padding * 2;
-        //self.y += self.default_style.getTop();
-        //defer self.y += self.default_style.getBottom();
-
-        DrawCommand.drawText(self.cmd_buf, &self.str_buf_stream, str, adjx, self.y + self.label_fsize, 0, self.label_fsize, BLACK);
-        self.y += self.label_fsize;
-    }
-
-    pub fn textBox(self: *Self, str: *std.ArrayList(u8), pos: *usize) void {
-        const init_y = self.y;
-        const adjx = self.x;
-        const w = self.width - self.padding * 2;
-        //self.y += ;
-        //defer self.y += self.default_style.getBottom();
-
-        const this_item = self.requestItemIndex();
-        const r = Rec(adjx, self.y, w, self.label_fsize);
-
-        if (self.m_down and rectContainsPoint(r, self.m_old_x, self.m_old_y))
-            self.focused_textbox = this_item;
-
-        const focused = self.focused_textbox == this_item;
-        _ = pos;
-        //if (focused) {
-        //    var key = ray.GetCharPressed();
-        //    while (key != 0) : (key = ray.GetCharPressed()) {
-        //        //TODO unicode support, the & 0xff converts any unicode into garbage
-        //        str.insert(pos.*, @intCast(u8, key & 0xff)) catch return;
-        //        pos.* += 1;
-        //    }
-
-        //    //TODO Raylib fucks the repeat
-        //    if (ray.IsKeyPressed(ray.KEY_BACKSPACE)) {
-        //        if (str.items.len > 0 and pos.* <= str.items.len and pos.* != 0) {
-        //            _ = str.orderedRemove(pos.* - 1);
-        //            pos.* -= 1;
-        //        }
-        //    }
-        //}
-
-        DRect(self.cmd_buf, r, if (focused) GRAY else WHITE);
-        self.drawText(adjx, self.y + self.font_size, str.items, self.font_size, BLACK);
-        //TODO how to measure text without font info?
-        //TODO draw cursor
-        //DRect(self.cmd_buf, Rec(self.x + @intToFloat(f32, pos) * self.label_fsize / 2, self.y, 2, self.label_fsize), ray.RED);
-        self.y += self.label_fsize;
-        DrawCommand.drawOutsetBorder(self.cmd_buf, Rec(
-            self.x + self.default_style.margin.left,
-            init_y + self.default_style.margin.top,
-            self.width - self.default_style.margin.left - self.default_style.margin.right - self.padding * 2,
-            self.y - init_y + self.default_style.padding.bottom,
-        ), self.default_style.border_width, Border2);
-    }
-};
-
-pub fn drawStruct(ctx: *Window, to_mod: anytype) void {
-    const T = @TypeOf(to_mod);
-    const pinfo = @typeInfo(T);
-    const child = pinfo.Pointer.child;
-
-    inline for (@typeInfo(child).Struct.fields) |Field| {
-        switch (@typeInfo(Field.field_type)) {
-            .Float => {
-                ctx.floatSlide(null, &@field(to_mod, Field.name), 0, 1000);
-            },
-            .Int => {
-                const ptr = &@field(to_mod, Field.name);
-                var float: f32 = @intToFloat(f32, ptr.*);
-                ctx.floatSlide(null, &float, 0, 255);
-                ptr.* = @floatToInt(u8, float);
-            },
-            else => {},
+        var cr = self.cr.layout.nextCursor(self.cr);
+        {
+            cr.rect(itc(0x000000ff));
+            cr.text(str, itc(0xffffffff));
         }
     }
-}
-
-pub fn genBorderRects(r: Rect, w: f32) [6]Rect {
-    return .{
-        Rec(r.x, r.y, r.w, w),
-        Rec(r.x, r.y, w, r.h),
-        Rec(r.x + r.w - w, r.y + w, w, r.h - w),
-        Rec(r.x + w, r.y + r.h - w, r.w - w, w),
-        Rec(r.x + w, r.y + w, r.w - w * 2, w),
-        Rec(r.x + w, r.y + w * 2, w, r.h - w * 2),
-    };
-}
+};

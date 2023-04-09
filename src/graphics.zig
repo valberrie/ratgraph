@@ -11,6 +11,10 @@ pub const glID = c.GLuint;
 pub const Vec2f = struct {
     x: f32,
     y: f32,
+
+    pub fn smul(s: @This(), scalar: f32) @This() {
+        return .{ .x = s.x * scalar, .y = s.y * scalar };
+    }
 };
 
 pub const Vec2i = struct { x: i32, y: i32 };
@@ -146,6 +150,13 @@ pub const SDL = struct {
         pub fn fuck(self: *Self, k: usize) i32 {
             _ = self;
             return c.SDL_GetKeyFromScancode(@intCast(c_uint, k));
+        }
+
+        pub fn getDpi(self: *Self) f32 {
+            var dpi: f32 = 0;
+
+            _ = c.SDL_GetDisplayDPI(c.SDL_GetWindowDisplayIndex(self.win), &dpi, null, null);
+            return dpi;
         }
 
         pub fn getKeyboardState(self: *Self, len: *usize) []const u8 {
@@ -903,12 +914,16 @@ pub const CharMaps = struct {
 //Cool unicode selection tool:
 //  render pages of unicode points using freetype directly to opengl texture for rendering
 //  to allow me to select what codepoints I want to include in the backed bitmap
+//
+//On the fly atlas generation,
+//When encountering a unbaked glyph, display a blank and in a second thread? generate a new texture with it baked in
 
 pub const Font = struct {
     font_size: f32,
 
     glyph_set: SparseSet(Glyph, u21),
 
+    //The units for all of these is pixels
     ascent: f32, //Farthest the font ascends above baseline
     descent: f32, //Farthest the font descends below baseline
     line_gap: f32, //Distance between one rows descent and next rows ascent
@@ -974,7 +989,7 @@ pub const Font = struct {
         var result = Font{
             .dpi = @intToFloat(f32, dpi),
             .max_advance = 0,
-            .glyph_set = try SparseSet(Glyph, u21).fromOwnedDenseSlice(alloc, codepoints),
+            .glyph_set = try (SparseSet(Glyph, u21).fromOwnedDenseSlice(alloc, codepoints)),
             .font_size = point_size,
             .texture = .{ .id = 0, .w = 0, .h = 0 },
             .ascent = 0,
@@ -1056,6 +1071,7 @@ pub const Font = struct {
             c.FT_Set_Char_Size(
                 face,
                 0,
+                //@floatToInt(c_int, 70 / @intToFloat(f32, dpi) * 72 * 64),
                 @floatToInt(c_int, point_size) * 64, //expects a size in 1/64 of points, font_size is in points
                 dpi,
                 dpi,
@@ -1087,7 +1103,7 @@ pub const Font = struct {
         result.line_gap = @intToFloat(f32, fr.size.*.metrics.height) / 64;
         try log.print("Freetype face: ascender:  {d}px\n", .{result.ascent});
         try log.print("Freetype face: descender:  {d}px\n", .{result.descent});
-        try log.print("Freetype face: height:  {d}px\n", .{result.line_gap});
+        try log.print("Freetype face: line_gap:  {d}px\n", .{result.line_gap});
 
         var packing_rects = std.ArrayList(c.stbrp_rect).init(alloc);
         defer packing_rects.deinit();
@@ -1345,8 +1361,11 @@ pub const GraphicsContext = struct {
     memcpy_time: u64 = 0,
     last_memcpy_time: u64 = 1000,
 
-    pub fn init(alloc: *const std.mem.Allocator) !Self {
+    dpi: f32 = 72,
+
+    pub fn init(alloc: *const std.mem.Allocator, dpi: f32) !Self {
         var ret: Self = .{
+            .dpi = dpi,
             .batches = std.ArrayList(Batch).init(alloc.*),
             .alloc = alloc,
             .colored_tri_shader = 0,
@@ -1507,6 +1526,11 @@ pub const GraphicsContext = struct {
         }
     }
 
+    pub fn ptRect(self: *Self, x: f32, y: f32, w: f32, h: f32, col: CharColor) void {
+        const fac = self.dpi / 72.0;
+        self.dRect(fac * x, fac * y, fac * w, fac * h, col);
+    }
+
     pub fn dRect(self: *Self, x: f32, y: f32, w: f32, h: f32, col: CharColor) void {
         self.drawRect(.{ .x = x, .y = y, .w = w, .h = h }, col);
     }
@@ -1595,7 +1619,10 @@ pub const GraphicsContext = struct {
 
     pub fn drawText(self: *Self, x: f32, y: f32, str: []const u8, font: *Font, size: f32, col: CharColor) void {
         //TODO investigae index ob when nothing happens in a drawcall
+        //const SF = size / font.font_size;
+        //const SF = size / font.line_gap;
         const SF = size / font.font_size;
+        const fac = self.dpi / 72;
 
         const batch = (self.getBatch(.{ .mode = .triangles, .texture = font.texture.id, .shader = self.font_shad }) catch unreachable);
         const b = &batch.TriTex;
@@ -1605,8 +1632,8 @@ pub const GraphicsContext = struct {
 
         var it = std.unicode.Utf8Iterator{ .bytes = str, .i = 0 };
 
-        var vx = x;
-        var vy = y;
+        var vx = x * fac;
+        var vy = y * fac + ((font.ascent + font.descent) * SF);
         var cho = it.nextCodepoint();
         while (cho != null) : (cho = it.nextCodepoint()) {
             const ch = cho orelse unreachable;

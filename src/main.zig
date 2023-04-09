@@ -84,12 +84,21 @@ pub const MarioMap = struct {
     pub const Coord = struct {
         x: f32 = 0,
         y: f32 = 0,
+        w: f32 = 0,
+        h: f32 = 0,
     };
 
     pub const TileSetInfo = struct {
         ti: usize = 0,
         si: usize = 0,
     };
+
+    pub const Physics = struct {
+        dx: f32 = 0,
+        dy: f32 = 0,
+    };
+
+    pub const Player = struct {};
 };
 
 const mario_map_fields: ecs.FieldList = &.{
@@ -99,8 +108,133 @@ const mario_map_fields: ecs.FieldList = &.{
     .{ .ftype = MarioMap.HeadBanger, .name = "head_banger" },
     .{ .ftype = MarioMap.MysteryBox, .name = "mystery_box" },
     .{ .ftype = MarioMap.Mushroom, .name = "mushroom" },
+    .{ .ftype = MarioMap.Physics, .name = "physics" },
+    .{ .ftype = MarioMap.Player, .name = "player" },
 };
 pub const MarioTileMap = ecs.Registry(mario_map_fields);
+
+pub fn collisionUpdate(reg: *MarioTileMap, alloc: std.mem.Allocator) !void {
+    const system = MarioTileMap.createSystemSet(&.{ .coord, .collidable, .physics });
+    for (reg.data.physics.dense.items) |col_item| {
+        const id = col_item.i;
+        const entity = try reg.getEntitySetPtr(id, system);
+        var cols = std.ArrayList(aabb.Collision).init(alloc);
+        defer cols.deinit();
+        try simulateMove(reg, &cols, id);
+        var dx = entity.physics.dx;
+        var dy = entity.physics.dy;
+        const eps = aabb.eps;
+
+        if (cols.items.len > 0) {
+            const col = cols.items[0];
+            if (col.x) |cx| {
+                var sec_cols = std.ArrayList(aabb.Collision).init(alloc);
+                defer sec_cols.deinit();
+                entity.physics.dx = 0;
+                try simulateMove(reg, &sec_cols, id);
+                entity.coord.x = cx - if (col.normal) -eps else entity.coord.w + eps;
+                if (sec_cols.items.len > 0) {
+                    if (col.y) |cy| {
+                        entity.coord.y = cy - if (col.normal) -eps else entity.coord.h + eps;
+                    }
+                }
+                dx = 0;
+                dy = 0;
+            }
+            if (col.y) |cy| {
+                entity.coord.y = cy - if (col.normal) -eps else entity.coord.h + eps;
+                var sec_cols = std.ArrayList(aabb.Collision).init(alloc);
+                defer sec_cols.deinit();
+                entity.physics.dy = 0;
+                try simulateMove(reg, &sec_cols, id);
+
+                if (sec_cols.items.len > 0) {
+                    if (col.x) |cx| {
+                        entity.coord.x = cx - if (col.normal) -eps else entity.coord.w + eps;
+                    }
+                }
+                dy = 0;
+                dx = 0;
+            }
+        }
+        entity.physics.dx = 0;
+        entity.physics.dy = 0;
+        entity.coord.x += dx;
+        entity.coord.y += dy;
+
+        //if (cols.items.len > 0) {
+        //    const col = cols.items[0];
+        //    if (col.x) |cx| {
+        //        entity.coord.x = cx - if (col.normal) -aabb.eps else entity.coord.w + aabb.eps;
+        //    }
+        //}
+    }
+}
+
+pub fn detectCollision(r1: MarioMap.Coord, r2: MarioMap.Coord, goal: aabb.Vec2f, other_i: u32) aabb.Collision {
+    const m = aabb.slope(r1.x, goal.x, r1.y, goal.y);
+
+    var result = aabb.Collision{ .x = null, .y = null, .overlaps = false, .perc = 1.0, .normal = false, .other_i = other_i };
+    if (m.x > 0 and aabb.containsPoint(r1.x, goal.x, r2.x - r1.w)) {
+        const mm = m.y / m.x;
+        const c1 = r1.y - ((r1.x + r1.w) * mm);
+        if (aabb.doLinesOverlap(mm * r2.x + c1, mm * r2.x + c1 + r1.h, r2.y, r2.y + r2.h)) {
+            result.x = r2.x;
+            result.perc = aabb.lerpPoint(r1.x, goal.x, r2.x - r1.w);
+            result.normal = false;
+        }
+    } else if (m.x < 0 and aabb.containsPoint(goal.x, r1.x, r2.x + r2.w)) {
+        const mm = m.y / m.x;
+        const c1 = r1.y - (r1.x * mm);
+        const p1 = mm * (r2.x + r2.w) + c1;
+        if (aabb.doLinesOverlap(p1, p1 + r1.h, r2.y, r2.y + r2.h)) {
+            result.x = r2.x + r2.w;
+            result.perc = 1 - aabb.lerpPoint(goal.x, r1.x, r2.x + r2.w);
+            result.normal = true;
+        }
+    }
+
+    if (m.y > 0 and aabb.containsPoint(r1.y, goal.y, r2.y - r1.h)) {
+        const mm = m.x / m.y;
+        const c1 = r1.x - ((r1.y + r1.h) * mm);
+        if (aabb.doLinesOverlap(mm * r2.y + c1, mm * r2.y + c1 + r1.w, r2.x, r2.x + r2.w)) {
+            result.y = r2.y;
+            result.perc = aabb.lerpPoint(r1.y, goal.y, r2.y - r1.h);
+            result.normal = false;
+        }
+    } else if (m.y < 0 and aabb.containsPoint(goal.y, r1.y, r2.y + r2.h)) {
+        const mm = m.x / m.y;
+        const c1 = r1.x - (r1.y * mm);
+        const p1 = mm * (r2.y + r2.h) + c1;
+        if (aabb.doLinesOverlap(p1, p1 + r1.w, r2.x, r2.x + r2.w)) {
+            result.y = r2.y + r2.h;
+            result.perc = 1 - aabb.lerpPoint(goal.y, r1.y, r2.y + r2.h);
+            result.normal = true;
+        }
+    }
+
+    return result;
+}
+
+pub fn simulateMove(reg: *MarioTileMap, cols: *std.ArrayList(aabb.Collision), id: u32) !void {
+    const system = MarioTileMap.createSystemSet(&.{ .coord, .collidable, .physics });
+    //TODO check if the id has specified components
+    const entity = try reg.getEntitySetPtr(id, system);
+    if (entity.physics.dx != 0 or entity.physics.dy != 0) {
+        const col_system = MarioTileMap.createSystemSet(&.{ .coord, .collidable });
+        for (reg.data.collidable.dense.items) |col_item| { //TODO spacial indexing scheme
+            if (col_item.i == id) continue;
+            const other_ent = try reg.getEntitySetPtr(col_item.i, col_system);
+            const col = detectCollision(entity.coord.*, other_ent.coord.*, .{ .x = entity.coord.x + entity.physics.dx, .y = entity.coord.y + entity.physics.dy }, col_item.i);
+            if (col.x != null or col.y != null) {
+                try cols.append(col);
+            }
+        }
+    }
+    if (cols.items.len > 1) {
+        std.sort.insertionSort(aabb.Collision, cols.items, aabb.Vec2f{ .x = 0, .y = 0 }, aabb.sortByCompletion);
+    }
+}
 
 const Elevator = struct {
     const Self = @This();
@@ -784,7 +918,7 @@ pub fn main() !void {
     var win = try graph.SDL.Window.createWindow("My window");
     defer win.destroyWindow();
 
-    var ctx = try graph.GraphicsContext.init(alloc);
+    var ctx = try graph.GraphicsContext.init(alloc, 163);
     defer ctx.deinit();
 
     const SaveData = struct {
@@ -849,7 +983,7 @@ pub fn main() !void {
     var tile_map_dx: f32 = 0;
     var tile_map_dy: f32 = 0;
 
-    const letter_box_w: f32 = (tile_map_zf * 3840 - 16) / 2;
+    //const letter_box_w: f32 = (tile_map_zf * 3840 - 16) / 2;
 
     var mouse_dx: f32 = 0;
 
@@ -953,7 +1087,7 @@ pub fn main() !void {
 
     defer serialJson("debug/save.json", sd);
 
-    var dpix: u32 = 163;
+    var dpix: u32 = @floatToInt(u32, win.getDpi());
     const init_size = 18;
     var font = try graph.Font.init("fonts/sfmono.otf", alloc.*, init_size, dpix, &(graph.CharMaps.AsciiBasic ++ graph.CharMaps.Apple), null);
     defer font.deinit();
@@ -963,17 +1097,17 @@ pub fn main() !void {
     var sdat = gui.SaveData{ .x = 200, .y = 0 };
     sdat = try deSerializeJson("debug/gui.json", gui.SaveData, alloc);
     //var gctx: gui.Window = .{ .font = &font, .font_size = 18, .x_init = sdat.x, .y_init = sdat.y, .width = 600, .title = @as([]const u8, "Panel") };
-    var gctx = gui.Window.init(&font, gui.Window.Style{ .title_size = 10 }, sdat.x, sdat.y, 600, "Panel");
-    defer serialJson("debug/gui.json", gui.SaveData{ .x = gctx.x_init, .y = gctx.y_init });
+    var gctx = gui.Window.init(&font, &ctx, @intToFloat(f32, dpix));
+    //defer serialJson("debug/gui.json", gui.SaveData{ .x = gctx., .y = gctx.y_init });
 
-    var text_editor = try gui.TextEditor.init(alloc, src);
-    defer text_editor.deinit();
+    var win2 = gui.Window.init(&font, &ctx, @intToFloat(f32, dpix));
+    win2.init_cursor = graph.Rec(8 * 72, 3 * 72, 4 * 72, 5 * 72);
 
     //_ = c.SDL_GetDisplayDPI(c.SDL_GetWindowDisplayIndex(win.win), &dpix, null, null);
-    //std.debug.print("Dpi {d}\n", .{dpix});
+    //std.debug.print("Dpi {d}\n", .{win.getDpi()});
 
     var showCrap = false;
-    var mario_crap = true;
+    var mario_crap = false;
 
     var gray_out_inactive_layers = true;
 
@@ -989,7 +1123,6 @@ pub fn main() !void {
 
     var cmds = gui.CmdBuf.init(alloc.*);
     defer cmds.deinit();
-    var cmds_str_buf: [1000]u8 = undefined;
 
     var elevator = Elevator.init(alloc);
     defer elevator.deinit();
@@ -1038,8 +1171,12 @@ pub fn main() !void {
     }
 
     const player_col = try collision_ctx.add(.{ .x = 3.51, .y = 2, .w = 0.8, .h = 0.8 });
+    const player_id = try mig_level.createEntity();
+    try mig_level.attachComponent(player_id, MarioMap.Coord, .{ .x = 3.51, .y = 2, .w = 0.8, .h = 0.8 });
+    try mig_level.attachComponent(player_id, MarioMap.Physics, .{});
+    try mig_level.attachComponent(player_id, MarioMap.CollisionObject, .{});
 
-    var vy: f32 = 0;
+    //var vy: f32 = 0;
     var grounded = false;
     //var dvy: f32 = 0;
     var show_elevator_crap = false;
@@ -1066,7 +1203,7 @@ pub fn main() !void {
             {
                 try cmds.resize(0);
 
-                gctx.begin(&cmds, cmds_str_buf[0..], win.mouse.pos, win.mouse.delta, win.mouse.left, win.mouse);
+                gctx.begin(win.mouse.pos, win.mouse.delta, win.mouse.left, win.mouse);
 
                 gctx.floatSlide("Top speed", &elevator.top_speed, 0, 20);
                 gctx.floatSlide("Accel", &elevator.cab.ay, 0, 50);
@@ -1160,10 +1297,15 @@ pub fn main() !void {
         ctx.drawRect(.{ .x = 0, .y = 0, .w = 1, .h = 1 }, intToColor(0xffff00ff));
 
         {
-            try cmds.resize(0);
-            gctx.begin(&cmds, cmds_str_buf[0..], win.mouse.pos, win.mouse.delta, win.mouse.left, win.mouse);
+            gctx.begin(win.mouse.pos, win.mouse.delta, win.mouse.left, win.mouse);
+            const old_c = gctx.cr;
+            gctx.cr.layout = .{ .column = .{ .num_items = 10, .item_height = 20 } };
+            gctx.cr = gui.nColumns(old_c, 0, 3);
+            gctx.cr.margin(12);
+
             gctx.checkBox(&all_the_crap, "show all");
             if (all_the_crap) {
+                gctx.floatSlide("Window h", &gctx.init_cursor.h, 0, 1000);
                 gctx.checkBox(&show_elevator_crap, "show elevator crap");
                 gctx.checkBox(&collision_crap, "collision crap");
                 gctx.checkBox(&show_ref_img, "show ref img");
@@ -1182,7 +1324,7 @@ pub fn main() !void {
                 if (gctx.button()) {
                     std.debug.print("Writing map\n", .{});
                     var ret = try mig_level.copyToOwnedJson();
-                    serialJson("migration.json", ret);
+                    serialJson("mario_assets/migration.json", ret);
                     std.json.parseFree(MarioTileMap.Types.json, ret, .{ .allocator = alloc.* });
                 }
                 {
@@ -1201,55 +1343,58 @@ pub fn main() !void {
 
                 gctx.checkBox(&sd.show_tilesets, "Show tilesets");
                 if (sd.show_tilesets) {
-                    for (atlas.sets.items) |set, fti| {
-                        const current_set = fti == tileset_index;
+                    //for (atlas.sets.items) |set, fti| {
+                    //    const current_set = fti == tileset_index;
 
-                        const this_item = gctx.item_index;
-                        gctx.item_index += 1;
+                    //    const this_item = gctx.item_index;
+                    //    gctx.item_index += 1;
 
-                        //const xoff = gctx.x + gctx.default_style.getLeft();
-                        //const yoff = gctx.y + gctx.default_style.getTop();
+                    //    //const xoff = gctx.x + gctx.default_style.getLeft();
+                    //    //const yoff = gctx.y + gctx.default_style.getTop();
 
-                        const xoff = gctx.x;
-                        const yoff = gctx.y;
+                    //    const xoff = gctx.x;
+                    //    const yoff = gctx.y;
 
-                        const w = gctx.w;
+                    //    const w = gctx.w;
 
-                        const pw = w / 10;
-                        const pad = 1;
-                        const fac = pw + pad;
-                        var i: i32 = 0;
-                        while (i < set.count) : (i += 1) {
-                            const rec = graph.Rect{ .x = xoff + fac * @intToFloat(f32, @mod(i, set.num.x)), .y = yoff + fac * @intToFloat(f32, @divFloor(i, set.num.x)), .w = pw, .h = pw };
-                            gui.DrawCommand.drawTexRect(
-                                &cmds,
-                                rec,
-                                set.getTexRec(@intCast(usize, i)),
-                                atlas.texture,
-                                itc(0xffffffff),
-                            );
-                            if (current_set and @intCast(usize, i) == tile_index) {
-                                gui.DrawCommand.drawRect(&cmds, rec, 0, itc(0xff000022));
-                            }
-                        }
+                    //    const pw = w / 10;
+                    //    const pad = 1;
+                    //    const fac = pw + pad;
+                    //    var i: i32 = 0;
+                    //    while (i < set.count) : (i += 1) {
+                    //        const rec = graph.Rect{ .x = xoff + fac * @intToFloat(f32, @mod(i, set.num.x)), .y = yoff + fac * @intToFloat(f32, @divFloor(i, set.num.x)), .w = pw, .h = pw };
+                    //        gui.DrawCommand.drawTexRect(
+                    //            &cmds,
+                    //            rec,
+                    //            set.getTexRec(@intCast(usize, i)),
+                    //            atlas.texture,
+                    //            itc(0xffffffff),
+                    //        );
+                    //        if (current_set and @intCast(usize, i) == tile_index) {
+                    //            gui.DrawCommand.drawRect(&cmds, rec, 0, itc(0xff000022));
+                    //        }
+                    //    }
 
-                        _ = this_item;
-                        const bound_rect = graph.Rec(xoff, yoff, @intToFloat(f32, set.num.x) * fac, @intToFloat(f32, set.num.y) * fac);
-                        if (gctx.m_down and gui.rectContainsPoint(bound_rect, gctx.m_old_x, gctx.m_old_y)) {
-                            const col = @floatToInt(usize, @divFloor((gctx.m_old_x - bound_rect.x), fac));
-                            const row = @floatToInt(usize, @divFloor((gctx.m_old_y - bound_rect.y), fac));
-                            tile_index = (@intCast(usize, set.num.x) * row) + col;
-                            tileset_index = fti;
+                    //    _ = this_item;
+                    //    const bound_rect = graph.Rec(xoff, yoff, @intToFloat(f32, set.num.x) * fac, @intToFloat(f32, set.num.y) * fac);
+                    //    if (gctx.m_down and gui.rectContainsPoint(bound_rect, gctx.m_old_x, gctx.m_old_y)) {
+                    //        const col = @floatToInt(usize, @divFloor((gctx.m_old_x - bound_rect.x), fac));
+                    //        const row = @floatToInt(usize, @divFloor((gctx.m_old_y - bound_rect.y), fac));
+                    //        tile_index = (@intCast(usize, set.num.x) * row) + col;
+                    //        tileset_index = fti;
 
-                            //tile_index =
-                        }
-                        gctx.y = yoff + (@intToFloat(f32, set.num.y) * fac);
-                    }
+                    //        //tile_index =
+                    //    }
+                    //    gctx.y = yoff + (@intToFloat(f32, set.num.y) * fac);
+                    //}
                 }
             }
-            var my_enum: TestEnum = .two;
-            gctx.dropDownEnum(TestEnum, &my_enum);
-            gctx.end();
+            gctx.cr = gui.nColumns(old_c, 1, 3);
+            gctx.cr.margin(12);
+            gctx.cr.layout = .{ .column = .{ .num_items = 10, .item_height = 15 } };
+            gctx.checkBox(&all_the_crap, "show all");
+            gctx.checkBox(&all_the_crap, "show all");
+            gctx.modify(graph.Font, &font, "");
         }
         const pl_rect = (try collision_ctx.get(player_col));
         const shit = -@trunc((-pl_rect.x + mouse_dx + 10) * 16) / 16;
@@ -1295,9 +1440,6 @@ pub fn main() !void {
                                 last_placed_index = index;
                             }
                         }
-                    },
-                    .editor_cy_inc => {
-                        text_editor.cy += 1;
                     },
                     .erase_tile => {
                         if (win.mouse.left) {
@@ -1348,16 +1490,16 @@ pub fn main() !void {
                 ), graph.Rec(0, 0, @intToFloat(f32, ref_img.w), @intToFloat(f32, ref_img.h)), itc(0xffffff4f), ref_img);
 
             if (sd.draw_map) {
-                for (mig_level.data.coord.dense.items) |tile| {
-                    const info = try mig_level.data.tile_set_info.get(tile.i);
+                for (mig_level.data.tile_set_info.dense.items) |tile| {
+                    const coord = try mig_level.data.coord.get(tile.i);
                     try ctx.drawRectTex(
                         .{
-                            .x = tile.item.x + @trunc(tile_map_dx),
-                            .y = tile.item.y + @trunc(tile_map_dy),
+                            .x = coord.item.x + @trunc(tile_map_dx),
+                            .y = coord.item.y + @trunc(tile_map_dy),
                             .w = 1,
                             .h = 1,
                         },
-                        atlas.getTexRec(info.item.si, info.item.ti),
+                        atlas.getTexRec(tile.item.si, tile.item.ti),
                         //tile_sets[info.item.si].getTexRec(info.item.ti),
                         itc(0xffffffff),
                         atlas.texture,
@@ -1381,16 +1523,16 @@ pub fn main() !void {
 
             if (collision_crap) {
                 var can_jump = false;
-                for (collision_ctx.rect_set.dense.items) |rec| {
-                    const rr = rec.rect;
-                    if (aabb.doLinesOverlap(rr.x, rr.x + rr.w, pl_rect.x, pl_rect.x + pl_rect.w)) {
-                        if ((pl_rect.y + pl_rect.h < rr.y) and pl_rect.y + pl_rect.h + aabb.eps * 2.0 > rr.y) {
-                            //ctx.drawRect(.{ .x = rr.x + @trunc(tile_map_dx), .y = rr.y + @trunc(tile_map_dy), .w = rr.w, .h = rr.h }, intToColor(0xffff00ff));
-                            can_jump = true;
-                            break;
-                        }
-                    }
-                }
+                //for (collision_ctx.rect_set.dense.items) |rec| {
+                //    const rr = rec.rect;
+                //    if (aabb.doLinesOverlap(rr.x, rr.x + rr.w, pl_rect.x, pl_rect.x + pl_rect.w)) {
+                //        if ((pl_rect.y + pl_rect.h < rr.y) and pl_rect.y + pl_rect.h + aabb.eps * 2.0 > rr.y) {
+                //            //ctx.drawRect(.{ .x = rr.x + @trunc(tile_map_dx), .y = rr.y + @trunc(tile_map_dy), .w = rr.w, .h = rr.h }, intToColor(0xffff00ff));
+                //            can_jump = true;
+                //            break;
+                //        }
+                //    }
+                //}
                 mario.update(can_jump, .{
                     .right = win.keyboard_state.isSet(win.getScancodeFromName("d")),
                     .left = win.keyboard_state.isSet(win.getScancodeFromName("a")),
@@ -1412,13 +1554,14 @@ pub fn main() !void {
                 //        intToColor(0xffff00ff),
                 //    );
                 //}
+                const pl_pos = mig_level.getComponentPtr(player_id, .coord).?;
                 {
                     try ctx.drawRectTex(
                         graph.Rec(
-                            @trunc((pl_rect.x + @trunc(tile_map_dx)) * 16) / 16,
-                            @trunc((pl_rect.y + @trunc(tile_map_dy)) * 16) / 16,
-                            pl_rect.w,
-                            pl_rect.h,
+                            @trunc((pl_pos.x + @trunc(tile_map_dx)) * 16) / 16,
+                            @trunc((pl_pos.y + @trunc(tile_map_dy)) * 16) / 16,
+                            pl_pos.w,
+                            pl_pos.h,
                         ),
                         anim.getTexRec(anim_frame),
                         itc(0xffffffff),
@@ -1431,29 +1574,36 @@ pub fn main() !void {
                     anim_timer.reset();
                 }
 
-                const col = try collision_ctx.slide(alloc, player_col, mario.dx, mario.dy);
-                {
-                    const other_mask = mig_level.entities.items[col.other_i];
-                    if (other_mask.isSet(@enumToInt(MarioTileMap.Types.component_enum.head_banger)) and col.normal and col.y != null) {
-                        //const o_ptr = try collision_ctx.getPtr(col.other_i);
-
-                        const other_ptr = try mig_level.data.head_banger.getPtr(col.other_i);
-                        other_ptr.item.active = true;
-                        if (mig_level.hasComponent(col.other_i, .mystery_box)) {
-                            const ts = try mig_level.data.tile_set_info.getPtr(col.other_i);
-                            ts.item.ti += 3;
-                        }
-                        mario.vy = 0;
-                    }
-                }
-                if (col.x != null)
-                    mario.vx = 0;
-                if (col.y != null and !col.normal) {
-                    grounded = false;
-                    vy = 0;
-                }
+                //const col = try collision_ctx.slide(alloc, player_col, mario.dx, mario.dy);
+                const phys = mig_level.getComponentPtr(player_id, .physics).?;
+                phys.dx = mario.dx;
+                phys.dy = mario.dy;
                 mario.dx = 0;
                 mario.dy = 0;
+                try collisionUpdate(&mig_level, alloc.*);
+                //{
+                //    const other_mask = mig_level.entities.items[col.other_i];
+                //    if (other_mask.isSet(@enumToInt(MarioTileMap.Types.component_enum.head_banger)) and col.normal and col.y != null) {
+                //        //const o_ptr = try collision_ctx.getPtr(col.other_i);
+
+                //        const other_ptr = try mig_level.data.head_banger.getPtr(col.other_i);
+                //        other_ptr.item.active = true;
+                //        if (mig_level.hasComponent(col.other_i, .mystery_box)) {
+                //            const ts = try mig_level.data.tile_set_info.getPtr(col.other_i);
+                //            ts.item.ti += 3;
+                //        }
+                //        mario.vy = 0;
+                //    }
+                //}
+
+                //if (col.x != null)
+                //    mario.vx = 0;
+                //if (col.y != null and !col.normal) {
+                //    grounded = false;
+                //    vy = 0;
+                //}
+                //mario.dx = 0;
+                //mario.dy = 0;
             }
         }
         const dt = @intToFloat(f32, ctx.fps_time) / std.time.ns_per_ms;
@@ -1551,8 +1701,8 @@ pub fn main() !void {
             .x = @trunc((-pl_rect.x + mouse_dx + 10) * 16) / 16 + (1.0 / 17.0),
             .y = -0.5,
         });
-        ctx.drawRect(graph.Rec(0, 0, letter_box_w / tile_map_zf, 224 / 16 / tile_map_zf), itc(0x000000ff));
-        ctx.drawRect(graph.Rec((tile_map_zf * 3840 - letter_box_w) / tile_map_zf, 0, letter_box_w / tile_map_zf, 224 / 16 / tile_map_zf), itc(0x000000ff));
+        //ctx.drawRect(graph.Rec(0, 0, letter_box_w / tile_map_zf, 224 / 16 / tile_map_zf), itc(0x000000ff));
+        //ctx.drawRect(graph.Rec((tile_map_zf * 3840 - letter_box_w) / tile_map_zf, 0, letter_box_w / tile_map_zf, 224 / 16 / tile_map_zf), itc(0x000000ff));
 
         _ = fixed_font;
         //try ctx.drawFixedBitmapText(0, 0, 200, "/", fixed_font, itc(0xffffffff));
@@ -1620,8 +1770,11 @@ pub fn main() !void {
         //    @intToFloat(f32, bitmap.h),
         //), itc(0xffffffff), bitmap_texture);
 
-        gui.drawCommands(cmds.items, &ctx, &font);
+        //gui.drawCommands(cmds.items, &ctx, &font);
         ctx.drawFPS(sd.fps_posx, sd.fps_posy, &font);
+
+        //win2.begin(win.mouse.pos, win.mouse.delta, win.mouse.left, win.mouse);
+
         ctx.endDraw(win.screen_width, win.screen_height);
 
         win.swap();
