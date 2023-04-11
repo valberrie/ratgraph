@@ -19,15 +19,6 @@ const Color = graph.CharColor;
 const pow = std.math.pow;
 const sqrt = std.math.sqrt;
 
-const text = @embedFile("main.zig");
-const my_str =
-    \\There are usually two sets of metrics for a single glyph:
-    \\ Those used to represent glyphs in horizontal text layouts
-    \\ (Latin, Cyrillic, Arabic, Hebrew, etc.), and those used 
-    \\ to represent glyphs in vertical text layouts 
-    \\ (Chinese, Japanese, Korean, Mongolian, etc.).
-;
-
 pub fn quadForm(a: f32, b: f32, C: f32) ?[2]f32 {
     const discrim = pow(f32, b, 2) - (4 * a * C);
 
@@ -885,24 +876,6 @@ pub fn main() !void {
     defer _ = gpa.detectLeaks();
     const alloc = &gpa.allocator();
 
-    //{
-    //    var parser = c.ts_parser_new();
-    //    defer c.ts_parser_delete(parser);
-
-    //    _ = c.ts_parser_set_language(parser, tree_sitter_zig());
-    //    const test_json_src = src;
-
-    //    var tree = c.ts_parser_parse_string(
-    //        parser,
-    //        null,
-    //        test_json_src,
-    //        test_json_src.len,
-    //    );
-    //    const root = c.ts_tree_root_node(tree);
-
-    //    const str = c.ts_node_string(root);
-    //}
-
     var main_bindings = try graph.BindingMap(MainBindingEnum).init(MainBindings, alloc);
     defer main_bindings.deinit();
 
@@ -964,11 +937,8 @@ pub fn main() !void {
 
     var shroom: ?u32 = null;
 
-    //const bitmap_texture = graph.Texture{ .id = graph.GL.colorTexture(bitmap.w, bitmap.h, bitmap.data.items), .w = bitmap.w, .h = bitmap.h };
-
     var anim_timer = try std.time.Timer.start();
 
-    //const my_texture = try graph.loadPngFromPath("mario-tileset.png", alloc);
     const PixelEditor = struct {
         xoff: f32 = 0,
         yoff: f32 = 0,
@@ -983,19 +953,12 @@ pub fn main() !void {
     var tile_map_dx: f32 = 0;
     var tile_map_dy: f32 = 0;
 
-    //const letter_box_w: f32 = (tile_map_zf * 3840 - 16) / 2;
-
     var mouse_dx: f32 = 0;
 
     var mig_level: MarioTileMap = undefined;
     try mig_level.initFromJsonFile("mario_assets/migration.json", alloc);
 
     defer mig_level.deinit();
-    //defer {
-    //    var ret = mig_level.deinitToOwnedJson();
-    //    serialJson("migration.json", ret);
-    //    std.json.parseFree(MarioTileMap.Types.json, ret, .{ .allocator = alloc.* });
-    //}
 
     var mario: Mario = Mario{};
 
@@ -1103,9 +1066,6 @@ pub fn main() !void {
     var win2 = gui.Window.init(&font, &ctx, @intToFloat(f32, dpix));
     win2.init_cursor = graph.Rec(8 * 72, 3 * 72, 4 * 72, 5 * 72);
 
-    //_ = c.SDL_GetDisplayDPI(c.SDL_GetWindowDisplayIndex(win.win), &dpix, null, null);
-    //std.debug.print("Dpi {d}\n", .{win.getDpi()});
-
     var showCrap = false;
     var mario_crap = false;
 
@@ -1119,7 +1079,7 @@ pub fn main() !void {
         .pad = .{ .x = 1, .y = 1 },
         .num = .{ .x = 16, .y = 3 },
         .count = 16 * 3 - 7,
-    }, "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ-*!.");
+    }, "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ-*!.@");
 
     var cmds = gui.CmdBuf.init(alloc.*);
     defer cmds.deinit();
@@ -1287,11 +1247,6 @@ pub fn main() !void {
 
             try agent.drawDebug(&ctx, elevator.cab.y, sd.build_x, sd.build_y, sd.build_floor_h, intToColor(0xff00ffff));
             try agent_2.drawDebug(&ctx, elevator.cab.y, sd.build_x, sd.build_y, sd.build_floor_h, intToColor(0xff00ffff));
-            //{
-            //    const y: f32 = if (agent.state == .elevate) (elevator.cab.y * sd.build_floor_h) + sd.build_y else @intToFloat(f32, agent.floor_index + 1) * sd.build_floor_h;
-            //    ctx.drawRect(.{ .x = agent.x + sd.build_x, .y = y, .w = 50, .h = 50 }, intToColor(0xffff22ff));
-            //}
-
         }
 
         ctx.drawRect(.{ .x = 0, .y = 0, .w = 1, .h = 1 }, intToColor(0xffff00ff));
@@ -1523,16 +1478,6 @@ pub fn main() !void {
 
             if (collision_crap) {
                 var can_jump = false;
-                //for (collision_ctx.rect_set.dense.items) |rec| {
-                //    const rr = rec.rect;
-                //    if (aabb.doLinesOverlap(rr.x, rr.x + rr.w, pl_rect.x, pl_rect.x + pl_rect.w)) {
-                //        if ((pl_rect.y + pl_rect.h < rr.y) and pl_rect.y + pl_rect.h + aabb.eps * 2.0 > rr.y) {
-                //            //ctx.drawRect(.{ .x = rr.x + @trunc(tile_map_dx), .y = rr.y + @trunc(tile_map_dy), .w = rr.w, .h = rr.h }, intToColor(0xffff00ff));
-                //            can_jump = true;
-                //            break;
-                //        }
-                //    }
-                //}
                 mario.update(can_jump, .{
                     .right = win.keyboard_state.isSet(win.getScancodeFromName("d")),
                     .left = win.keyboard_state.isSet(win.getScancodeFromName("a")),
@@ -1547,13 +1492,6 @@ pub fn main() !void {
                     }
                 }
 
-                //for (collision_ctx.rect_set.dense.items) |rect| {
-                //    try ctx.drawRectOutlineThick(
-                //        .{ .x = rect.rect.x + @trunc(tile_map_dx) - pl_rect.x, .y = rect.rect.y + @trunc(tile_map_dy), .w = rect.rect.w, .h = rect.rect.h },
-                //        0,
-                //        intToColor(0xffff00ff),
-                //    );
-                //}
                 const pl_pos = mig_level.getComponentPtr(player_id, .coord).?;
                 {
                     try ctx.drawRectTex(
@@ -1581,29 +1519,6 @@ pub fn main() !void {
                 mario.dx = 0;
                 mario.dy = 0;
                 try collisionUpdate(&mig_level, alloc.*);
-                //{
-                //    const other_mask = mig_level.entities.items[col.other_i];
-                //    if (other_mask.isSet(@enumToInt(MarioTileMap.Types.component_enum.head_banger)) and col.normal and col.y != null) {
-                //        //const o_ptr = try collision_ctx.getPtr(col.other_i);
-
-                //        const other_ptr = try mig_level.data.head_banger.getPtr(col.other_i);
-                //        other_ptr.item.active = true;
-                //        if (mig_level.hasComponent(col.other_i, .mystery_box)) {
-                //            const ts = try mig_level.data.tile_set_info.getPtr(col.other_i);
-                //            ts.item.ti += 3;
-                //        }
-                //        mario.vy = 0;
-                //    }
-                //}
-
-                //if (col.x != null)
-                //    mario.vx = 0;
-                //if (col.y != null and !col.normal) {
-                //    grounded = false;
-                //    vy = 0;
-                //}
-                //mario.dx = 0;
-                //mario.dy = 0;
             }
         }
         const dt = @intToFloat(f32, ctx.fps_time) / std.time.ns_per_ms;
@@ -1653,19 +1568,6 @@ pub fn main() !void {
                         } else {
                             item_set.coord.y = col_ptr.rect.y + pos_offset;
                         }
-
-                        //const frames = MarioMap.HeadBanger.frame_pos;
-                        //if (banger.item.frame >= MarioMap.HeadBanger.frame_pos.len) {
-                        //    pos_ptr.item.y -= (frames[frames.len - 1]) / 16.0;
-                        //    banger.item.active = false;
-                        //    banger.item.frame = 0;
-                        //} else {
-                        //    if (banger.item.frame > 0)
-                        //        pos_ptr.item.y -= frames[banger.item.frame - 1] / 16.0;
-
-                        //    pos_ptr.item.y += frames[banger.item.frame] / 16.0;
-                        //    banger.item.frame += 1;
-                        //}
                     }
                 }
             }
@@ -1701,21 +1603,7 @@ pub fn main() !void {
             .x = @trunc((-pl_rect.x + mouse_dx + 10) * 16) / 16 + (1.0 / 17.0),
             .y = -0.5,
         });
-        //ctx.drawRect(graph.Rec(0, 0, letter_box_w / tile_map_zf, 224 / 16 / tile_map_zf), itc(0x000000ff));
-        //ctx.drawRect(graph.Rec((tile_map_zf * 3840 - letter_box_w) / tile_map_zf, 0, letter_box_w / tile_map_zf, 224 / 16 / tile_map_zf), itc(0x000000ff));
-
-        _ = fixed_font;
-        //try ctx.drawFixedBitmapText(0, 0, 200, "/", fixed_font, itc(0xffffffff));
-        //{
-        //    var buf: [100]u8 = undefined;
-        //    var bufStream = std.io.FixedBufferStream([]u8){ .buffer = &buf, .pos = 0 };
-        //    try bufStream.writer().print("{d} scr: {d} off by {d} px", .{
-        //        tile_map_dx,
-        //        tile_map_dx / tile_map_zf,
-        //        @mod(tile_map_dx / tile_map_zf, sw * tile_map_zf),
-        //    });
-        //    try ctx.drawText(100, 150, 0, buf[0..bufStream.pos], &font, 20, intToColor(0xffffffff));
-        //}
+        //_ = fixed_font;
 
         {
 
@@ -1730,50 +1618,12 @@ pub fn main() !void {
                 .w = fac,
                 .h = fac,
             };
-            //try ctx.drawRectTex(
-            //    lr,
-            //    sts.getTexRec(tile_index),
-            //    itc(0xffffffff),
-            //    my_texture,
-            //);
             try ctx.drawRectOutlineThick(lr, 2, itc(0xffffff00));
         }
 
-        //ctx.drawText(400, 400, "Hello this is my test String! Apple: \u{f8ff}\n\u{1001B8}", &font, 18, itc(0xffffffff));
-
-        //try text_editor.draw(&ctx, &font, 10);
-
-        //const scalf: f32 = 5;
-
-        //const mp = win.mouse.pos;
-        //if (win.mouse.left and mp.x / scalf < @intToFloat(f32, bitmap.w) and mp.y / scalf < @intToFloat(f32, bitmap.h) and mp.x >= 0 and mp.y >= 0) {
-        //    const mx = @floatToInt(u32, mp.x / scalf);
-        //    const my = @floatToInt(u32, mp.y / scalf);
-
-        //    const index = ((my * bitmap.w) + mx) * 4;
-        //    bitmap.data.items[index] = 0x00;
-        //    bitmap.data.items[index + 1] = 0x00;
-        //    bitmap.data.items[index + 2] = 0x00;
-
-        //    graph.reDataTextureRGBA(bitmap_texture.id, bitmap.w, bitmap.h, bitmap.data.items);
-        //}
-
-        //try ctx.drawRectTex(graph.Rec(
-        //    0,
-        //    0,
-        //    @intToFloat(f32, bitmap.w) * scalf,
-        //    @intToFloat(f32, bitmap.h) * scalf,
-        //), graph.Rec(
-        //    0,
-        //    0,
-        //    @intToFloat(f32, bitmap.w),
-        //    @intToFloat(f32, bitmap.h),
-        //), itc(0xffffffff), bitmap_texture);
-
-        //gui.drawCommands(cmds.items, &ctx, &font);
         ctx.drawFPS(sd.fps_posx, sd.fps_posy, &font);
 
-        //win2.begin(win.mouse.pos, win.mouse.delta, win.mouse.left, win.mouse);
+        try ctx.drawFixedBitmapText(0, 400, 40, "It''''s a Mario! @ Niklas Malthouse", fixed_font, itc(0xffffffff));
 
         ctx.endDraw(win.screen_width, win.screen_height);
 

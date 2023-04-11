@@ -356,14 +356,18 @@ pub const Window = struct {
                 }
             }
         }
+
         cr.co = self.init_cursor;
+        cr.rect(BG);
         cri.layout = .{ .column = .{ .num_items = 10, .item_height = 20 } };
         cr = self.cr.layout.nextCursor(self.cr);
 
-        cr.rect(BG);
         cr.rect(itc(0x000000ff));
         cr.margin(2);
         cr.rect(TITLEBG);
+
+        cr.co = self.init_cursor;
+        cr.co.y += 20;
     }
 
     pub fn end(self: *Self) void {

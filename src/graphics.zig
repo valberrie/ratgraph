@@ -1599,9 +1599,12 @@ pub const GraphicsContext = struct {
         const batch = (try self.getBatch(.{ .mode = .triangles, .texture = font.texture.id, .shader = self.tex_shad }));
         const b = &batch.TriTex;
 
-        for (str) |char, i| {
-            if (char == ' ')
+        var i: u32 = 0;
+        for (str) |char| {
+            if (char == ' ') {
+                i += 1;
                 continue;
+            }
 
             const ind = font.translation_table[std.ascii.toUpper(char)];
             const fi = @intToFloat(f32, i);
@@ -1611,7 +1614,8 @@ pub const GraphicsContext = struct {
                 y,
                 h,
                 h,
-            ), self.z_st, font.sts.getTexRec(if (ind == 127) font.sts.count - 1 else ind), font.texture.w, font.texture.h, charColorToFloat(col)));
+            ), self.z_st, font.sts.getTexRec(if (ind == 127) continue else ind), font.texture.w, font.texture.h, charColorToFloat(col)));
+            i += 1;
         }
 
         self.z_st += 0.1;
