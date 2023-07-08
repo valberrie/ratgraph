@@ -44,7 +44,7 @@ pub fn SparseSet(comptime child_type: type, comptime index_type: type) type {
 
         pub fn fromOwnedDenseSlice(alloc: std.mem.Allocator, slice: []child_type) !Self {
             var ret: Self = undefined;
-            ret.dense = std.ArrayList(child_type).fromOwnedSlice(alloc, slice);
+            ret.dense = (std.ArrayList(child_type)).fromOwnedSlice(alloc, slice);
             ret.sparse = std.ArrayList(index_type).init(alloc);
 
             for (ret.dense.items) |item, i| {

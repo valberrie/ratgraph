@@ -253,7 +253,7 @@ pub fn Registry(comptime field_names_l: FieldList) type {
 
             inline for (field_names_l) |field| {
                 var clone = try @field(self.data, field.name).dense.clone();
-                @field(ret, field.name) = clone.toOwnedSlice();
+                @field(ret, field.name) = try clone.toOwnedSlice();
             }
             return ret;
         }

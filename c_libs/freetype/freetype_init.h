@@ -1,6 +1,7 @@
 #include <ft2build.h>
 #define FT_CONFIG_OPTION_SUBPIXEL_RENDERING
 #include <freetype/freetype.h>
+#include <freetype/ftlcdfil.h>
 
   #undef FTERRORS_H_
   #define FT_ERRORDEF( e, v, s )  { e, s },

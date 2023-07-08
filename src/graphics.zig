@@ -1,14 +1,29 @@
 const std = @import("std");
-const za = @import("zalgebra");
-const c = @import("c.zig");
+pub const za = @import("zalgebra");
+pub const c = @import("c.zig");
 
 pub const SparseSet = @import("sparse_set.zig").SparseSet;
+//TODO for the graphics api
+//texture creation helper functions
+//it should be easy to create a texture with the following paramaters
+//color depths
+//number of channels
+//mipmap generation
+//filters, min mag
+//wrapping behavior
+//border color
+
+//TODO Should we switch to using only zalgebra vectors?
 
 const ini = @import("ini.zig");
 
 pub const glID = c.GLuint;
 
-pub const Vec2f = struct {
+pub const keycodes = @import("keycodes.zig");
+
+pub const V3 = za.Vec3;
+
+pub const Vec2f = packed struct {
     x: f32,
     y: f32,
 
@@ -23,9 +38,102 @@ pub fn RecV(pos: Vec2f, w: f32, h: f32) Rect {
     return .{ .x = pos.x, .y = pos.y, .w = w, .h = h };
 }
 
+pub fn IRec(x: i32, y: i32, w: i32, h: i32) Rect {
+    return .{
+        .x = @intToFloat(f32, x),
+        .y = @intToFloat(f32, y),
+        .w = @intToFloat(f32, w),
+        .h = @intToFloat(f32, h),
+    };
+}
+
 pub fn Rec(x: f32, y: f32, w: f32, h: f32) Rect {
     return .{ .x = x, .y = y, .w = w, .h = h };
 }
+
+pub const Plane = enum { xy, yz, xz };
+pub fn vertexTexturedDir(plane: Plane, x: f32, y: f32, z: f32, u: f32, v: f32, col: Color) VertexTextured {
+    const p: struct { x: f32, y: f32, z: f32, u: f32, v: f32 } = switch (plane) {
+        .xy => .{ .x = x, .y = y, .z = z, .u = u, .v = v },
+        .yz => .{ .x = y, .y = z, .z = x, .u = u, .v = v },
+        .xz => .{ .x = x, .y = z, .z = y, .u = u, .v = v },
+    };
+    return .{ .x = p.x, .y = p.y, .z = p.z, .u = p.u, .v = p.v, .r = col[0], .g = col[1], .b = col[2], .a = col[3] };
+}
+
+pub fn quadTex(pos: V3, w: f32, h: f32, plane: Plane, neg: bool, tr: Rect, tx_w: u32, tx_h: u32, color: CharColor) [4]VertexTextured {
+    const un = normalizeTexRect(tr, tx_w, tx_h);
+    const col = charColorToFloat(color);
+    const p: struct { x: f32, y: f32, z: f32 } = .{ .x = pos.data[0], .y = pos.data[1], .z = pos.data[2] };
+    if (neg) {
+        return .{
+            // zig fmt: off
+            vertexTexturedDir(plane, p.x,     p.y + h, p.z, un.x       , un.y + un.h, col),
+            vertexTexturedDir(plane, p.x + w, p.y + h, p.z, un.x       , un.y       , col),
+            vertexTexturedDir(plane, p.x + w, p.y,     p.z, un.x + un.w, un.y       , col),
+            vertexTexturedDir(plane, p.x,     p.y,     p.z, un.x + un.w, un.y + un.h, col),
+            //zig fmt: on
+        };
+    } else {
+        return .{
+            // zig fmt: off
+            vertexTexturedDir(plane, p.x,     p.y,     p.z, un.x + un.w, un.y + un.h, col),
+            vertexTexturedDir(plane, p.x + w, p.y,     p.z, un.x + un.w, un.y       , col),
+            vertexTexturedDir(plane, p.x + w, p.y + h, p.z, un.x       , un.y       , col),
+            vertexTexturedDir(plane, p.x,     p.y + h, p.z, un.x       , un.y + un.h, col),
+            //zig fmt: on
+        };
+    }
+}
+
+pub const Camera3D = struct {
+    const Self = @This(); 
+    pos: za.Vec3 = za.Vec3.new(0,0,0),
+    front: za.Vec3 = za.Vec3.new(0,0,0),
+    yaw:f32 = 0,
+    pitch:f32 = 0,
+    move_speed:f32 = 0.1,
+
+    pub fn update(self: *Self, win:*const SDL.Window)void{
+            var move_vec  = za.Vec3.new(0,0,0);
+            if (win.keydown(.LSHIFT))
+                move_vec = move_vec.add(za.Vec3.new(0, -1, 0));
+            if (win.keydown(.SPACE))
+                move_vec = move_vec.add(za.Vec3.new(0, 1, 0));
+            if (win.keydown(.W))
+                move_vec = move_vec.add(self.front);
+            if (win.keydown(.S))
+                move_vec = move_vec.add(self.front.scale(-1));
+            if (win.keydown(.A))
+                move_vec = move_vec.add(self.front.cross(.{ .data = .{ 0, 1, 0 } }).norm().scale(-1));
+            if (win.keydown(.D))
+                move_vec = move_vec.add(self.front.cross(.{ .data = .{ 0, 1, 0 } }).norm());
+
+            self.pos = self.pos.add(move_vec.norm().scale(self.move_speed));
+            const mdelta = win.mouse.delta.smul(0.1);
+            self.move_speed = std.math.clamp(self.move_speed + win.mouse.wheel_delta * (self.move_speed / 10), 0.01, 10);
+
+            self.yaw += mdelta.x;
+            self.pitch = std.math.clamp(self.pitch - mdelta.y, -89, 89);
+
+            const sin = std.math.sin;
+            const rad = std.math.degreesToRadians;
+            const cos = std.math.cos;
+            const dir = za.Vec3.new(
+                cos(rad(f32, self.yaw)) * cos(rad(f32, self.pitch)),
+                sin(rad(f32, self.pitch)),
+                sin(rad(f32, self.yaw)) * cos(rad(f32, self.pitch)),
+            );
+            self.front = dir.norm();
+
+    }
+
+    pub fn getMatrix(self:Self, aspect_ratio: f32, fov: f32, near:f32, far:f32)za.Mat4{
+        const la = za.lookAt(self.pos, self.pos.add(self.front), za.Vec3.new(0, 1, 0));
+        const perp = za.perspective(fov, aspect_ratio, near, far);
+        return perp.mul(la);
+    }
+};
 
 //Ideally I don't want to make any c.SDL calls in my application
 //TODO detect dpi changes
@@ -54,6 +162,14 @@ pub const SDL = struct {
         scancode: usize,
     };
 
+    pub fn getKeyFromScancode(scancode: keycodes.Scancode) keycodes.Keycode {
+        return @intToEnum(keycodes.Keycode, c.SDL_GetKeyFromScancode(@enumToInt(scancode)));
+    }
+
+    pub fn getScancodeFromKey(key: keycodes.Keycode) keycodes.Scancode {
+        return @intToEnum(keycodes.Scancode, c.SDL_GetScancodeFromKey(@enumToInt(key)));
+    }
+
     pub const Window = struct {
         const Self = @This();
 
@@ -79,6 +195,13 @@ pub const SDL = struct {
                 sdlLogErr();
                 return error.SDLSetAttr;
             }
+        }
+
+        pub fn grabMouse(self: *const Self, should: bool) void {
+            _ = self;
+            _ = c.SDL_SetRelativeMouseMode(if (should) 1 else 0);
+            //c.SDL_SetWindowMouseGrab(self.win, if (should) 1 else 0);
+            //_ = c.SDL_ShowCursor(if (!should) 1 else 0);
         }
 
         pub fn createWindow(title: [*c]const u8) !Self {
@@ -147,13 +270,18 @@ pub const SDL = struct {
             c.SDL_GL_SwapWindow(self.win);
         }
 
-        pub fn fuck(self: *Self, k: usize) i32 {
-            _ = self;
-            return c.SDL_GetKeyFromScancode(@intCast(c_uint, k));
-        }
-
         pub fn getDpi(self: *Self) f32 {
             var dpi: f32 = 0;
+
+            var x: c_int = undefined;
+            var y: c_int = undefined;
+            c.SDL_GetWindowSize(self.win, &x, &y);
+
+            var w: c_int = undefined;
+            var h: c_int = undefined;
+            c.SDL_GL_GetDrawableSize(self.win, &x, &y);
+
+            std.debug.print("{d} {d}, X {d} {d}\n", .{ x, y, w, h });
 
             _ = c.SDL_GetDisplayDPI(c.SDL_GetWindowDisplayIndex(self.win), &dpi, null, null);
             return dpi;
@@ -196,7 +324,6 @@ pub const SDL = struct {
                 for (ret) |key, i| {
                     if (key == 1) {
                         self.keyboard_state.set(i);
-                        //self.keys.append(.{ .state = .held, .scancode = i }) catch unreachable;
                     }
                 }
             }
@@ -250,9 +377,14 @@ pub const SDL = struct {
                 }
             }
         }
+
+        pub fn keydown(self: *const Self, scancode: keycodes.Scancode) bool {
+            return self.keyboard_state.isSet(@enumToInt(scancode));
+        }
     };
 };
 
+///A Texture atlas, loads many SubTileSet from many png files and packs them into a single texture.
 pub const Atlas = struct {
     texture: Texture,
 
@@ -367,15 +499,17 @@ pub const Atlas = struct {
     }
 };
 
+///A structure that maps indices to a rectangle within a larger rectangle based on various parameters.
+///Useful for tilemaps that include padding
 pub const SubTileset = struct {
     const Self = @This();
 
-    start: Vec2i,
-    tw: i32,
+    start: Vec2i, //xy of first tile
+    tw: i32,      //width of tile
     th: i32,
-    pad: Vec2i,
-    num: Vec2i,
-    count: usize,
+    pad: Vec2i,   //xy spacing between tiles
+    num: Vec2i,   //number of cols, rows
+    count: usize, //Total number of tiles, useful if last row is short
 
     pub fn getTexRec(self: Self, index: usize) Rect {
         const i = @intCast(i32, index % self.count);
@@ -388,14 +522,17 @@ pub const SubTileset = struct {
     }
 };
 
+///A Fixed width bitmap font structure
 pub const FixedBitmapFont = struct {
     const Self = @This();
 
     texture: Texture,
     sts: SubTileset,
 
+    // zig fmt: on
     translation_table: [128]u8 = [_]u8{127} ** 128,
 
+    // each index of this decode_string corresponds to the index of the character in subTileSet
     pub fn init(texture: Texture, sts: SubTileset, decode_string: []const u8) Self {
         var ret = Self{
             .texture = texture,
@@ -409,12 +546,28 @@ pub const FixedBitmapFont = struct {
     }
 };
 
-const Bitmap = struct {
+pub const Bitmap = struct {
     const m = @This();
     //TODO add support for different types: rgba only for now
     data: std.ArrayList(u8),
     w: u32,
     h: u32,
+
+    //TODO actually initalize the memory
+    pub fn initBlank(alloc: std.mem.Allocator, width: u32, height: u32) !m {
+        var ret = m{ .data = std.ArrayList(u8).init(alloc), .w = width, .h = height };
+        try ret.data.resize(4 * width * height);
+        return ret;
+    }
+
+    pub fn writeToBmpFile(self: *const m, alloc: std.mem.Allocator, file_name: []const u8) !void {
+        var null_str_buf = std.ArrayList(u8).init(alloc);
+        defer null_str_buf.deinit();
+        try null_str_buf.appendSlice(file_name);
+        try null_str_buf.append(0);
+
+        _ = c.stbi_write_bmp(@ptrCast([*c]const u8, null_str_buf.items), @intCast(c_int, self.w), @intCast(c_int, self.h), 4, @ptrCast([*c]u8, self.data.items[0..self.data.items.len]));
+    }
 
     pub fn copySub(source: *m, srect_x: u32, srect_y: u32, srect_w: u32, srect_h: u32, dest: *m, des_x: u32, des_y: u32) void {
         const num_comp = 4;
@@ -439,6 +592,41 @@ const Bitmap = struct {
         }
     }
 };
+
+pub fn loadPngBitmap(relative_path: []const u8, alloc: *const std.mem.Allocator) !Bitmap {
+    const cwd = std.fs.cwd();
+    const png_file = try cwd.openFile(relative_path, .{});
+    defer png_file.close();
+
+    var buf = std.ArrayList(u8).init(alloc.*);
+    defer buf.deinit();
+
+    try png_file.reader().readAllArrayList(&buf, 1024 * 1024 * 1024);
+
+    var pngctx = c.spng_ctx_new(0);
+    defer c.spng_ctx_free(pngctx);
+
+    _ = c.spng_set_png_buffer(pngctx, &buf.items[0], buf.items.len);
+
+    var ihdr: c.spng_ihdr = undefined;
+    _ = c.spng_get_ihdr(pngctx, &ihdr);
+
+    //std.debug.print("width: {d} height: {d}\n bit depth: {d}\n color type: {d}\n \n", .{
+    //    ihdr.width, ihdr.height, ihdr.bit_depth, ihdr.color_type,
+    //});
+
+    var out_size: usize = 0;
+    _ = c.spng_decoded_image_size(pngctx, c.SPNG_FMT_RGBA8, &out_size);
+
+    const decoded_data = try alloc.alloc(u8, out_size);
+
+    _ = c.spng_decode_image(pngctx, &decoded_data[0], out_size, c.SPNG_FMT_RGBA8, 0);
+
+    return Bitmap{ .w = ihdr.width, .h = ihdr.height, .data = std.ArrayList(u8).fromOwnedSlice(alloc.*, decoded_data) };
+
+    //#9494ff background color
+
+}
 
 pub fn loadPng(relative_path: []const u8, alloc: *const std.mem.Allocator) !Bitmap {
     const cwd = std.fs.cwd();
@@ -490,103 +678,35 @@ pub fn loadPng(relative_path: []const u8, alloc: *const std.mem.Allocator) !Bitm
 
 }
 
-pub fn loadPngFromPath(relative_path: []const u8, alloc: *const std.mem.Allocator) !Texture {
-    const cwd = std.fs.cwd();
-    const png_file = try cwd.openFile(relative_path, .{});
-    defer png_file.close();
+//TODO mario specific crap
 
-    var buf = std.ArrayList(u8).init(alloc.*);
-    defer buf.deinit();
-
-    try png_file.reader().readAllArrayList(&buf, 1024 * 1024 * 1024);
-
-    var pngctx = c.spng_ctx_new(0);
-    defer c.spng_ctx_free(pngctx);
-
-    _ = c.spng_set_png_buffer(pngctx, &buf.items[0], buf.items.len);
-
-    var ihdr: c.spng_ihdr = undefined;
-    _ = c.spng_get_ihdr(pngctx, &ihdr);
-
-    std.debug.print("width: {d} height: {d}\n bit depth: {d}\n color type: {d}\n \n", .{
-        ihdr.width, ihdr.height, ihdr.bit_depth, ihdr.color_type,
-    });
-
-    var out_size: usize = 0;
-    _ = c.spng_decoded_image_size(pngctx, c.SPNG_FMT_RGBA8, &out_size);
-
-    const decoded_data = try alloc.alloc(u8, out_size);
-    defer alloc.free(decoded_data);
-
-    _ = c.spng_decode_image(pngctx, &decoded_data[0], out_size, c.SPNG_FMT_RGBA8, 0);
-    std.debug.print("Blue of first pixel {d}\n", .{decoded_data[2]});
-
-    {
-        var i: usize = 0;
-        while (i < decoded_data.len) : (i += 4) {
-            if (decoded_data[i] == 0x94 and
-                decoded_data[i + 1] == 0x94 and
-                decoded_data[i + 2] == 0xff)
-            {
-                decoded_data[i + 3] = 0x00;
-            }
-
-            if (decoded_data[i] == 0x92 and decoded_data[i + 1] == 0x90 and decoded_data[i + 2] == 0xff)
-                decoded_data[i + 3] = 0x00;
+pub const GL = struct {
+    pub fn checkError() void {
+        var err = c.glGetError();
+        // zig fmt: on
+        while (err != c.GL_NO_ERROR) : (err = c.glGetError()) {
+            const str = switch (err) {
+                c.GL_INVALID_ENUM => "An unacceptable value is specified for an enumerated argument. The offending command is ignored and has no other side effect than to set the error flag.",
+                c.GL_INVALID_VALUE => "A numeric argument is out of range. The offending command is ignored and has no other side effect than to set the error flag.",
+                c.GL_INVALID_OPERATION => "The specified operation is not allowed in the current state. The offending command is ignored and has no other side effect than to set the error flag.",
+                c.GL_INVALID_FRAMEBUFFER_OPERATION => "The framebuffer object is not complete. The offending command is ignored and has no other side effect than to set the error flag.",
+                c.GL_OUT_OF_MEMORY => "There is not enough memory left to execute the command. The state of the GL is undefined, except for the state of the error flags, after this error is recorded.",
+                c.GL_STACK_UNDERFLOW => "An attempt has been made to perform an operation that would cause an internal stack to underflow.",
+                c.GL_STACK_OVERFLOW => "An attempt has been made to perform an operation that would cause an internal stack to overflow.",
+                else => unreachable,
+            };
+            std.debug.print("glGetError: {s}\n", .{str});
         }
     }
 
-    //#9494ff background color
+    fn passUniform(shader: c_uint, uniform_name: [*c]const u8, data: anytype) void {
+        const uniform_location = c.glGetUniformLocation(shader, uniform_name);
+        switch (@TypeOf(data)) {
+            za.Mat4 => c.glUniformMatrix4fv(uniform_location, 1, c.GL_FALSE, &data.data[0][0]),
+            else => @compileError("GL.passUniform type not implemented: " ++ @typeName(@TypeOf(data))),
+        }
+    }
 
-    var tex_id: glID = 0;
-    c.glGenTextures(1, &tex_id);
-    c.glBindTexture(c.GL_TEXTURE_2D, tex_id);
-    c.glTexImage2D(
-        c.GL_TEXTURE_2D,
-        0,
-        c.GL_RGBA,
-        @intCast(i32, ihdr.width),
-        @intCast(i32, ihdr.height),
-        0,
-        c.GL_RGBA,
-        c.GL_UNSIGNED_BYTE,
-        &decoded_data[0],
-    );
-    c.glGenerateMipmap(c.GL_TEXTURE_2D);
-    c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_WRAP_S, c.GL_CLAMP_TO_BORDER);
-    c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_WRAP_T, c.GL_CLAMP_TO_BORDER);
-
-    //c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_MAG_FILTER, c.GL_NEAREST_MIPMAP_NEAREST);
-    c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_MIN_FILTER, c.GL_LINEAR);
-    c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_MAG_FILTER, c.GL_NEAREST);
-
-    const border_color: [4]f32 = .{ 0, 0, 0, 1.0 };
-    c.glTexParameterfv(c.GL_TEXTURE_2D, c.GL_TEXTURE_BORDER_COLOR, &border_color);
-
-    c.glBindTexture(c.GL_TEXTURE_2D, 0);
-
-    return Texture{ .id = tex_id, .w = ihdr.width, .h = ihdr.height };
-}
-
-pub fn reDataTextureRGBA(id: glID, w: u32, h: u32, data: []u8) void {
-    c.glBindTexture(c.GL_TEXTURE_2D, id);
-    c.glTexImage2D(
-        c.GL_TEXTURE_2D,
-        0,
-        c.GL_RGBA,
-        @intCast(i32, w),
-        @intCast(i32, h),
-        0,
-        c.GL_RGBA,
-        c.GL_UNSIGNED_BYTE,
-        &data[0],
-    );
-    c.glBindTexture(c.GL_TEXTURE_2D, 0);
-}
-
-//Tiny wrapper of gl calls to avoid inevitable bugs of having to repeat GL_ARRAY_BUFFER 3 times for each function call
-//or forgetting to bind relevant buffers etc
-pub const GL = struct {
     fn bufferData(buffer_type: glID, handle: glID, comptime item: type, slice: []item) void {
         c.glBindBuffer(buffer_type, handle);
         c.glBufferData(
@@ -596,6 +716,26 @@ pub const GL = struct {
             c.GL_STATIC_DRAW,
         );
         c.glBindBuffer(c.GL_ARRAY_BUFFER, 0);
+    }
+
+    //TODO should this output a string specifiing GLSL input layouts that can be catted with our shader
+    fn generateVertexAttributes(vao: c_uint, vbo: c_uint, comptime T: anytype) void {
+        const info = @typeInfo(T);
+        switch (info) {
+            .Struct => {
+                //TODO should we check and ensure it is a packed struct?
+                const st = info.Struct;
+                inline for (st.fields) |field, f_i| {
+                    switch (field.field_type) {
+                        Vec2f => floatVertexAttrib(vao, vbo, f_i, 2, T, field.name),
+                        u16 => intVertexAttrib(vao, vbo, f_i, 1, T, field.name, c.GL_UNSIGNED_SHORT),
+                        u32 => intVertexAttrib(vao, vbo, f_i, 1, T, field.name, c.GL_UNSIGNED_INT),
+                        else => @compileError("generateVertexAttributes struct field type not supported: " ++ @typeName(field.field_type)),
+                    }
+                }
+            },
+            else => @compileError("generateVertexAttributes expects a struct"),
+        }
     }
 
     fn bufferSubData(buffer_type: glID, handle: glID, offset: usize, len: usize, comptime item: type, slice: []item) void {
@@ -608,36 +748,6 @@ pub const GL = struct {
         );
 
         c.glBindBuffer(c.GL_ARRAY_BUFFER, 0);
-    }
-
-    pub fn colorTexture(w: usize, h: usize, data: []u8) glID {
-        var texid: glID = 0;
-
-        c.glPixelStorei(c.GL_UNPACK_ALIGNMENT, 1);
-        c.glGenTextures(1, &texid);
-        c.glBindTexture(c.GL_TEXTURE_2D, texid);
-        c.glTexImage2D(
-            c.GL_TEXTURE_2D,
-            0,
-            c.GL_RGBA,
-            @intCast(i32, w),
-            @intCast(i32, h),
-            0,
-            c.GL_RGBA,
-            c.GL_UNSIGNED_BYTE,
-            @ptrCast([*c]u8, data[0..data.len]),
-        );
-        // set texture options
-        c.glGenerateMipmap(c.GL_TEXTURE_2D);
-        c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_WRAP_S, c.GL_CLAMP_TO_EDGE);
-        c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_WRAP_T, c.GL_CLAMP_TO_EDGE);
-        c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_MAG_FILTER, c.GL_LINEAR);
-        c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_MIN_FILTER, c.GL_LINEAR);
-
-        c.glEnable(c.GL_BLEND);
-        c.glBlendFunc(c.GL_SRC_ALPHA, c.GL_ONE_MINUS_SRC_ALPHA);
-        c.glBlendEquation(c.GL_FUNC_ADD);
-        return texid;
     }
 
     fn grayscaleTexture(w: u32, h: u32, data: []u8) glID {
@@ -670,9 +780,24 @@ pub const GL = struct {
         return texid;
     }
 
-    //The vertexAttribPointer functions can be hard to understand
-    //I don't know how fleixible this is but for now it is better than making 3 calls too ensure state is correct
-    //ONLY USE FOR floats
+    //TODO once our generateVertexAttributes function works, these functions should not deal with vao or vbo they should assume they have been bound already
+    fn intVertexAttrib(vao: glID, vbo: glID, index: u32, num_elem: u32, comptime item: type, comptime starting_field: []const u8, int_type: c.GLenum) void {
+        c.glBindVertexArray(vao);
+        c.glBindBuffer(c.GL_ARRAY_BUFFER, vbo);
+        defer c.glBindVertexArray(0);
+        defer c.glBindBuffer(c.GL_ARRAY_BUFFER, 0);
+
+        const byte_offset = @offsetOf(item, starting_field);
+        c.glVertexAttribIPointer(
+            index,
+            @intCast(c_int, num_elem),
+            int_type,
+            @sizeOf(item),
+            if (byte_offset != 0) @intToPtr(*const anyopaque, byte_offset) else null,
+        );
+        c.glEnableVertexAttribArray(index);
+    }
+
     fn floatVertexAttrib(vao: glID, vbo: glID, index: u32, size: u32, comptime item: type, comptime starting_field: []const u8) void {
         c.glBindVertexArray(vao);
         c.glBindBuffer(c.GL_ARRAY_BUFFER, vbo);
@@ -701,17 +826,82 @@ pub const GL = struct {
 
         c.glBindTexture(c.GL_TEXTURE_2D, 0);
 
-        const view_loc = c.glGetUniformLocation(batch.shader, "view");
-        c.glUniformMatrix4fv(view_loc, 1, c.GL_FALSE, &view.data[0][0]);
-
-        const model_loc = c.glGetUniformLocation(batch.shader, "model");
-        c.glUniformMatrix4fv(model_loc, 1, c.GL_FALSE, &model.data[0][0]);
+        GL.passUniform(batch.shader, "view", view);
+        GL.passUniform(batch.shader, "model", model);
 
         c.glDrawElements(c.GL_TRIANGLES, @intCast(c_int, batch.indicies.items.len), c.GL_UNSIGNED_INT, null);
         //c.glBindVertexArray(0);
 
     }
 };
+
+pub const BatchOptions = struct {
+    index_buffer: bool,
+};
+pub fn NewBatch(comptime vertex_type: type, comptime batch_options: BatchOptions) type {
+    const IndexType = u32;
+    return struct {
+        pub const Self = @This();
+        pub const DrawParams = struct {
+            texture: ?Texture = null,
+        };
+
+        vbo: c_uint,
+        vao: c_uint,
+        ebo: if (batch_options.index_buffer) c_uint else void,
+        vertices: std.ArrayList(vertex_type),
+        indicies: if (batch_options.index_buffer) std.ArrayList(IndexType) else void,
+
+        pub fn init(alloc: std.mem.Allocator) @This() {
+            var ret = @This(){
+                .vertices = std.ArrayList(vertex_type).init(alloc),
+                .indicies = if (batch_options.index_buffer) std.ArrayList(IndexType).init(alloc) else {},
+                .ebo = if (batch_options.index_buffer) 0 else {},
+                .vao = 0,
+                .vbo = 0,
+            };
+
+            c.glGenVertexArrays(1, &ret.vao);
+            c.glGenBuffers(1, &ret.vbo);
+            if (batch_options.index_buffer) c.glGenBuffers(1, &ret.ebo);
+
+            GL.generateVertexAttributes(ret.vao, ret.vbo, vertex_type);
+
+            return ret;
+        }
+
+        pub fn pushVertexData(self: *Self) void {
+            c.glBindVertexArray(self.vao);
+            GL.bufferData(c.GL_ARRAY_BUFFER, self.vbo, vertex_type, self.vertices.items);
+            if (batch_options.index_buffer)
+                GL.bufferData(c.GL_ELEMENT_ARRAY_BUFFER, self.ebo, u32, self.indicies.items);
+        }
+
+        pub fn draw(self: *Self, params: DrawParams, shader: c_uint, view: za.Mat4, model: za.Mat4) void {
+            c.glUseProgram(shader);
+            c.glBindVertexArray(self.vao);
+            GL.passUniform(params.shader, "view", view);
+            GL.passUniform(params.shader, "model", model);
+
+            if (params.texture) |texture| {
+                c.glBindTexture(c.GL_TEXTURE_2D, texture);
+            }
+
+            if (batch_options.index_buffer) {
+                //TODO primitive generic
+                c.glDrawElements(c.GL_TRIANGLES, @intCast(c_int, self.indicies.items.len), c.GL_UNSIGNED_INT, null);
+            } else {
+                //c.glDrawArrays(c.GL_LINES, 0, @intCast(c_int, b.vertices.items.len));
+            }
+        }
+
+        pub fn deinit(self: *Self) void {
+            self.vertices.deinit();
+            if (batch_options.index_buffer)
+                self.indicies.deinit();
+        }
+    };
+}
 
 const Shader = struct {
     fn checkShaderErr(shader: glID, comporlink: c_uint) void {
@@ -762,7 +952,7 @@ const Shader = struct {
     }
 };
 
-fn genQuadIndices(index: u32) [6]u32 {
+pub fn genQuadIndices(index: u32) [6]u32 {
     return [_]u32{
         index + 0,
         index + 1,
@@ -784,6 +974,8 @@ pub fn charColorToFloat(col: CharColor) Color {
     };
 }
 
+pub const itc = intToColor;
+
 pub fn intToColor(color: u32) CharColor {
     return .{
         .r = @intCast(u8, (color >> 24) & 0xff),
@@ -793,17 +985,11 @@ pub fn intToColor(color: u32) CharColor {
     };
 }
 
-pub const WHITE = intToColor(0xffffffff);
-pub const GREEN = intToColor(0x00ff00ff);
-
 pub const Rect = struct { x: f32, y: f32, w: f32, h: f32 };
 
 pub const Color = [4]f32;
-pub const Pos = [3]f32;
-pub const Size = [2]f32;
 
 pub fn createQuad(r: Rect, z: f32, color: Color) [4]Vertex {
-    //TODO move z out into function
     return [_]Vertex{
         vertex(r.x + r.w, r.y + r.h, z, color),
         vertex(r.x + r.w, r.y, z, color),
@@ -823,19 +1009,106 @@ pub fn normalizeTexRect(tr: Rect, tx_w: u32, tx_h: u32) Rect {
     };
 }
 
+pub fn cube(px: f32, py: f32, pz: f32, sx: f32, sy: f32, sz: f32, tr: Rect, tx_w: u32, tx_h: u32, colorsopt: ?[]const CharColor) [24]VertexTextured {
+    const colors = if (colorsopt) |cc| cc else &[6]CharColor{ itc(0xffffffff), itc(0xffffffff), itc(0xffffffff), itc(0xffffffff), itc(0xffffffff), itc(0xffffffff) };
+    const un = normalizeTexRect(tr, tx_w, tx_h);
+    return [_]VertexTextured{
+        // zig fmt: off
+        // front
+        vertexTextured(px + sx, py + sy, pz, un.x + un.w, un.y + un.h, charColorToFloat(colors[0])), //0
+        vertexTextured(px + sx, py     , pz, un.x + un.w, un.y       , charColorToFloat(colors[0])), //1
+        vertexTextured(px     , py     , pz, un.x       , un.y       , charColorToFloat(colors[0])), //2
+        vertexTextured(px     , py + sy, pz, un.x       , un.y + un.h, charColorToFloat(colors[0])), //3
+
+        // back
+        vertexTextured(px     , py + sy, pz + sz, un.x       , un.y + un.h, charColorToFloat(colors[1])), //3
+        vertexTextured(px     , py     , pz + sz, un.x       , un.y       , charColorToFloat(colors[1])), //2
+        vertexTextured(px + sx, py     , pz + sz, un.x + un.w, un.y       , charColorToFloat(colors[1])), //1
+        vertexTextured(px + sx, py + sy, pz + sz, un.x + un.w, un.y + un.h, charColorToFloat(colors[1])), //0
+
+
+        vertexTextured(px + sx, py, pz,      un.x+un.w,un.y + un.h, charColorToFloat(colors[2])),
+        vertexTextured(px + sx, py, pz + sz, un.x+un.w,un.y, charColorToFloat(colors[2])),
+        vertexTextured(px     , py, pz + sz, un.x,un.y, charColorToFloat(colors[2])),
+        vertexTextured(px     , py, pz     , un.x,un.y + un.h, charColorToFloat(colors[2])),
+
+        vertexTextured(px     , py + sy, pz     , un.x,un.y + un.h, charColorToFloat(colors[3])),
+        vertexTextured(px     , py + sy, pz + sz, un.x,un.y, charColorToFloat(colors[3])),
+        vertexTextured(px + sx, py + sy, pz + sz, un.x + un.w,un.y, charColorToFloat(colors[3])),
+        vertexTextured(px + sx, py + sy, pz, un.x + un.w,   un.y + un.h , charColorToFloat(colors[3])),
+
+        vertexTextured(px, py + sy, pz, un.x + un.w,un.y + un.h,charColorToFloat(colors[4])),
+        vertexTextured(px, py , pz, un.x + un.w,un.y,charColorToFloat(colors[4])),
+        vertexTextured(px, py , pz + sz, un.x,un.y,charColorToFloat(colors[4])),
+        vertexTextured(px, py + sy , pz + sz, un.x,un.y + un.h,charColorToFloat(colors[4])),
+
+        vertexTextured(px + sx, py + sy , pz + sz, un.x,un.y + un.h,charColorToFloat(colors[5])),
+        vertexTextured(px + sx, py , pz + sz, un.x,un.y,charColorToFloat(colors[5])),
+        vertexTextured(px + sx, py , pz, un.x + un.w,un.y,charColorToFloat(colors[5])),
+        vertexTextured(px + sx, py + sy, pz, un.x + un.w,un.y + un.h,charColorToFloat(colors[5])),
+
+        // zig fmt: on
+
+    };
+
+}
+
+pub fn genCubeIndicies(index: u32) [36]u32 {
+    return [_]u32{
+        index + 0,
+        index + 1,
+        index + 3,
+        index + 1,
+        index + 2,
+        index + 3,
+
+        index + 4,
+        index + 5,
+        index + 7,
+        index + 5,
+        index + 6,
+        index + 7,
+
+        index + 8,
+        index + 9,
+        index + 11,
+        index + 9,
+        index + 10,
+        index + 11,
+
+        index + 12,
+        index + 13,
+        index + 15,
+        index + 13,
+        index + 14,
+        index + 15,
+
+        index + 16,
+        index + 17,
+        index + 19,
+        index + 17,
+        index + 18,
+        index + 19,
+
+        index + 20,
+        index + 21,
+        index + 23,
+        index + 21,
+        index + 22,
+        index + 23,
+    };
+}
+
 pub fn createQuadTextured(r: Rect, z: f32, tr: Rect, tx_w: u32, tx_h: u32, color: Color) [4]VertexTextured {
     const un = normalizeTexRect(tr, tx_w, tx_h);
     return [_]VertexTextured{
+        // zig fmt: off
         vertexTextured(r.x + r.w, r.y + r.h, z, un.x + un.w, un.y + un.h, color), //0
-        vertexTextured(r.x + r.w, r.y, z, un.x + un.w, un.y, color), //1
-        vertexTextured(r.x, r.y, z, un.x, un.y, color), //2
-        vertexTextured(r.x, r.y + r.h, z, un.x, un.y + un.h, color), //3
-
-        //vertexTextured(r.x + r.w, r.y + r.h, z, un.x + un.w, un.y, color), //0
-        //vertexTextured(r.x + r.w, r.y, z, un.x + un.w, un.y + un.h, color), //1
-        //vertexTextured(r.x, r.y, z, un.x, un.y + un.h, color), //2
-        //vertexTextured(r.x, r.y + r.h, z, un.x, un.y, color), //3
-    };
+        vertexTextured(r.x + r.w, r.y      , z, un.x + un.w, un.y       , color), //1
+        vertexTextured(r.x      , r.y      , z, un.x       , un.y       , color), //2
+        vertexTextured(r.x      , r.y + r.h, z, un.x       , un.y + un.h, color), //3
+        // zig fmt: on
+                                                                              };
 }
 
 pub const Texture = struct {
@@ -843,68 +1116,61 @@ pub const Texture = struct {
     w: u32,
     h: u32,
 
-    pub fn fromBitmap(bitmap: Bitmap) Texture {
+    pub const Options = struct {
+        internal_format: c.GLint = c.GL_RGBA,
+        pixel_format: c.GLenum = c.GL_RGBA,
+        pixel_type: c.GLenum = c.GL_UNSIGNED_BYTE,
+        pixel_store_alignment: c.GLint = 4,
+        target: c.GLenum = c.GL_TEXTURE_2D,
+
+        wrap_u: c.GLint = c.GL_REPEAT,
+        wrap_v: c.GLint = c.GL_REPEAT,
+
+        generate_mipmaps:bool = true,
+        min_filter: c.GLint = c.GL_LINEAR_MIPMAP_LINEAR,
+        mag_filter: c.GLint = c.GL_LINEAR,
+        border_color: [4]f32 = .{0,0,0,1.0},
+
+    };
+
+    pub fn fromArray(bitmap: []const u8, w: u32, h:u32, o: Options) Texture {
         var tex_id: glID = 0;
+        c.glPixelStorei(c.GL_UNPACK_ALIGNMENT, o.pixel_store_alignment);
         c.glGenTextures(1, &tex_id);
-        c.glBindTexture(c.GL_TEXTURE_2D, tex_id);
+        c.glBindTexture(o.target, tex_id);
         c.glTexImage2D(
-            c.GL_TEXTURE_2D,
-            0,
-            c.GL_RGBA,
-            @intCast(i32, bitmap.w),
-            @intCast(i32, bitmap.h),
-            0,
-            c.GL_RGBA,
-            c.GL_UNSIGNED_BYTE,
-            &bitmap.data.items[0],
+            o.target,
+            0,//Level of detail number
+            o.internal_format,
+            @intCast(i32, w),
+            @intCast(i32, h),
+            0,//khronos.org: this value must be 0
+            o.pixel_format,
+            o.pixel_type,
+            &bitmap[0],
         );
-        c.glGenerateMipmap(c.GL_TEXTURE_2D);
-        c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_WRAP_S, c.GL_CLAMP_TO_BORDER);
-        c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_WRAP_T, c.GL_CLAMP_TO_BORDER);
+        if(o.generate_mipmaps)
+            c.glGenerateMipmap(o.target);
+
+        c.glTexParameteri(o.target, c.GL_TEXTURE_WRAP_S, o.wrap_u);
+        c.glTexParameteri(o.target, c.GL_TEXTURE_WRAP_T, o.wrap_v);
 
         //c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_MAG_FILTER, c.GL_NEAREST_MIPMAP_NEAREST);
-        c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_MIN_FILTER, c.GL_LINEAR);
-        c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_MAG_FILTER, c.GL_NEAREST);
+        c.glTexParameteri(o.target, c.GL_TEXTURE_MIN_FILTER, o.min_filter);
+        c.glTexParameteri(o.target, c.GL_TEXTURE_MAG_FILTER, o.mag_filter);
 
-        const border_color: [4]f32 = .{ 0, 0, 0, 1.0 };
-        c.glTexParameterfv(c.GL_TEXTURE_2D, c.GL_TEXTURE_BORDER_COLOR, &border_color);
+        c.glTexParameterfv(o.target, c.GL_TEXTURE_BORDER_COLOR, &o.border_color);
+
+
+        c.glEnable(c.GL_BLEND);
+        c.glBlendFunc(c.GL_SRC_ALPHA, c.GL_ONE_MINUS_SRC_ALPHA);
+        c.glBlendEquation(c.GL_FUNC_ADD);
 
         c.glBindTexture(c.GL_TEXTURE_2D, 0);
-
-        return Texture{ .w = bitmap.w, .h = bitmap.h, .id = tex_id };
+        return Texture{ .w = w, .h = h, .id = tex_id };
     }
 };
 
-pub const Glyph = struct {
-    offset_x: f32 = 0,
-    offset_y: f32 = 0,
-    advance_x: f32 = 0,
-    tr: Rect = .{ .x = 0, .y = 0, .w = 0, .h = 0 },
-    width: f32 = 0,
-    height: f32 = 0,
-    i: u21 = 0,
-};
-
-pub const CharMapEntry = union(enum) {
-    unicode: u21, //A single codepoint
-    range: [2]u21, //A range of codepoints (inclusive)
-};
-
-pub const CharMaps = struct {
-    pub const AsciiUpperAlpha = [_]CharMapEntry{.{ .range = .{ 65, 90 } }};
-    pub const AsciiLowerAlpha = [_]CharMapEntry{.{ .range = .{ 97, 122 } }};
-    pub const AsciiNumeric = [_]CharMapEntry{.{ .range = .{ 48, 57 } }};
-    pub const AsciiPunctiation = [_]CharMapEntry{ .{ .range = .{ 32, 47 } }, .{ .range = .{ 58, 64 } }, .{ .range = .{ 91, 96 } }, .{ .range = .{ 123, 126 } } };
-
-    pub const AsciiExtended = [_]CharMapEntry{.{ .range = .{ 128, 254 } }};
-
-    pub const AsciiBasic = AsciiUpperAlpha ++ AsciiLowerAlpha ++ AsciiNumeric ++ AsciiPunctiation;
-
-    pub const Apple = [_]CharMapEntry{
-        .{ .unicode = 0xF8FF },
-        .{ .unicode = 0x1001B8 },
-    };
-};
 
 //TODO Support multiple non scaled sizes
 //Layouting
@@ -917,8 +1183,42 @@ pub const CharMaps = struct {
 //
 //On the fly atlas generation,
 //When encountering a unbaked glyph, display a blank and in a second thread? generate a new texture with it baked in
-
+// zig fmt: on
 pub const Font = struct {
+    //TODO document all the glyph fields
+    pub const Glyph = struct {
+        offset_x: f32 = 0,
+        offset_y: f32 = 0,
+        advance_x: f32 = 0,
+        tr: Rect = .{ .x = 0, .y = 0, .w = 0, .h = 0 },
+        width: f32 = 0,
+        height: f32 = 0,
+        i: u21 = 0,
+    };
+
+    ///Used to specify what codepoints are to be loaded
+    pub const CharMapEntry = union(enum) {
+        unicode: u21, //A single codepoint
+        range: [2]u21, //A range of codepoints (inclusive)
+    };
+
+    ///Define common character sets
+    pub const CharMaps = struct {
+        pub const AsciiUpperAlpha = [_]CharMapEntry{.{ .range = .{ 65, 90 } }};
+        pub const AsciiLowerAlpha = [_]CharMapEntry{.{ .range = .{ 97, 122 } }};
+        pub const AsciiNumeric = [_]CharMapEntry{.{ .range = .{ 48, 57 } }};
+        pub const AsciiPunctiation = [_]CharMapEntry{ .{ .range = .{ 32, 47 } }, .{ .range = .{ 58, 64 } }, .{ .range = .{ 91, 96 } }, .{ .range = .{ 123, 126 } } };
+
+        pub const AsciiExtended = [_]CharMapEntry{.{ .range = .{ 128, 254 } }};
+
+        pub const AsciiBasic = AsciiUpperAlpha ++ AsciiLowerAlpha ++ AsciiNumeric ++ AsciiPunctiation;
+
+        pub const Apple = [_]CharMapEntry{
+            .{ .unicode = 0xF8FF },
+            .{ .unicode = 0x1001B8 },
+        };
+    };
+
     font_size: f32,
 
     glyph_set: SparseSet(Glyph, u21),
@@ -936,8 +1236,6 @@ pub const Font = struct {
 
     const Self = @This();
     const START_CHAR: usize = 32;
-    const END_CHAR: usize = 127;
-    const NUM_CHARS: usize = END_CHAR - START_CHAR;
     const padding: usize = 10;
 
     //TODO is there a more specific type than anytype for streams?
@@ -961,6 +1259,8 @@ pub const Font = struct {
     }
 
     //TODO pass both dpix and dpiy, and specify argument units for more clarity.
+    //Better init functions, more default parameters
+    //Allow logging and debug to be disabled
     pub fn init(filename: []const u8, alloc: std.mem.Allocator, point_size: f32, dpi: u32, codepoints_to_load: []const CharMapEntry, opt_pack_factor: ?f32) !Self {
         const codepoints = blk: {
             var codepoint_list = std.ArrayList(Glyph).init(alloc);
@@ -979,8 +1279,13 @@ pub const Font = struct {
             }
             break :blk codepoint_list.toOwnedSlice();
         };
+        const dump_bitmaps = true;
 
         const dir = std.fs.cwd();
+        dir.makeDir("debug") catch |err| switch (err) {
+            error.PathAlreadyExists => {},
+            else => return err,
+        };
         const font_log = try dir.createFile("debug/fontgen.log", .{ .truncate = true });
         const log = font_log.writer();
         defer font_log.close();
@@ -1064,21 +1369,20 @@ pub const Font = struct {
                 }
             }
         }
+        freetypeLogErr(stderr, c.FT_Library_SetLcdFilter(ftlib, c.FT_LCD_FILTER_DEFAULT));
 
         freetypeLogErr(
             stderr,
-            //FT_Set_Char_Size:
             c.FT_Set_Char_Size(
                 face,
                 0,
-                //@floatToInt(c_int, 70 / @intToFloat(f32, dpi) * 72 * 64),
                 @floatToInt(c_int, point_size) * 64, //expects a size in 1/64 of points, font_size is in points
                 dpi,
                 dpi,
             ),
         );
 
-        {
+        { //Logs all the glyphs in this font file
             var agindex: c.FT_UInt = 0;
             var charcode = c.FT_Get_First_Char(face, &agindex);
             var col: usize = 0;
@@ -1099,8 +1403,8 @@ pub const Font = struct {
         result.ascent = @intToFloat(f32, fr.size.*.metrics.ascender) / 64;
         result.descent = @intToFloat(f32, fr.size.*.metrics.descender) / 64;
         result.max_advance = @intToFloat(f32, fr.size.*.metrics.max_advance) / 64;
-        //result.scale_factor = @intToFloat(f32, size_metrics.y_scale) / 65536.0;
         result.line_gap = @intToFloat(f32, fr.size.*.metrics.height) / 64;
+
         try log.print("Freetype face: ascender:  {d}px\n", .{result.ascent});
         try log.print("Freetype face: descender:  {d}px\n", .{result.descent});
         try log.print("Freetype face: line_gap:  {d}px\n", .{result.line_gap});
@@ -1119,10 +1423,13 @@ pub const Font = struct {
                 bitmap.buffer.deinit();
             bitmaps.deinit();
         }
-        //try result.glyphs.append(.{ .value = ' ', .tr = .{ .x = 0, .y = 0, .w = 0, .h = 0 }, .advance_x = point_size, .width = point_size, .height = 0, .offset_x = 0, .offset_y = 0 });
+        if (dump_bitmaps) {
+            dir.makeDir("debug/bitmaps") catch |err| switch (err) {
+                error.PathAlreadyExists => {},
+                else => return err,
+            };
+        }
 
-        //var char = @intCast(c_ulong, START_CHAR + 1);
-        //while (char < END_CHAR) : (char += 1) {
         var timer = try std.time.Timer.start();
         for (result.glyph_set.dense.items) |*codepoint| {
             const glyph_i = c.FT_Get_Char_Index(face, codepoint.i);
@@ -1133,9 +1440,24 @@ pub const Font = struct {
 
             freetypeLogErr(stderr, c.FT_Load_Glyph(face, glyph_i, c.FT_LOAD_DEFAULT));
             freetypeLogErr(stderr, c.FT_Render_Glyph(face.*.glyph, c.FT_RENDER_MODE_NORMAL));
+            //freetypeLogErr(stderr, c.FT_Render_Glyph(face.*.glyph, c.FT_RENDER_MODE_LCD));
 
             const bitmap = &(face.*.glyph.*.bitmap);
+
             if (bitmap.width != 0 and bitmap.rows != 0) {
+                if (dump_bitmaps) {
+                    var buf: [255]u8 = undefined;
+                    var fbs = std.io.FixedBufferStream([]u8){ .buffer = &buf, .pos = 0 };
+                    try fbs.writer().print("debug/bitmaps/{d}.bmp", .{glyph_i});
+                    try fbs.writer().writeByte(0);
+                    _ = c.stbi_write_bmp(
+                        @ptrCast([*c]const u8, fbs.getWritten()),
+                        @intCast(c_int, bitmap.width),
+                        @intCast(c_int, bitmap.rows),
+                        1,
+                        @ptrCast([*c]u8, bitmap.buffer[0 .. bitmap.rows * bitmap.width]),
+                    );
+                }
                 const ind = bitmaps.items.len;
                 try bitmaps.append(GlyphBitmap{
                     .buffer = std.ArrayList(u8).init(alloc),
@@ -1178,7 +1500,7 @@ pub const Font = struct {
             codepoint.* = glyph;
         }
         const elapsed = timer.read();
-        try log.print("Rendered {d} glyphs in {d} ms\n", .{ result.glyph_set.dense.items.len, @intToFloat(f32, elapsed) / std.time.ns_per_ms });
+        try log.print("Rendered {d} glyphs in {d} ms, {d} ms avg\n", .{ result.glyph_set.dense.items.len, @intToFloat(f32, elapsed) / std.time.ns_per_ms, @intToFloat(f32, elapsed) / std.time.ns_per_ms / @intToFloat(f32, result.glyph_set.dense.items.len) });
         {
             var num_pixels: usize = 0;
             for (packing_rects.items) |r| {
@@ -1214,7 +1536,6 @@ pub const Font = struct {
                 try texture_bitmap.appendNTimes(0, result.texture.w * result.texture.h);
 
                 for (packing_rects.items) |rect, i| {
-                    //const g = &result.glyphs.items[@intCast(usize, rect.id) + 1];
                     const g = try result.glyph_set.getPtr(@intCast(u21, rect.id));
                     g.tr.x = @intToFloat(f32, @intCast(u32, rect.x) + padding) - @intToFloat(f32, padding) / 2;
                     g.tr.y = @intToFloat(f32, @intCast(u32, rect.y) + padding) - @intToFloat(f32, padding) / 2;
@@ -1243,7 +1564,15 @@ pub const Font = struct {
                     1,
                     @ptrCast([*c]u8, texture_bitmap.items[0..texture_bitmap.items.len]),
                 );
-                result.texture.id = GL.grayscaleTexture(result.texture.w, result.texture.h, texture_bitmap.items);
+                // zig fmt: on
+                result.texture = Texture.fromArray(texture_bitmap.items, result.texture.w, result.texture.h, .{
+                    .pixel_store_alignment = 1,
+                    .internal_format = c.GL_RED,
+                    .pixel_format = c.GL_RED,
+                    .min_filter = c.GL_LINEAR,
+                    .mag_filter = c.GL_LINEAR,
+                });
+                //result.texture.id = GL.grayscaleTexture(result.texture.w, result.texture.h, texture_bitmap.items);
             }
         }
 
@@ -1389,8 +1718,6 @@ pub const GraphicsContext = struct {
         }
         self.batches.deinit();
     }
-
-    //TODO grayscale only currently
 
     fn getBatch(self: *Self, state: State) !*Batch {
         for (self.batches.items) |*batch| {
@@ -1571,7 +1898,7 @@ pub const GraphicsContext = struct {
             logErr("indicies");
             return;
         };
-        self.z_st += 0.1;
+        //self.z_st += 0.1;
     }
 
     pub fn drawRectTex(
@@ -1801,6 +2128,144 @@ pub fn vertexTextured(x: f32, y: f32, z: f32, u: f32, v: f32, col: Color) Vertex
     return .{ .x = x, .y = y, .z = z, .u = u, .v = v, .r = col[0], .g = col[1], .b = col[2], .a = col[3] };
 }
 
+pub const NewTri = struct {
+    const Self = @This();
+    const shader_test_frag = @embedFile("shader/colorquad.frag");
+    const shader_test_vert = @embedFile("shader/newtri.vert");
+    pub const Vert = packed struct {
+        pos: Vec2f,
+        z: u16,
+        color: u32,
+    };
+
+    vertices: std.ArrayList(Vert),
+    indicies: std.ArrayList(u32),
+    shader: c_uint,
+
+    vao: c_uint,
+    vbo: c_uint,
+    ebo: c_uint,
+
+    pub fn init(alloc: std.mem.Allocator) @This() {
+        const Vertu = Vert;
+        var ret = Self{
+            .vertices = std.ArrayList(Vertu).init(alloc),
+            .indicies = std.ArrayList(u32).init(alloc),
+            .shader = Shader.simpleShader(shader_test_vert, shader_test_frag),
+            .vao = 0,
+            .vbo = 0,
+            .ebo = 0,
+        };
+
+        c.glGenVertexArrays(1, &ret.vao);
+        c.glGenBuffers(1, &ret.vbo);
+        c.glGenBuffers(1, &ret.ebo);
+
+        GL.generateVertexAttributes(ret.vao, ret.vbo, Vertu);
+        //GL.floatVertexAttrib(ret.vao, ret.vbo, 0, 2, Vertu, "pos"); //XY
+        //GL.intVertexAttrib(ret.vao, ret.vbo, 1, 1, Vertu, "z", c.GL_UNSIGNED_SHORT);
+        //GL.intVertexAttrib(ret.vao, ret.vbo, 2, 1, Vertu, "color", c.GL_UNSIGNED_INT);
+
+        //c.glBindVertexArray(ret.vao);
+        //GL.bufferData(c.GL_ARRAY_BUFFER, ret.vbo, Vertu, ret.vertices.items);
+        //GL.bufferData(c.GL_ELEMENT_ARRAY_BUFFER, ret.ebo, u32, ret.indicies.items);
+        return ret;
+    }
+
+    pub fn deinit(self: *Self) void {
+        self.vertices.deinit();
+        self.indicies.deinit();
+    }
+
+    pub fn quad(self: *Self, r: Rect, z: u16) !void {
+        const color = 0xff0000ff;
+        try self.indicies.appendSlice(&genQuadIndices(@intCast(u32, self.vertices.items.len)));
+        try self.vertices.appendSlice(&.{
+            Vert{ .pos = .{ .x = r.x + r.w, .y = r.y + r.h }, .z = z, .color = color },
+            Vert{ .pos = .{ .x = r.x + r.w, .y = r.y }, .z = z, .color = color },
+            Vert{ .pos = .{ .x = r.x, .y = r.y }, .z = z, .color = color },
+            Vert{ .pos = .{ .x = r.x, .y = r.y + r.h }, .z = z, .color = color },
+        });
+    }
+
+    pub fn draw(b: *Self, screenw: i32, screenh: i32) void {
+        const view = za.orthographic(0, @intToFloat(f32, screenw), @intToFloat(f32, screenh), 0, -100000, 1).translate(za.Vec3.new(0, 0, 0));
+
+        c.glViewport(0, 0, screenw, screenh);
+        const model = za.Mat4.identity();
+        c.glUseProgram(b.shader);
+        c.glBindVertexArray(b.vao);
+        GL.bufferData(c.GL_ARRAY_BUFFER, b.vbo, Vert, b.vertices.items);
+        GL.bufferData(c.GL_ELEMENT_ARRAY_BUFFER, b.ebo, u32, b.indicies.items);
+
+        GL.passUniform(b.shader, "view", view);
+        GL.passUniform(b.shader, "model", model);
+
+        c.glDrawElements(c.GL_TRIANGLES, @intCast(c_int, b.indicies.items.len), c.GL_UNSIGNED_INT, null);
+    }
+};
+
+pub const Cubes = struct {
+    const Self = @This();
+    vertices: std.ArrayList(VertexTextured),
+    indicies: std.ArrayList(u32),
+
+    shader: glID,
+    texture: glID,
+    vao: c_uint = undefined,
+    vbo: c_uint = undefined,
+    ebo: c_uint = undefined,
+
+    pub fn setData(self: *Self) void {
+        c.glBindVertexArray(self.vao);
+        GL.bufferData(c.GL_ARRAY_BUFFER, self.vbo, VertexTextured, self.vertices.items);
+        GL.bufferData(c.GL_ELEMENT_ARRAY_BUFFER, self.ebo, u32, self.indicies.items);
+    }
+
+    pub fn draw(b: *Self, screenw: i32, screenh: i32, view: za.Mat4) void {
+        //const view = za.orthographic(0, @intToFloat(f32, screenw), @intToFloat(f32, screenh), 0, -100000, 1).translate(za.Vec3.new(0, 0, 0));
+
+        c.glViewport(0, 0, screenw, screenh);
+        const model = za.Mat4.identity();
+        c.glUseProgram(b.shader);
+        c.glBindVertexArray(b.vao);
+
+        c.glBindTexture(c.GL_TEXTURE_2D, b.texture);
+
+        GL.passUniform(b.shader, "view", view);
+        GL.passUniform(b.shader, "model", model);
+
+        c.glDrawElements(c.GL_TRIANGLES, @intCast(c_int, b.indicies.items.len), c.GL_UNSIGNED_INT, null);
+    }
+
+    pub fn init(alloc: *const std.mem.Allocator, texture: glID, shader: glID) @This() {
+        var ret = Self{
+            .vertices = std.ArrayList(VertexTextured).init(alloc.*),
+            .indicies = std.ArrayList(u32).init(alloc.*),
+            .texture = texture,
+            .shader = shader,
+        };
+
+        c.glGenVertexArrays(1, &ret.vao);
+        c.glGenBuffers(1, &ret.vbo);
+        c.glGenBuffers(1, &ret.ebo);
+
+        GL.floatVertexAttrib(ret.vao, ret.vbo, 0, 3, VertexTextured, "x"); //XYZ
+        GL.floatVertexAttrib(ret.vao, ret.vbo, 1, 4, VertexTextured, "r"); //RGBA
+        GL.floatVertexAttrib(ret.vao, ret.vbo, 2, 2, VertexTextured, "u"); //RGBA
+
+        c.glBindVertexArray(ret.vao);
+        GL.bufferData(c.GL_ARRAY_BUFFER, ret.vbo, VertexTextured, ret.vertices.items);
+        GL.bufferData(c.GL_ELEMENT_ARRAY_BUFFER, ret.ebo, u32, ret.indicies.items);
+        return ret;
+    }
+
+    pub fn deinit(self: *Self) void {
+        self.vertices.deinit();
+        self.indicies.deinit();
+    }
+};
+
 //Textured
 //colored
 
@@ -1836,9 +2301,9 @@ const TriangleBatchTex = struct {
         GL.floatVertexAttrib(ret.vao, ret.vbo, 1, 4, VertexTextured, "r"); //RGBA
         GL.floatVertexAttrib(ret.vao, ret.vbo, 2, 2, VertexTextured, "u"); //RGBA
 
-        c.glBindVertexArray(ret.vao);
-        GL.bufferData(c.GL_ARRAY_BUFFER, ret.vbo, VertexTextured, ret.vertices.items);
-        GL.bufferData(c.GL_ELEMENT_ARRAY_BUFFER, ret.ebo, u32, ret.indicies.items);
+        //c.glBindVertexArray(ret.vao);
+        //GL.bufferData(c.GL_ARRAY_BUFFER, ret.vbo, VertexTextured, ret.vertices.items);
+        //GL.bufferData(c.GL_ELEMENT_ARRAY_BUFFER, ret.ebo, u32, ret.indicies.items);
         return ret;
     }
 
@@ -1957,11 +2422,8 @@ const Batch = union(enum) {
 
                 c.glBindTexture(c.GL_TEXTURE_2D, b.texture);
 
-                const view_loc = c.glGetUniformLocation(texture_shader, "view");
-                c.glUniformMatrix4fv(view_loc, 1, c.GL_FALSE, &view.data[0][0]);
-
-                const model_loc = c.glGetUniformLocation(texture_shader, "model");
-                c.glUniformMatrix4fv(model_loc, 1, c.GL_FALSE, &model.data[0][0]);
+                GL.passUniform(texture_shader, "view", view);
+                GL.passUniform(texture_shader, "model", model);
 
                 c.glDrawElements(c.GL_TRIANGLES, @intCast(c_int, b.indicies.items.len), c.GL_UNSIGNED_INT, null);
             },
@@ -1970,8 +2432,7 @@ const Batch = union(enum) {
                 c.glBindVertexArray(b.vao);
                 GL.bufferData(c.GL_ARRAY_BUFFER, b.vbo, Vertex, b.vertices.items);
 
-                const view_loc = c.glGetUniformLocation(texture_shader, "view");
-                c.glUniformMatrix4fv(view_loc, 1, c.GL_FALSE, &view.data[0][0]);
+                GL.passUniform(texture_shader, "view", view);
 
                 //c.glDrawElements(c.GL_TRIANGLES, @intCast(c_int, b.indicies.items.len), c.GL_UNSIGNED_INT, null);
                 c.glDrawArrays(c.GL_LINES, 0, @intCast(c_int, b.vertices.items.len));
@@ -1984,58 +2445,73 @@ const Batch = union(enum) {
 };
 
 pub const BindType = [2][]const u8;
-
 pub const BindList = []const BindType;
 
-pub const my_maps: BindList = &.{
-    .{ "print", "C" },
-    .{ "toggle", "O" },
-};
-
+//Takes a list of bindings{"name", "key_name"} and generates an enum
+//can be used with BindingMap and a switch() to map key input events to actions
+//
 pub fn GenerateBindingEnum(comptime map: BindList) type {
     const TypeInfo = std.builtin.Type;
-    var fields: [map.len]TypeInfo.EnumField = undefined;
+    var fields: [map.len + 1]TypeInfo.EnumField = undefined;
 
     inline for (map) |bind, b_i| {
         fields[b_i] = .{ .name = bind[0], .value = b_i };
     }
+    fields[map.len] = .{ .name = "no_action", .value = map.len };
     return @Type(TypeInfo{ .Enum = .{
         .layout = .Auto,
         .fields = fields[0..],
-        .tag_type = u32,
+        .tag_type = std.math.IntFittingRange(0, map.len),
         .decls = &.{},
         .is_exhaustive = true,
     } });
 }
 
-pub fn BindingMap(comptime map_enum: type) type {
+//var testmap = graph.Bind(&.{.{ "my_key_binding", "a" }}).init();
+pub fn Bind(comptime map: BindList) type {
     return struct {
-        const Self = @This();
-        map: std.AutoHashMap(usize, map_enum),
+        const bind_enum = GenerateBindingEnum(map);
 
-        pub fn init(map: BindList, alloc: *const std.mem.Allocator) !Self {
-            var hash_map = std.AutoHashMap(usize, map_enum).init(alloc.*);
+        table: [@enumToInt(keycodes.Scancode.ODES)]bind_enum,
+
+        pub fn init() @This() {
+            var ret: @This() = undefined;
+
+            for (ret.table) |*item|
+                item.* = .no_action;
 
             for (map) |bind, i| {
                 var buffer: [256]u8 = undefined;
+                if (bind.len >= buffer.len)
+                    @compileError("Keybinding name to long");
+
                 std.mem.copy(u8, buffer[0..], bind[1]);
                 buffer[bind[1].len] = 0;
+
                 const sc = c.SDL_GetScancodeFromName(&buffer[0]);
-                try hash_map.put(sc, @intToEnum(map_enum, i));
+                ret.table[sc] = @intToEnum(bind_enum, i);
             }
 
-            return Self{ .map = hash_map };
+            return ret;
         }
 
-        pub fn get(self: *Self, scancode: usize) ?map_enum {
-            return self.map.get(scancode);
-        }
-
-        pub fn deinit(self: *Self) void {
-            self.map.deinit();
+        pub fn get(self: *const @This(), scancode: usize) bind_enum {
+            return self.table[scancode];
         }
     };
 }
+//TODO Write tests for everything
+
+//Use case:
+//Drawing 2d graphics using the painters algorithm without having to worry about anything
+//IE Raylib
+//
+//GL Problems:
+//Seperate draw modes and shaders etc require different batches.
+//The painters algorithm requires us to draw a batch whenever we change that state.
+//States:
+//  Shader (colored tri, textured tri.
+//  Primitive type (triangles, lines, points
 
 ////const TriangleBatch = struct {
 //    vertices: []VertexTextured,
@@ -2056,6 +2532,17 @@ pub fn BindingMap(comptime map_enum: type) type {
 //
 // Plain:
 // xyz rgba
+
+//OK so new GraphicsContext
+//Since our z coordinate is only used for depth, see if a u16 could be used rather than a f32
+//triangleBatch, xyz, uv, rgba | xyz, rgba | maybe xyz uv
+//xyz: 10
+//uv: 8
+//rgba: 4
+//
+//Tris
+//Lines
+//
 
 //loadTexture()
 //unloadTexture()

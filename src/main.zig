@@ -2,13 +2,15 @@ const std = @import("std");
 const graph = @import("graphics.zig");
 const gui = @import("gui.zig");
 
+const c = @import("c.zig");
+
+const mcBlockAtlas = @import("mc_block_atlas.zig");
+
 const SparseSet = graph.SparseSet;
 
 const aabb = @import("col.zig");
 
 const ecs = @import("registry.zig");
-
-const c = @cImport(@cInclude("tree_sitter/api.h"));
 
 const SubTileset = graph.SubTileset;
 
@@ -18,6 +20,8 @@ const Color = graph.CharColor;
 
 const pow = std.math.pow;
 const sqrt = std.math.sqrt;
+
+const scancodes = @import("keycodes.zig");
 
 pub fn quadForm(a: f32, b: f32, C: f32) ?[2]f32 {
     const discrim = pow(f32, b, 2) - (4 * a * C);
@@ -227,353 +231,10 @@ pub fn simulateMove(reg: *MarioTileMap, cols: *std.ArrayList(aabb.Collision), id
     }
 }
 
-const Elevator = struct {
-    const Self = @This();
-    floor_count: u32 = 20,
-
-    cab: Cab = Cab{ .y = 0 },
-
-    hall_calls: std.bit_set.IntegerBitSet(20),
-    cab_calls: std.bit_set.IntegerBitSet(20),
-
-    direction: Direction = .none,
-
-    //hall_calls: std.ArrayList(u32),
-    //current_dest: ?u32,
-
-    state: State = .parked,
-    //top_speed: f32 = ((20 * 3)) * 6,
-    top_speed: f32 = 40,
-
-    parked_time: f32 = 0,
-    park_timeout: f32 = 0.5,
-
-    const Direction = enum { none, up, down };
-
-    const Cab = struct {
-        y: f32,
-
-        vy: f32 = 0,
-        ay: f32 = 15,
-
-        count: u32 = 0,
-    };
-
-    const State = enum {
-        //accel,
-        //brake,
-        moving,
-        parked,
-    };
-
-    pub fn init(alloc: *const std.mem.Allocator) Self {
-        _ = alloc;
-        //return Self{ .hall_calls = std.ArrayList(u32).init(alloc.*), .current_dest = null };
-        return Self{
-            .hall_calls = std.bit_set.IntegerBitSet(20).initEmpty(),
-            .cab_calls = std.bit_set.IntegerBitSet(20).initEmpty(),
-            //.current_dest = null,
-        };
-    }
-
-    pub fn deinit(self: *Self) void {
-        _ = self;
-        //self.hall_calls.deinit();
-    }
-
-    pub fn getCabFloor(self: Self) u32 {
-        if (self.cab.y == 0) return 0;
-        return @floatToInt(u32, self.shaft_height / self.cab.y);
-    }
-
-    pub fn hallCall(self: *Self, floor: u32) void {
-        self.hall_calls.set(floor);
-    }
-
-    pub fn cabCall(self: *Self, floor: u32) void {
-        self.cab_calls.set(floor);
-        //self.hall_calls.set(floor);
-    }
-
-    pub fn update(self: *Self, dt: f32) void {
-        const abs = std.math.fabs;
-        //const dest = @intToFloat(f32, self.current_dest orelse 0);
-
-        const dest: f32 = blk: {
-            const hallorcab = ((self.cab_calls.count() > 5) or self.hall_calls.count() == 0);
-            const callset = if (hallorcab) &self.cab_calls else &self.hall_calls;
-
-            switch (self.state) {
-                .parked => {
-                    self.parked_time += dt;
-
-                    if (self.parked_time > self.park_timeout and callset.count() > 0) {
-                        //self.state = .accel;
-                    } else {
-                        break :blk self.cab.y;
-                    }
-                },
-                .moving => {},
-            }
-
-            //TODO replace ay with brake
-            //This determines the maximum distance from the cab position we can brake to zero to.
-            const min_dist = abs(pow(f32, self.cab.vy, 2)) / (2 * self.cab.ay);
-            switch (self.direction) {
-                .none, .down => { //Going towards positive
-                    var i = if (self.cab.vy >= 0) @floatToInt(usize, @round(self.cab.y + min_dist)) else @floatToInt(usize, self.cab.y - min_dist);
-                    while (i < callset.capacity()) : (i += 1) {
-                        if (callset.isSet(i))
-                            break :blk @intToFloat(f32, i);
-                    }
-                },
-                .up => { //Going towards negative
-                    var i = if (self.cab.vy <= 0) @floatToInt(usize, self.cab.y - min_dist) else @floatToInt(usize, @round(self.cab.y + min_dist));
-                    while (i > 0) : (i -= 1) {
-                        if (callset.isSet(i))
-                            break :blk @intToFloat(f32, i);
-                    }
-                },
-            }
-
-            break :blk 0;
-        };
-
-        const af: f32 = if (dest > self.cab.y) 1 else -1;
-        const accel = self.cab.ay * af;
-        const brake = -accel;
-
-        if (self.cab.y != dest) {
-            if (true) { //TODO deal with dest being away from direction of movement
-                const D = -2 * brake;
-                const a = accel;
-                const v0 = self.cab.vy;
-                const x0 = self.cab.y;
-
-                if (quadForm(
-                    (std.math.pow(f32, a, 2) / D) + (a / 2),
-                    ((v0 * a) / -brake) + v0,
-                    (std.math.pow(f32, v0, 2) / D) - dest + x0,
-                )) |qf| {
-                    _ = qf;
-                }
-            }
-        }
-
-        //.accel => {
-        //    const new_y = self.cab.y + intVel(accel, dt, self.cab.vy);
-        //    const new_v = self.cab.vy + accel * dt;
-
-        //    if (std.math.pow(f32, new_v, 2) / abs(-2 * brake) > abs(dest - new_y)) {
-        //        self.state = .brake;
-
-        //        const D = -2 * brake;
-        //        const a = accel;
-        //        const v0 = self.cab.vy;
-        //        const x0 = self.cab.y;
-
-        //        const qf = quadForm(
-        //            (std.math.pow(f32, a, 2) / D) + (a / 2),
-        //            ((v0 * a) / -brake) + v0,
-        //            (std.math.pow(f32, v0, 2) / D) - dest + x0,
-        //        ) orelse unreachable;
-
-        //        const max_dt = if (af == 1) qf[0] else qf[1];
-        //        self.cab.y += intVel(accel, max_dt, self.cab.vy);
-        //        self.cab.vy += accel * max_dt;
-        //        self.update(dt - max_dt);
-        //    } else {
-        //        if (abs(self.cab.vy) < self.top_speed) {
-        //            self.cab.y += intVel(accel, dt, self.cab.vy);
-        //            self.cab.vy += accel * dt;
-        //        } else {
-        //            self.cab.y += self.cab.vy * dt;
-        //        }
-        //    }
-        //},
-        //.brake => {
-        //    const new_v = self.cab.vy + brake * dt;
-
-        //    if (abs(self.cab.vy) - abs(new_v) < 0) {
-        //        self.state = .parked;
-        //        //self.current_dest = null;
-        //        const max_dt = self.cab.vy / self.cab.ay;
-        //        self.cab.vy -= self.cab.ay * max_dt;
-        //        self.cab.y += intVel(self.cab.ay, max_dt, self.cab.vy);
-
-        //        const tolerance: f32 = 1.0 / 100.0;
-        //        std.debug.print("{d} {d}\n", .{ self.cab.y, dest });
-        //        if (self.cab.y + tolerance > dest) {
-        //            self.cab_calls.unset(@floatToInt(u32, self.cab.y));
-        //            self.hall_calls.unset(@floatToInt(u32, self.cab.y));
-        //        }
-        //        //self.cab.y = dest;
-        //    } else {
-        //        self.cab.vy += brake * dt;
-        //        self.cab.y += intVel(-brake, dt, self.cab.vy);
-        //    }
-        //},
-    }
-
-    pub fn drawDebug(self: *Self, ctx: *graph.GraphicsContext, x: f32, y: f32, w: f32, h: f32) !void {
-        const adj_y = (h / @intToFloat(f32, self.floor_count) * self.cab.y);
-        const y_max = h;
-        const interval = y_max / @intToFloat(f32, self.floor_count);
-        {
-            var i: u32 = 0;
-            while (i < self.floor_count) : (i += 1) {
-                ctx.drawRect(
-                    .{ .x = x, .y = y + @intToFloat(f32, i) * interval, .w = w, .h = interval },
-                    if (i % 2 == 0) intToColor(0xffffff88) else graph.WHITE,
-                );
-            }
-        }
-
-        ctx.drawRect(.{ .x = x + w / 4 - 2, .y = y, .w = 4, .h = h - adj_y }, intToColor(0x000000ff));
-        ctx.drawRect(.{ .x = x + w / 4 - 10, .y = y + h - adj_y, .w = 20, .h = 40 }, intToColor(0x000000ff));
-        ctx.drawRect(
-            .{ .x = x, .y = y + adj_y, .w = w, .h = interval },
-            //if (self.state == .brake) intToColor(0xff0000ff) else graph.GREEN,
-            graph.GREEN,
-        );
-
-        {
-            var it = self.hall_calls.iterator(.{});
-            while (it.next()) |hc| {
-                ctx.drawRect(.{ .x = x - 50, .y = y + @intToFloat(f32, hc) * interval, .w = 50, .h = interval / 2 }, intToColor(0xff00ffff));
-            }
-
-            var cit = self.cab_calls.iterator(.{});
-            while (cit.next()) |hc| {
-                ctx.drawRect(.{ .x = x - 100, .y = y + @intToFloat(f32, hc) * interval, .w = 50, .h = interval / 2 }, intToColor(0xff0080ff));
-            }
-        }
-        // for (self.hall_calls.items) |call| {
-        //     ctx.drawRect(.{ .x = x - 50, .y = y + @intToFloat(f32, call) * interval, .w = 50, .h = interval / 2 }, intToColor(0xff00ffff));
-        // }
-        //if (self.current_dest) |dest|
-        //    ctx.drawRect(.{ .x = x - 50, .y = y + @intToFloat(f32, dest) * interval, .w = 50, .h = interval / 2 }, intToColor(0x00ffffff));
-
-        ctx.drawRect(.{ .x = x + w / 2 - 2, .y = y, .w = 4, .h = adj_y }, intToColor(0x000000ff));
-
-        {
-            //const dest = @intToFloat(f32, self.current_dest orelse 0);
-            //const af: f32 = if (dest > self.cab.y) 1 else -1;
-            //const accel = self.cab.ay * af;
-            //const brake = -accel;
-
-            //const min_dest = pow(f32, self.cab.vy, 2) / (-2 * brake);
-            //ctx.drawRect(.{ .x = x - 20, .y = y + adj_y, .w = 20, .h = min_dest * interval }, intToColor(0xff00ffff));
-        }
-    }
-};
-
-pub const Floor = struct {
-    elevator_pos: f32 = 0,
-    width: f32 = 400,
-};
-
 pub const TestEnum = enum {
     val1,
     two,
     three,
-};
-
-pub const Agent = struct {
-    const Self = @This();
-
-    floor_index: u32,
-    x: f32,
-    state: State = .idle,
-
-    dest_floor: u32,
-    dest_x: f32,
-
-    temp_dest: ?f32 = null,
-
-    pub const State = enum { idle, walking, elevate, elevate_wait };
-
-    pub fn update(self: *Self, dt: f32, elevator: *Elevator) void {
-        switch (self.state) {
-            .idle => {
-                if (self.x != self.dest_x or self.dest_floor != self.floor_index) {
-                    self.state = .walking;
-                }
-            },
-            .walking => {
-                if (self.temp_dest) |ts| {
-                    //TODO detect once arrived and decide next state (elevate or idle)
-                    const sign: f32 = if (ts > self.x) 1 else -1;
-
-                    const v = 80;
-
-                    const dest_dt = (ts - self.x) / (sign * v);
-                    if (dest_dt < dt) {
-                        self.x += (sign * v * dest_dt);
-                        self.temp_dest = null;
-                    } else {
-                        self.x += (sign * v * dt);
-                    }
-                } else {
-                    if (self.dest_floor != self.floor_index) {
-                        if (self.x != 0) {
-                            self.temp_dest = 0; //For now we have only one elevator at x = 0
-                        } else {
-                            self.state = .elevate_wait;
-                            switch (elevator.state) {
-                                .parked => {
-                                    if (@floatToInt(u32, elevator.cab.y) != self.floor_index) {
-                                        elevator.hallCall(self.floor_index);
-                                    } else {
-                                        elevator.cabCall(self.dest_floor);
-                                        elevator.cab.count += 1;
-                                        self.state = .elevate;
-                                        self.update(dt, elevator);
-                                    }
-                                },
-                                else => {
-                                    elevator.hallCall(self.floor_index);
-                                },
-                            }
-                        }
-                    } else if (self.x != self.dest_x) {
-                        self.temp_dest = self.dest_x;
-                    } else {
-                        self.state = .idle;
-                    }
-                    //either find a temp_dest and call update again
-                    //or if we have arrived, state = .idle
-                }
-            },
-            .elevate_wait => {
-                if (elevator.state == .parked and @floatToInt(u32, elevator.cab.y) == self.floor_index) {
-                    elevator.cabCall(self.dest_floor);
-                    self.state = .elevate;
-                    elevator.cab.count += 1;
-                    self.update(dt, elevator);
-                }
-            },
-            .elevate => {
-                if (elevator.state == .parked and @floatToInt(u32, elevator.cab.y) == self.dest_floor) {
-                    self.floor_index = self.dest_floor;
-                    elevator.cab.count -= 1;
-                    self.state = .idle;
-                }
-            },
-        }
-
-        //Algorithm
-        //switch(state)
-        //idle ->
-        //  if x!= dest_x or floor != dest_floor
-        //  walk
-    }
-
-    pub fn drawDebug(self: *Self, ctx: *graph.GraphicsContext, cab_y: f32, x: f32, y: f32, floor_h: f32, col: Color) !void {
-        const w = 10;
-        const y_c: f32 = if (self.state == .elevate) (cab_y * floor_h) + floor_h - w else (@intToFloat(f32, self.floor_index + 1) * floor_h) - w;
-        ctx.drawRect(.{ .x = self.x + x, .y = y_c + y, .w = w, .h = w }, col);
-    }
 };
 
 const TextEditorBindings: graph.BindList = &.{
@@ -841,12 +502,6 @@ const Mario = struct {
     }
 };
 
-pub const Bitmap = struct {
-    data: std.ArrayList(u8),
-    w: u32,
-    h: u32,
-};
-
 const CollisionData = struct {
     const EntityType = enum {
         static,
@@ -867,32 +522,68 @@ pub const EntityStorage = struct {
     };
 };
 
-pub extern fn tree_sitter_zig() *c.TSLanguage;
+fn testHsvImage(alloc: std.mem.Allocator, h: f32) !graph.Texture {
+    //HSV
+    //S is the x axis
+    //V is the y axis
+    var bmp = try graph.Bitmap.initBlank(alloc, 25, 25);
+    defer bmp.data.deinit();
+    defer bmp.writeToBmpFile(alloc, "debug/hsv.bmp") catch unreachable;
 
-const src = @embedFile("main.zig");
+    var timer = try std.time.Timer.start();
+
+    var vy: u32 = 0;
+    while (vy < bmp.h) : (vy += 1) {
+        var sx: u32 = 0;
+        while (sx < bmp.w) : (sx += 1) {
+            const V = @intToFloat(f32, vy) / @intToFloat(f32, bmp.h);
+            const S = @intToFloat(f32, sx) / @intToFloat(f32, bmp.w);
+            const C = V * S;
+            const hp = h / 60.0;
+            const X = C * (1 - @fabs(@mod(hp, 2) - 1));
+            const rgb1 = switch (@floatToInt(u32, hp)) {
+                0 => graph.za.Vec3.new(C, X, 0),
+                1 => graph.za.Vec3.new(X, C, 0),
+                2 => graph.za.Vec3.new(0, C, X),
+                3 => graph.za.Vec3.new(0, X, C),
+                4 => graph.za.Vec3.new(X, 0, C),
+                5 => graph.za.Vec3.new(C, 0, X),
+                else => unreachable,
+            };
+            const M = V - C;
+            const index = ((bmp.h - vy - 1) * bmp.w + sx) * 4;
+            const d = bmp.data.items[index .. index + 4];
+            for (d) |*dd, i| {
+                if (i == 3) {
+                    dd.* = 0xff;
+                    break;
+                }
+                dd.* = @floatToInt(u8, (M + rgb1.data[i]) * 256);
+            }
+        }
+    }
+
+    const time = timer.read();
+    std.debug.print("Time took: {d}\n", .{time});
+
+    return graph.Texture.fromArray(bmp.data.items, bmp.w, bmp.h, .{});
+}
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.detectLeaks();
     const alloc = &gpa.allocator();
 
-    var main_bindings = try graph.BindingMap(MainBindingEnum).init(MainBindings, alloc);
-    defer main_bindings.deinit();
-
-    var editor_bindings = try graph.BindingMap(EditorBindingEnum).init(TextEditorBindings, alloc);
-    defer editor_bindings.deinit();
-
-    var tile_editor_bindings = try graph.BindingMap(TileEditorBindingEnum).init(TileEditorBindings, alloc);
-    defer tile_editor_bindings.deinit();
-
-    var game_bindings = try graph.BindingMap(GameBindingEnum).init(GameBindings, alloc);
-    defer game_bindings.deinit();
+    var testmap = graph.Bind(&.{.{ "fuck", "a" }}).init();
 
     var win = try graph.SDL.Window.createWindow("My window");
     defer win.destroyWindow();
 
     var ctx = try graph.GraphicsContext.init(alloc, 163);
     defer ctx.deinit();
+
+    const mc_atlas = try mcBlockAtlas.buildAtlas(alloc.*);
+    defer mc_atlas.deinit(alloc.*);
 
     const SaveData = struct {
         fps_posx: f32 = 0,
@@ -908,143 +599,6 @@ pub fn main() !void {
         draw_map: bool = true,
     };
     var sd: SaveData = .{};
-    var tile_index: usize = 0;
-    var tileset_index: usize = 0;
-
-    const mario_img_path = "mario_assets/img/";
-    const ref_img = try graph.loadPngFromPath(mario_img_path ++ "level1.png", alloc);
-    var show_ref_img = false;
-
-    const anim_text = try graph.loadPngFromPath(mario_img_path ++ "mario-anim.png", alloc);
-    var anim: SubTileset = .{
-        .start = .{ .x = 20, .y = 8 },
-        .tw = 16,
-        .th = 16,
-        .pad = .{ .x = 2, .y = 2 },
-        .num = .{ .x = 3, .y = 1 },
-        .count = 3,
-    };
-    var anim_frame: usize = 0;
-
-    var last_placed_index: u32 = 0;
-
-    var bitmap = Bitmap{ .data = std.ArrayList(u8).init(alloc.*), .w = 256, .h = 256 };
-    try bitmap.data.resize(bitmap.w * bitmap.h * 4);
-    for (bitmap.data.items) |*pixel| {
-        pixel.* = 0xff;
-    }
-    defer bitmap.data.deinit();
-
-    var shroom: ?u32 = null;
-
-    var anim_timer = try std.time.Timer.start();
-
-    const PixelEditor = struct {
-        xoff: f32 = 0,
-        yoff: f32 = 0,
-        zf: f32 = 1.0,
-
-        start_pointx: f32 = 0,
-        start_pointy: f32 = 0,
-    };
-    var pe: PixelEditor = .{};
-
-    var tile_map_zf: f32 = (224 / 16.0) / 2160.0;
-    var tile_map_dx: f32 = 0;
-    var tile_map_dy: f32 = 0;
-
-    var mouse_dx: f32 = 0;
-
-    var mig_level: MarioTileMap = undefined;
-    try mig_level.initFromJsonFile("mario_assets/migration.json", alloc);
-
-    defer mig_level.deinit();
-
-    var mario: Mario = Mario{};
-
-    var sts: SubTileset = .{
-        .start = .{ .x = 0, .y = 16 },
-        .tw = 16,
-        .th = 16,
-        .pad = .{ .x = 1, .y = 1 },
-        .num = .{ .x = 8, .y = 4 },
-        .count = 8 * 4 - 1,
-    };
-
-    const pipe_ts = SubTileset{
-        .start = .{ .x = 0, .y = 196 },
-        .tw = 16,
-        .th = 16,
-        .pad = .{ .x = 1, .y = 1 },
-        .num = .{ .x = 9, .y = 4 },
-        .count = 9 * 4,
-    };
-
-    const tokens_ts = SubTileset{
-        .start = .{ .x = 298, .y = 78 },
-        .tw = 16,
-        .th = 16,
-        .pad = .{ .x = 1, .y = 1 },
-        .num = .{ .x = 4, .y = 5 },
-        .count = 4 * 5,
-    };
-
-    const clouds_ts = SubTileset{
-        .start = .{ .x = 298, .y = 16 },
-        .tw = 16,
-        .th = 16,
-        .pad = .{ .x = 1, .y = 1 },
-        .num = .{ .x = 5, .y = 2 },
-        .count = 5 * 2,
-    };
-
-    const shrooms_ts = SubTileset{
-        .start = .{ .x = 0, .y = 8 },
-        .tw = 16,
-        .th = 16,
-        .pad = .{ .x = 1, .y = 2 },
-        .num = .{ .x = 1, .y = 2 },
-        .count = 2,
-    };
-    const flowers = SubTileset{
-        .start = .{ .x = 32, .y = 8 },
-        .tw = 16,
-        .th = 16,
-        .pad = .{ .x = 2, .y = 2 },
-        .num = .{ .x = 4, .y = 3 },
-        .count = 12,
-    };
-    const stars = SubTileset{
-        .start = .{ .x = 106, .y = 8 },
-        .tw = 16,
-        .th = 16,
-        .pad = .{ .x = 2, .y = 2 },
-        .num = .{ .x = 4, .y = 3 },
-        .count = 12,
-    };
-
-    const mario_stand = SubTileset{
-        .start = .{ .x = 0, .y = 8 },
-        .tw = 16,
-        .th = 16,
-        .pad = .{ .x = 0, .y = 0 },
-        .num = .{ .x = 1, .y = 1 },
-        .count = 1,
-    };
-    const mario_slide = SubTileset{ .start = .{ .x = 76, .y = 8 }, .tw = 16, .th = 16, .pad = .{ .x = 0, .y = 0 }, .num = .{ .x = 1, .y = 1 }, .count = 1 };
-    const mario_leap = SubTileset{ .start = .{ .x = 96, .y = 8 }, .tw = 16, .th = 16, .pad = .{ .x = 0, .y = 0 }, .num = .{ .x = 1, .y = 1 }, .count = 1 };
-    const mario_fall = SubTileset{ .start = .{ .x = 116, .y = 8 }, .tw = 16, .th = 16, .pad = .{ .x = 0, .y = 0 }, .num = .{ .x = 1, .y = 1 }, .count = 1 };
-    const mario_flag = SubTileset{ .start = .{ .x = 136, .y = 8 }, .tw = 16, .th = 16, .pad = .{ .x = 2, .y = 0 }, .num = .{ .x = 2, .y = 1 }, .count = 2 };
-    const mario_swim = SubTileset{ .start = .{ .x = 174, .y = 8 }, .tw = 16, .th = 16, .pad = .{ .x = 2, .y = 0 }, .num = .{ .x = 5, .y = 1 }, .count = 5 };
-
-    const goomba = SubTileset{ .start = .{ .x = 0, .y = 16 }, .tw = 16, .th = 16, .pad = .{ .x = 2, .y = 2 }, .num = .{ .x = 3, .y = 2 }, .count = 6 };
-    const atlas = try graph.Atlas.init(&.{
-        .{ .filename = mario_img_path ++ "mario-tileset.png", .tilesets = &.{ sts, pipe_ts, tokens_ts, clouds_ts } },
-        .{ .filename = mario_img_path ++ "mario-anim.png", .tilesets = &.{ mario_stand, anim, mario_slide, mario_leap, mario_fall, mario_flag, mario_swim } },
-        .{ .filename = mario_img_path ++ "mario-obj.png", .tilesets = &.{ shrooms_ts, flowers, stars } },
-        .{ .filename = mario_img_path ++ "mario-enemy.png", .tilesets = &.{goomba} },
-    }, alloc, 256);
-    defer atlas.deinit();
 
     sd = try deSerializeJson("debug/save.json", SaveData, alloc);
 
@@ -1052,580 +606,93 @@ pub fn main() !void {
 
     var dpix: u32 = @floatToInt(u32, win.getDpi());
     const init_size = 18;
-    var font = try graph.Font.init("fonts/sfmono.otf", alloc.*, init_size, dpix, &(graph.CharMaps.AsciiBasic ++ graph.CharMaps.Apple), null);
+    var font = try graph.Font.init("fonts/sfmono.otf", alloc.*, init_size, dpix, &(graph.Font.CharMaps.AsciiBasic ++ graph.Font.CharMaps.Apple), null);
     defer font.deinit();
-
-    var text_y: f32 = 400;
 
     var sdat = gui.SaveData{ .x = 200, .y = 0 };
     sdat = try deSerializeJson("debug/gui.json", gui.SaveData, alloc);
-    //var gctx: gui.Window = .{ .font = &font, .font_size = 18, .x_init = sdat.x, .y_init = sdat.y, .width = 600, .title = @as([]const u8, "Panel") };
-    var gctx = gui.Window.init(&font, &ctx, @intToFloat(f32, dpix));
-    //defer serialJson("debug/gui.json", gui.SaveData{ .x = gctx., .y = gctx.y_init });
-
-    var win2 = gui.Window.init(&font, &ctx, @intToFloat(f32, dpix));
-    win2.init_cursor = graph.Rec(8 * 72, 3 * 72, 4 * 72, 5 * 72);
-
-    var showCrap = false;
-    var mario_crap = false;
-
-    var gray_out_inactive_layers = true;
-
-    const fixed_font_text = try graph.loadPngFromPath(mario_img_path ++ "mario-text.png", alloc);
-    var fixed_font = graph.FixedBitmapFont.init(fixed_font_text, .{
-        .start = .{ .x = 264, .y = 8 },
-        .tw = 8,
-        .th = 8,
-        .pad = .{ .x = 1, .y = 1 },
-        .num = .{ .x = 16, .y = 3 },
-        .count = 16 * 3 - 7,
-    }, "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ-*!.@");
-
-    var cmds = gui.CmdBuf.init(alloc.*);
-    defer cmds.deinit();
-
-    var elevator = Elevator.init(alloc);
-    defer elevator.deinit();
-    //elevator.current_dest = 10;
-
-    var elevator1 = Elevator.init(alloc);
-    defer elevator1.deinit();
-    //elevator.current_dest = 10;
-
-    var building: [10]Floor = undefined;
-    elevator.floor_count = 10;
-    for (building) |*floor| {
-        floor.elevator_pos = 0;
-        floor.width = 2000;
-    }
-
-    var agents: [1]Agent = undefined;
-    {
-        var prng = std.rand.DefaultPrng.init(0);
-        const r = prng.random();
-        for (agents) |*ag| {
-            ag.* = .{
-                .floor_index = r.intRangeLessThanBiased(u32, 0, building.len - 1),
-                .dest_floor = r.intRangeLessThanBiased(u32, 0, building.len - 1),
-                .x = r.float(f32) * 2000 + 100,
-                .dest_x = r.float(f32) * 2000 + 100,
-            };
-        }
-    }
 
     var prng = std.rand.DefaultPrng.init(0);
     const rand = prng.random();
     _ = rand;
 
-    var agent: Agent = .{ .floor_index = 0, .x = 300, .dest_floor = 8, .dest_x = 500 };
-    var agent_2: Agent = .{ .floor_index = 5, .x = 100, .dest_floor = 2, .dest_x = 200 };
+    var camera = graph.Camera3D{};
+    //const my_image = try graph.loadPngIntoTexture("sky.png", alloc);
 
-    var collision_ctx = aabb.CollisionContext().init(alloc);
-    defer collision_ctx.deinit();
-    //for (tile_map.items) |tile| {
-
-    for (mig_level.data.collidable.dense.items) |cl| {
-        const pos = (try mig_level.data.coord.get(cl.i)).item;
-        try collision_ctx.insert(graph.Rec(pos.x, pos.y, 1, 1), cl.i);
-        //_ = try collision_ctx.add(graph.Rec(@intToFloat(f32, pos.x), @intToFloat(f32, pos.y), 1, 1));
+    win.grabMouse(true);
+    var cubes = graph.Cubes.init(alloc, mc_atlas.texture.id, ctx.tex_shad);
+    defer cubes.deinit();
+    {
+        const index = cubes.vertices.items.len;
+        try cubes.vertices.appendSlice(&graph.cube(0, 0, 0, 1, 1, 1, mc_atlas.getTextureRec(1), mc_atlas.texture.w, mc_atlas.texture.h, null));
+        try cubes.indicies.appendSlice(&graph.genCubeIndicies(@intCast(u32, index)));
+        cubes.vertices.items[0].g = 0;
+        cubes.vertices.items[0].b = 0;
+        cubes.vertices.items[1].r = 0;
+        cubes.vertices.items[1].b = 0;
+        cubes.setData();
     }
+    const my_texture = try testHsvImage(alloc.*, 0);
 
-    const player_col = try collision_ctx.add(.{ .x = 3.51, .y = 2, .w = 0.8, .h = 0.8 });
-    const player_id = try mig_level.createEntity();
-    try mig_level.attachComponent(player_id, MarioMap.Coord, .{ .x = 3.51, .y = 2, .w = 0.8, .h = 0.8 });
-    try mig_level.attachComponent(player_id, MarioMap.Physics, .{});
-    try mig_level.attachComponent(player_id, MarioMap.CollisionObject, .{});
+    var newtri = graph.NewTri.init(alloc.*);
+    defer newtri.deinit();
 
-    //var vy: f32 = 0;
-    var grounded = false;
-    //var dvy: f32 = 0;
-    var show_elevator_crap = false;
-    var collision_crap = true;
-    var all_the_crap = true;
+    var testbatch = graph.NewBatch(graph.NewTri.Vert, .{ .index_buffer = false }).init(alloc.*);
+    var testbatchebo = graph.NewBatch(graph.NewTri.Vert, .{ .index_buffer = true }).init(alloc.*);
+    std.debug.print("ebo vs non {d} {d}\n", .{ @sizeOf(@TypeOf(testbatchebo)), @sizeOf(@TypeOf(testbatch)) });
+
+    try newtri.quad(graph.Rec(50, 50, 100, 100), 10000);
+
+    graph.GL.checkError();
 
     while (!win.should_exit) {
         try ctx.beginDraw(intToColor(0x2f2f2fff));
         win.pumpEvents(); //Important that this is called after beginDraw for input lag reasons
-        if (show_elevator_crap) {
-            elevator.update(16.0 / 1000.0);
-            //try elevator.drawDebug(&ctx, sd.build_x, sd.build_y, 100, (sd.build_floor_h * 10));
-
-            agent.update(16.0 / 1000.0, &elevator);
-            agent_2.update(16.0 / 1000.0, &elevator);
-
-            for (agents) |*ag| {
-                ag.update(16.0 / 1000.0, &elevator);
-            }
-
-            elevator1.update(16.0 / 1000.0);
-            //try elevator1.drawDebug(&ctx, 200, 0, 50, 200);
-
-            {
-                try cmds.resize(0);
-
-                gctx.begin(win.mouse.pos, win.mouse.delta, win.mouse.left, win.mouse);
-
-                gctx.floatSlide("Top speed", &elevator.top_speed, 0, 20);
-                gctx.floatSlide("Accel", &elevator.cab.ay, 0, 50);
-                gctx.floatSlide("FPS x", &sd.fps_posx, 0, @intToFloat(f32, win.screen_width));
-                gctx.floatSlide("FPS y", &sd.fps_posy, 0, @intToFloat(f32, win.screen_height));
-                gctx.floatSlide("elev x", &sd.elevx, 0, @intToFloat(f32, win.screen_width));
-                gctx.floatSlide("elev y", &sd.elevy, 0, @intToFloat(f32, win.screen_height));
-                gctx.floatSlide("build x", &sd.build_x, 0, @intToFloat(f32, win.screen_height));
-                gctx.floatSlide("build y", &sd.build_y, 0, @intToFloat(f32, win.screen_width));
-                gctx.floatSlide("build h", &sd.build_floor_h, 0, @intToFloat(f32, win.screen_height));
-
-                {
-                    var i: u32 = 0;
-                    while (i < elevator.floor_count) : (i += 1) {
-                        if (gctx.button()) {
-                            elevator.hall_calls.set(i);
-                            //var exists = false;
-                            //for (elevator.hall_calls.items) |call| {
-                            //    if (call == i) {
-                            //        exists = true;
-                            //        break;
-                            //    }
-                            //}
-                            //if (!exists)
-                            //    try elevator.hall_calls.append(i);
-                            //if (elevator.current_dest == null)
-                            //    elevator.current_dest = i;
-                        }
-                    }
-                }
-                gctx.label("cunt");
-                gctx.end();
-
-                //gui.drawCommands(cmds.items, &ctx, &font);
-            }
-            {
-                switch (agent.state) {
-                    .idle => ctx.drawText(100, 100, "idle", &font, 20, intToColor(0xffffffff)),
-                    .elevate => ctx.drawText(100, 100, "elevate", &font, 20, intToColor(0xffffffff)),
-                    .elevate_wait => ctx.drawText(100, 100, "elevate_wait", &font, 20, intToColor(0xffffffff)),
-                    .walking => ctx.drawText(100, 100, "walking", &font, 20, intToColor(0xffffffff)),
-                }
-
-                var buf: [100]u8 = undefined;
-                var bufStream = std.io.FixedBufferStream([]u8){ .buffer = &buf, .pos = 0 };
-                try bufStream.writer().print("Count: {d}\nState: {any}", .{ elevator.cab.count, elevator.state });
-                ctx.drawText(100, 150, buf[0..bufStream.pos], &font, 20, intToColor(0xffffffff));
-            }
-
-            {
-                for (building) |floor, i| {
-                    ctx.drawRect(.{
-                        .x = sd.build_x,
-                        .y = sd.build_y + (@intToFloat(f32, i) * sd.build_floor_h),
-                        .w = floor.width,
-                        .h = 10,
-                    }, intToColor(0x111111ff));
-                }
-            }
-
-            {
-                var count: u32 = 0;
-                for (agents) |*ag, i| {
-                    const w = 10;
-                    const max_w: u32 = 100 / w;
-                    if (ag.state == .elevate) {
-                        count += 1;
-                        try ag.drawDebug(
-                            &ctx,
-                            elevator.cab.y,
-                            sd.build_x + (w * @intToFloat(f32, count % max_w)),
-                            sd.build_y - (w * @intToFloat(f32, @divFloor(count, max_w))),
-                            sd.build_floor_h,
-                            unique_colors[i % unique_colors.len],
-                        );
-                    } else {
-                        try ag.drawDebug(&ctx, elevator.cab.y, sd.build_x, sd.build_y, sd.build_floor_h, unique_colors[i % unique_colors.len]);
-                    }
-                }
-            }
-
-            try agent.drawDebug(&ctx, elevator.cab.y, sd.build_x, sd.build_y, sd.build_floor_h, intToColor(0xff00ffff));
-            try agent_2.drawDebug(&ctx, elevator.cab.y, sd.build_x, sd.build_y, sd.build_floor_h, intToColor(0xff00ffff));
-        }
-
-        ctx.drawRect(.{ .x = 0, .y = 0, .w = 1, .h = 1 }, intToColor(0xffff00ff));
+        camera.update(&win);
 
         {
-            gctx.begin(win.mouse.pos, win.mouse.delta, win.mouse.left, win.mouse);
-            const old_c = gctx.cr;
-            gctx.cr.layout = .{ .column = .{ .num_items = 10, .item_height = 20 } };
-            gctx.cr = gui.nColumns(old_c, 0, 3);
-            gctx.cr.margin(12);
+            var buf: [300]u8 = undefined;
+            var fbs = std.io.FixedBufferStream([]u8){ .buffer = buf[0..], .pos = 0 };
+            //try fbs.writer().print("{any} \n{any}", .{ cam_pos.data, camera_front.data });
 
-            gctx.checkBox(&all_the_crap, "show all");
-            if (all_the_crap) {
-                gctx.floatSlide("Window h", &gctx.init_cursor.h, 0, 1000);
-                gctx.checkBox(&show_elevator_crap, "show elevator crap");
-                gctx.checkBox(&collision_crap, "collision crap");
-                gctx.checkBox(&show_ref_img, "show ref img");
-                gctx.checkBox(&grounded, "grounded");
-                gctx.checkBox(&sd.draw_map, "show_map");
-
-                gctx.floatSlide("pe Zoom", &pe.zf, -10, 10);
-                gctx.floatSlide("xoff", &pe.xoff, -1000, 1000);
-                gctx.floatSlide("yoff", &pe.yoff, -1000, 1000);
-                gctx.floatSlide("zf", &tile_map_zf, -1000, 1000);
-                //gctx.floatSlide("x", &collision_ctx.rects.items[0].?.rect.x, 0, 3840);
-                //gctx.floatSlide("y", &collision_ctx.rects.items[0].?.rect.y, 0, 3840);
-                gctx.floatSlide("text_y", &text_y, -30840, 3830);
-                gctx.checkBox(&showCrap, "showCrap");
-                gctx.checkBox(&gray_out_inactive_layers, "highlight current layer");
-                if (gctx.button()) {
-                    std.debug.print("Writing map\n", .{});
-                    var ret = try mig_level.copyToOwnedJson();
-                    serialJson("mario_assets/migration.json", ret);
-                    std.json.parseFree(MarioTileMap.Types.json, ret, .{ .allocator = alloc.* });
-                }
-                {
-                    const info = @typeInfo(MarioTileMap.Types.component_enum);
-                    const entity_component_set = mig_level.entities.items[last_placed_index];
-                    inline for (info.Enum.fields) |field, i| {
-                        const init_value = entity_component_set.isSet(i);
-                        var my_bool = init_value;
-                        gctx.checkBox(&my_bool, field.name);
-
-                        if (init_value == false and my_bool == true) {
-                            try mig_level.attachComponent(last_placed_index, MarioTileMap.field_list[i].ftype, .{});
-                        }
-                    }
-                }
-
-                gctx.checkBox(&sd.show_tilesets, "Show tilesets");
-                if (sd.show_tilesets) {
-                    //for (atlas.sets.items) |set, fti| {
-                    //    const current_set = fti == tileset_index;
-
-                    //    const this_item = gctx.item_index;
-                    //    gctx.item_index += 1;
-
-                    //    //const xoff = gctx.x + gctx.default_style.getLeft();
-                    //    //const yoff = gctx.y + gctx.default_style.getTop();
-
-                    //    const xoff = gctx.x;
-                    //    const yoff = gctx.y;
-
-                    //    const w = gctx.w;
-
-                    //    const pw = w / 10;
-                    //    const pad = 1;
-                    //    const fac = pw + pad;
-                    //    var i: i32 = 0;
-                    //    while (i < set.count) : (i += 1) {
-                    //        const rec = graph.Rect{ .x = xoff + fac * @intToFloat(f32, @mod(i, set.num.x)), .y = yoff + fac * @intToFloat(f32, @divFloor(i, set.num.x)), .w = pw, .h = pw };
-                    //        gui.DrawCommand.drawTexRect(
-                    //            &cmds,
-                    //            rec,
-                    //            set.getTexRec(@intCast(usize, i)),
-                    //            atlas.texture,
-                    //            itc(0xffffffff),
-                    //        );
-                    //        if (current_set and @intCast(usize, i) == tile_index) {
-                    //            gui.DrawCommand.drawRect(&cmds, rec, 0, itc(0xff000022));
-                    //        }
-                    //    }
-
-                    //    _ = this_item;
-                    //    const bound_rect = graph.Rec(xoff, yoff, @intToFloat(f32, set.num.x) * fac, @intToFloat(f32, set.num.y) * fac);
-                    //    if (gctx.m_down and gui.rectContainsPoint(bound_rect, gctx.m_old_x, gctx.m_old_y)) {
-                    //        const col = @floatToInt(usize, @divFloor((gctx.m_old_x - bound_rect.x), fac));
-                    //        const row = @floatToInt(usize, @divFloor((gctx.m_old_y - bound_rect.y), fac));
-                    //        tile_index = (@intCast(usize, set.num.x) * row) + col;
-                    //        tileset_index = fti;
-
-                    //        //tile_index =
-                    //    }
-                    //    gctx.y = yoff + (@intToFloat(f32, set.num.y) * fac);
-                    //}
-                }
-            }
-            gctx.cr = gui.nColumns(old_c, 1, 3);
-            gctx.cr.margin(12);
-            gctx.cr.layout = .{ .column = .{ .num_items = 10, .item_height = 15 } };
-            gctx.checkBox(&all_the_crap, "show all");
-            gctx.checkBox(&all_the_crap, "show all");
-            gctx.modify(graph.Font, &font, "");
+            ctx.drawText(50, 300, buf[0..fbs.pos], &font, 16, intToColor(0xffffffff));
         }
-        const pl_rect = (try collision_ctx.get(player_col));
-        const shit = -@trunc((-pl_rect.x + mouse_dx + 10) * 16) / 16;
 
-        {
-            for (win.keys.slice()) |key| {
-                const tx = @floatToInt(i32, @divFloor(win.mouse.pos.x + shit / tile_map_zf, 1 / tile_map_zf));
-                const ty = @floatToInt(i32, @divFloor(win.mouse.pos.y + 0.5 / tile_map_zf, 1 / tile_map_zf));
-                switch (if (tile_editor_bindings.get(key.scancode)) |v| v else continue) {
-                    .select_tile => {
-                        if (win.mouse.wheel_delta > 0) {
-                            if (tile_index + 1 == atlas.sets.items[tileset_index].count) {
-                                tile_index = 0;
-                                tileset_index = (tileset_index + 1) % atlas.sets.items.len;
-                            } else {
-                                tile_index = (tile_index + 1);
-                            }
-                        } else if (win.mouse.wheel_delta < 0) {
-                            if (tile_index > 0) {
-                                tile_index -= 1;
-                            } else {
-                                tileset_index = if (tileset_index > 0) tileset_index - 1 else atlas.sets.items.len - 1;
-                                tile_index = atlas.sets.items[tileset_index].count - 1;
-                            }
-                        }
-                    },
-                    .place_tile => {
-                        if (win.mouse.left) {
-                            var occupied = false;
-                            for (mig_level.data.coord.dense.items) |item| {
-                                if (@floatToInt(i32, item.item.x) == tx and @floatToInt(i32, item.item.y) == ty) {
-                                    occupied = true;
-                                    break;
-                                }
-                            }
-                            if (!occupied) {
-                                const index = try mig_level.createEntity();
+        for (win.keys.slice()) |key| {
+            switch (testmap.get(key.scancode)) {
+                .fuck => std.debug.print("FUCK pressed\n", .{}),
+                else => {},
+            }
+        }
 
-                                try mig_level.attachComponent(index, MarioMap.Coord, .{ .x = @intToFloat(f32, tx), .y = @intToFloat(f32, ty) });
-                                try mig_level.attachComponent(index, MarioMap.TileSetInfo, .{ .ti = tile_index, .si = tileset_index });
-
-                                std.debug.print("INDex of placed {d}\n", .{index});
-                                last_placed_index = index;
-                            }
-                        }
-                    },
-                    .erase_tile => {
-                        if (win.mouse.left) {
-                            for (mig_level.data.coord.dense.items) |tile| {
-                                if (@floatToInt(i32, tile.item.x) == tx and @floatToInt(i32, tile.item.y) == ty) {
-                                    try mig_level.destroyEntity(tile.i);
-                                    break;
-                                }
-                            }
-                        }
-                    },
-                    .alert => {
-                        std.debug.print("Alerting\n", .{});
-                    },
-                    .zoom_map => {
-                        //tile_map_zf += win.mouse.wheel_delta / std.math.pow(f32, tile_map_zf, 2);
-                        if (win.mouse.wheel_delta != 0 and tile_map_zf > std.math.f32_min) {
-                            tile_map_zf += if (std.math.signbit(win.mouse.wheel_delta)) (0.1 * tile_map_zf) else -(0.1 * tile_map_zf);
-                        }
-                    },
+        for (testmap.table) |key, i| {
+            if (key != .no_action and win.keyboard_state.isSet(i)) {
+                switch (key) {
+                    .fuck => std.debug.print("FUCK HELLED\n", .{}),
                     else => {},
                 }
             }
         }
 
-        if (win.mouse.middle) {
-            mouse_dx += win.mouse.delta.x / (1 / tile_map_zf);
-            //tile_map_dx += win.mouse.delta.x / (1 / tile_map_zf);
-            //tile_map_dy += win.mouse.delta.y / (1 / tile_map_zf);
-        }
-
-        try ctx.beginCameraDraw(win.screen_width, win.screen_height);
-
-        if (mario_crap) {
-            ctx.drawRect(graph.Rec(
-                0,
-                0,
-                @intToFloat(f32, @divFloor(ref_img.w, 16)),
-                @intToFloat(f32, @divFloor(ref_img.h, 16)),
-            ), itc(0x5c94fcff));
-
-            if (show_ref_img)
-                try ctx.drawRectTex(graph.Rec(
-                    @trunc(tile_map_dx),
-                    @trunc(tile_map_dy),
-                    @intToFloat(f32, @divFloor(ref_img.w, 16)),
-                    @intToFloat(f32, @divFloor(ref_img.h, 16)),
-                ), graph.Rec(0, 0, @intToFloat(f32, ref_img.w), @intToFloat(f32, ref_img.h)), itc(0xffffff4f), ref_img);
-
-            if (sd.draw_map) {
-                for (mig_level.data.tile_set_info.dense.items) |tile| {
-                    const coord = try mig_level.data.coord.get(tile.i);
-                    try ctx.drawRectTex(
-                        .{
-                            .x = coord.item.x + @trunc(tile_map_dx),
-                            .y = coord.item.y + @trunc(tile_map_dy),
-                            .w = 1,
-                            .h = 1,
-                        },
-                        atlas.getTexRec(tile.item.si, tile.item.ti),
-                        //tile_sets[info.item.si].getTexRec(info.item.ti),
-                        itc(0xffffffff),
-                        atlas.texture,
-                    );
-                }
-            }
-
-            const sr = graph.Rec(
-                @divFloor(win.mouse.pos.x + shit / tile_map_zf, 1 / tile_map_zf),
-                @divFloor(win.mouse.pos.y + 0.5 / tile_map_zf, 1 / tile_map_zf),
-                1,
-                1,
-            );
-            try ctx.drawRectTex(
-                sr,
-                atlas.getTexRec(tileset_index, tile_index),
-                //tile_sets[tileset_index].getTexRec(tile_index),
-                itc(0xffffffff),
-                atlas.texture,
-            );
-
-            if (collision_crap) {
-                var can_jump = false;
-                mario.update(can_jump, .{
-                    .right = win.keyboard_state.isSet(win.getScancodeFromName("d")),
-                    .left = win.keyboard_state.isSet(win.getScancodeFromName("a")),
-                    .b = win.keyboard_state.isSet(win.getScancodeFromName("n")),
-                    .a = win.keyboard_state.isSet(win.getScancodeFromName("m")),
-                });
-                for (win.keys.slice()) |key| {
-                    if (key.state != .held)
-                        continue;
-                    switch (if (game_bindings.get(key.scancode)) |v| v else continue) {
-                        else => {},
-                    }
-                }
-
-                const pl_pos = mig_level.getComponentPtr(player_id, .coord).?;
-                {
-                    try ctx.drawRectTex(
-                        graph.Rec(
-                            @trunc((pl_pos.x + @trunc(tile_map_dx)) * 16) / 16,
-                            @trunc((pl_pos.y + @trunc(tile_map_dy)) * 16) / 16,
-                            pl_pos.w,
-                            pl_pos.h,
-                        ),
-                        anim.getTexRec(anim_frame),
-                        itc(0xffffffff),
-                        anim_text,
-                    );
-                }
-                const elapsed = anim_timer.read();
-                if (elapsed / std.time.ns_per_ms > 100) {
-                    anim_frame = (anim_frame + 1) % 3;
-                    anim_timer.reset();
-                }
-
-                //const col = try collision_ctx.slide(alloc, player_col, mario.dx, mario.dy);
-                const phys = mig_level.getComponentPtr(player_id, .physics).?;
-                phys.dx = mario.dx;
-                phys.dy = mario.dy;
-                mario.dx = 0;
-                mario.dy = 0;
-                try collisionUpdate(&mig_level, alloc.*);
-            }
-        }
-        const dt = @intToFloat(f32, ctx.fps_time) / std.time.ns_per_ms;
-        {
-            if (shroom) |id| {
-                const col = try collision_ctx.slide(alloc, id, dt / 1000, 0);
-                _ = col;
-                if (mig_level.getComponentPtr(id, .coord)) |coord| {
-                    coord.x = (try collision_ctx.rect_set.get(id)).rect.x;
-                }
-            }
-        }
-        {
-            //TODO Ugly, create way to edit entities during iteration without side effects
-            var mushroom_to_create: ?graph.Vec2f = null;
-            //for (mig_level.data.head_banger.dense.items) |*banger| {
-            //TODO Think through pointer invaladitation etc
-            //Pooling would help
-
-            for (mig_level.entities.items) |it, uid| {
-                const id = @intCast(u32, uid);
-                if (it.isSet(@enumToInt(MarioTileMap.Types.component_enum.head_banger))) {
-                    const system_type = MarioTileMap.createSystemSet(&.{ .coord, .head_banger });
-                    var item_set = try mig_level.getEntitySetPtr(id, system_type);
-
-                    if (item_set.head_banger.active) {
-                        //const dt = 16.6; //TODO get actual dt
-
-                        item_set.head_banger.time_active += dt;
-                        const pos_offset = (0.18 * std.math.pow(f32, (item_set.head_banger.time_active / 16.6) - 7, 2) - 7.5) / 16.0;
-                        //const pos_ptr = try mig_level.data.coord.getPtr(banger.i);
-                        if (mig_level.getComponentPtr(id, .head_banger)) |ptr| {
-                            _ = ptr;
-                        }
-
-                        //TODO move using a collision function
-                        const col_ptr = try collision_ctx.rect_set.getPtr(id);
-                        if (pos_offset > 0) {
-                            item_set.head_banger.active = false;
-                            item_set.head_banger.time_active = 0;
-                            item_set.coord.y = col_ptr.rect.y;
-                            if (mig_level.hasComponent(id, .mystery_box)) {
-                                try mig_level.removeComponent(id, .head_banger);
-                                mushroom_to_create = .{ .x = item_set.coord.x, .y = item_set.coord.y };
-                            }
-                            //if (mig_level.entities.items[id].isSet(@enumToInt(MarioTileMap.Types.component_enum.mystery_box))) {}
-                        } else {
-                            item_set.coord.y = col_ptr.rect.y + pos_offset;
-                        }
-                    }
-                }
-            }
-            if (mushroom_to_create) |coord| {
-                const ent = try mig_level.createEntity();
-                try mig_level.attachComponent(ent, MarioMap.Mushroom, .{});
-                try mig_level.attachComponent(ent, MarioMap.Coord, .{ .x = coord.x, .y = coord.y });
-                try mig_level.attachComponent(ent, MarioMap.TileSetInfo, MarioMap.Mushroom.MushroomTile);
-            }
-        }
-        for (mig_level.entities.items) |it, uid| {
-            const id = @intCast(u32, uid);
-            if (it.isSet(@enumToInt(MarioTileMap.Types.component_enum.mushroom))) {
-                const system_type = MarioTileMap.createSystemSet(&.{ .coord, .mushroom });
-                var item_set = try mig_level.getEntitySetPtr(id, system_type);
-                if (item_set.mushroom.time_active < 1000) {
-                    item_set.mushroom.time_active += dt;
-                    item_set.coord.y -= (dt / 1000);
-                    if (item_set.mushroom.time_active > 1000) {
-                        try collision_ctx.insert(graph.Rec(item_set.coord.x, item_set.coord.y, 1, 1), id);
-                        shroom = id;
-                    }
-                }
-            }
-        }
-
-        try ctx.endCameraDraw(graph.Rec(
-            0,
-            0,
-            @intToFloat(f32, win.screen_width) * tile_map_zf,
-            @intToFloat(f32, win.screen_height) * tile_map_zf,
-        ), .{
-            .x = @trunc((-pl_rect.x + mouse_dx + 10) * 16) / 16 + (1.0 / 17.0),
-            .y = -0.5,
-        });
-        //_ = fixed_font;
-
-        {
-
-            //const fac = 50 * (sw * tile_map_zf);
-            const fac = (1 / tile_map_zf);
-            const lr = graph.Rect{
-                .x = (@divFloor(win.mouse.pos.x - ((tile_map_dx - @trunc(tile_map_dx) * fac)), fac) * fac) +
-                    (tile_map_dx - @trunc(tile_map_dx)) * fac,
-                //@mod(tile_map_dx / tile_map_zf, sw * tile_map_zf),
-                //.y = (@divFloor(win.mouse.pos.y, fac) - @mod(tile_map_dy)) * fac,
-                .y = @divFloor(win.mouse.pos.y, fac) * fac,
-                .w = fac,
-                .h = fac,
-            };
-            try ctx.drawRectOutlineThick(lr, 2, itc(0xffffff00));
-        }
+        //ctx.drawRect(.{ .x = 0, .y = 0, .w = 100, .h = 100 }, intToColor(0xffff00ff));
+        try ctx.drawRectTex(graph.Rec(600, 600, 1000, 1000), graph.Rec(0, 0, @intToFloat(f32, my_texture.w), @intToFloat(f32, my_texture.h)), itc(0xffffffff), my_texture);
 
         ctx.drawFPS(sd.fps_posx, sd.fps_posy, &font);
 
-        try ctx.drawFixedBitmapText(0, 400, 40, "It''''s a Mario! @ Niklas Malthouse", fixed_font, itc(0xffffffff));
+        {
+            var ii: usize = 0;
+            var j: f32 = 0;
+            while (j < 10) : (j += 1) {
+                ctx.drawRect(graph.Rec(50 + j * 25, 50 + j * 25, 40, 40), if (ii % 2 == 0) itc(0xff0000ff) else itc(0xffff00ff));
+                ii += 1;
+            }
+        }
+
+        //try ctx.drawT
 
         ctx.endDraw(win.screen_width, win.screen_height);
+        cubes.draw(win.screen_width, win.screen_height, camera.getMatrix(3840.0 / 2160.0, 85, 0.1, 10000));
+        newtri.draw(win.screen_width, win.screen_height);
 
         win.swap();
     }

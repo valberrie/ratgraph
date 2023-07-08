@@ -1,5 +1,55 @@
 const std = @import("std");
 
+fn getSrcDir() []const u8 {
+    return std.fs.path.dirname(@src().file) orelse ".";
+}
+const srcdir = getSrcDir();
+
+pub fn linkLibrary(exe: *std.build.LibExeObjStep) void {
+    const cdir = "c_libs";
+
+    const include_paths = [_][]const u8{
+        "/usr/include",
+        srcdir ++ "/" ++ cdir ++ "/freetype",
+        srcdir ++ "/" ++ cdir ++ "/stb",
+        srcdir ++ "/" ++ cdir ++ "/libspng/spng",
+    };
+
+    for (include_paths) |path| {
+        exe.addIncludePath(path);
+    }
+
+    const c_source_files = [_][]const u8{
+        srcdir ++ "/" ++ cdir ++ "/stb_image_write.c",
+        srcdir ++ "/" ++ cdir ++ "/stb_rect_pack.c",
+        srcdir ++ "/" ++ cdir ++ "/libspng/spng/spng.c",
+    };
+
+    for (c_source_files) |cfile| {
+        exe.addCSourceFile(cfile, &[_][]const u8{"-Wall"});
+    }
+    exe.linkLibC();
+    exe.linkSystemLibrary("sdl2");
+    exe.linkSystemLibrary("epoxy");
+    exe.linkSystemLibrary("freetype2");
+    exe.linkSystemLibrary("zlib");
+
+    exe.addPackagePath("zalgebra", srcdir ++ "/zig_libs/zalgebra/src/main.zig");
+    //exe.addPackage(.{
+    //    .name = "zalgebra",
+    //    .source = std.build.FileSource.relative(srcdir ++ "zig_libs/zalgebra/src/main.zig"),
+    //});
+}
+
+pub fn addPackage(exe: *std.build.LibExeObjStep, name: []const u8) void {
+    exe.addPackage(.{
+        .name = name,
+        .source = .{ .path = srcdir ++ "/src/graphics.zig" },
+        .dependencies = &[_]std.build.Pkg{.{ .name = "zalgebra", .source = .{ .path = srcdir ++ "/zig_libs/zalgebra/src/main.zig" } }},
+    });
+    //exe.addPackagePath(name, srcdir ++ "/src/graphics.zig");
+}
+
 pub fn build(b: *std.build.Builder) void {
     // Standard target options allows the person running `zig build` to choose
     // what target to build for. Here we do not override the defaults, which
@@ -16,42 +66,7 @@ pub fn build(b: *std.build.Builder) void {
     exe.setBuildMode(mode);
     exe.install();
 
-    const cdir = "c_libs";
-
-    const include_paths = [_][]const u8{
-        "/usr/include",
-        cdir ++ "/freetype",
-        cdir ++ "/stb",
-        cdir ++ "/libspng/spng",
-        cdir ++ "/tree-sitter/lib/src",
-        cdir ++ "/tree-sitter/lib/include",
-    };
-
-    for (include_paths) |path| {
-        exe.addIncludePath(path);
-    }
-
-    const c_source_files = [_][]const u8{
-        cdir ++ "/tree-sitter/lib/src/lib.c",
-        cdir ++ "/zig_parser.c",
-        cdir ++ "/stb_image_write.c",
-        cdir ++ "/stb_rect_pack.c",
-        cdir ++ "/libspng/spng/spng.c",
-    };
-
-    for (c_source_files) |cfile| {
-        exe.addCSourceFile(cfile, &[_][]const u8{"-Wall"});
-    }
-    exe.linkLibC();
-    exe.linkSystemLibrary("sdl2");
-    exe.linkSystemLibrary("epoxy");
-    exe.linkSystemLibrary("freetype2");
-    exe.linkSystemLibrary("zlib");
-
-    exe.addPackage(.{
-        .name = "zalgebra",
-        .source = std.build.FileSource.relative("zig_libs/zalgebra/src/main.zig"),
-    });
+    linkLibrary(exe);
 
     const run_cmd = exe.run();
     run_cmd.step.dependOn(b.getInstallStep());
