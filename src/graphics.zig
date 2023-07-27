@@ -13,7 +13,12 @@ pub const SparseSet = @import("sparse_set.zig").SparseSet;
 //wrapping behavior
 //border color
 
+//TODO Write text rendering for NewCtx
 //TODO Should we switch to using only zalgebra vectors?
+
+//TODO Write draw functions for both point and pixel usage
+//write function that takes a list of keybindings and draws a display documenting all keys and functions
+//Allow typeless entry of data for draw fn's. Support common vector and rectangle types with both integer and floating point
 
 const ini = @import("ini.zig");
 
@@ -32,6 +37,32 @@ pub const Vec2f = packed struct {
     }
 };
 
+pub const Vec3f = packed struct {
+    x: f32,
+    y: f32,
+    z: f32,
+
+    pub fn new(x: f32, y: f32, z: f32) @This() {
+        return .{ .x = x, .y = y, .z = z };
+    }
+
+    pub fn fromZa(v: za.Vec3) @This() {
+        return .{
+            .x = v.data[0],
+            .y = v.data[1],
+            .z = v.data[2],
+        };
+    }
+};
+
+pub inline fn ptToPx(dpi: f32, pt: f32) f32 {
+    return pt / 72 * dpi;
+}
+
+pub inline fn pxToPt(dpi: f32, px: f32) f32 {
+    return px * 72 / dpi;
+}
+
 pub const Vec2i = struct { x: i32, y: i32 };
 
 pub fn RecV(pos: Vec2f, w: f32, h: f32) Rect {
@@ -47,8 +78,13 @@ pub fn IRec(x: i32, y: i32, w: i32, h: i32) Rect {
     };
 }
 
-pub fn Rec(x: f32, y: f32, w: f32, h: f32) Rect {
-    return .{ .x = x, .y = y, .w = w, .h = h };
+pub fn Rec(x: anytype, y: anytype, w: anytype, h: anytype) Rect {
+    return .{
+        .x = std.math.lossyCast(f32, x),
+        .y = std.math.lossyCast(f32, y),
+        .w = std.math.lossyCast(f32, w),
+        .h = std.math.lossyCast(f32, h),
+    };
 }
 
 pub const Plane = enum { xy, yz, xz };
@@ -100,13 +136,13 @@ pub const Camera3D = struct {
                 move_vec = move_vec.add(za.Vec3.new(0, -1, 0));
             if (win.keydown(.SPACE))
                 move_vec = move_vec.add(za.Vec3.new(0, 1, 0));
-            if (win.keydown(.W))
+            if (win.keydown(.COMMA))
                 move_vec = move_vec.add(self.front);
-            if (win.keydown(.S))
+            if (win.keydown(.O))
                 move_vec = move_vec.add(self.front.scale(-1));
             if (win.keydown(.A))
                 move_vec = move_vec.add(self.front.cross(.{ .data = .{ 0, 1, 0 } }).norm().scale(-1));
-            if (win.keydown(.D))
+            if (win.keydown(.E))
                 move_vec = move_vec.add(self.front.cross(.{ .data = .{ 0, 1, 0 } }).norm());
 
             self.pos = self.pos.add(move_vec.norm().scale(self.move_speed));
@@ -134,6 +170,42 @@ pub const Camera3D = struct {
         return perp.mul(la);
     }
 };
+
+pub fn basicGraphUsage()void{
+    const graph = @This();
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.detectLeaks();
+    const alloc = &gpa.allocator();
+
+    var binds = graph.Bind(&.{.{ "my_bind", "a" }}).init();
+
+    var win = try graph.SDL.Window.createWindow("My window");
+    defer win.destroyWindow();
+
+    var ctx = try graph.GraphicsContext.init(alloc, 163);
+    defer ctx.deinit();
+
+    var dpix: u32 = @floatToInt(u32, win.getDpi());
+    const init_size = 18;
+    var font = try graph.Font.init("fonts/sfmono.otf", alloc.*, init_size, dpix, &(graph.Font.CharMaps.AsciiBasic ++ graph.Font.CharMaps.Apple), null);
+
+    while (!win.should_exit) {
+        try ctx.beginDraw(intToColor(0x2f2f2fff));
+        win.pumpEvents(); //Important that this is called after beginDraw for input lag reasons
+        for (win.keys.slice()) |key| {
+            switch (binds.get(key.scancode)) {
+                .my_bind => std.debug.print("bind pressed\n", .{}),
+                else => {},
+            }
+        }
+
+            ctx.drawText(50, 300, "Hello", &font, 16, intToColor(0xffffffff));
+        ctx.endDraw(win.screen_width, win.screen_height);
+        win.swap();
+    }
+
+
+}
 
 //Ideally I don't want to make any c.SDL calls in my application
 //TODO detect dpi changes
@@ -176,6 +248,7 @@ pub const SDL = struct {
         win: *c.SDL_Window,
         ctx: *anyopaque,
 
+        //TODO move to a vector
         screen_width: i32 = 0,
         screen_height: i32 = 0,
 
@@ -220,7 +293,7 @@ pub const SDL = struct {
                 c.SDL_WINDOWPOS_UNDEFINED,
                 1280,
                 960,
-                c.SDL_WINDOW_OPENGL | c.SDL_WINDOW_RESIZABLE,
+                c.SDL_WINDOW_OPENGL | c.SDL_WINDOW_RESIZABLE ,
             ) orelse {
                 sdlLogErr();
                 return error.SDLInit;
@@ -273,17 +346,9 @@ pub const SDL = struct {
         pub fn getDpi(self: *Self) f32 {
             var dpi: f32 = 0;
 
-            var x: c_int = undefined;
-            var y: c_int = undefined;
-            c.SDL_GetWindowSize(self.win, &x, &y);
-
-            var w: c_int = undefined;
-            var h: c_int = undefined;
-            c.SDL_GL_GetDrawableSize(self.win, &x, &y);
-
-            std.debug.print("{d} {d}, X {d} {d}\n", .{ x, y, w, h });
-
-            _ = c.SDL_GetDisplayDPI(c.SDL_GetWindowDisplayIndex(self.win), &dpi, null, null);
+            var hdpi: f32 = 0;
+            var vdpi: f32 = 0;
+            _ = c.SDL_GetDisplayDPI(c.SDL_GetWindowDisplayIndex(self.win), &dpi, &hdpi, &vdpi);
             return dpi;
         }
 
@@ -728,6 +793,7 @@ pub const GL = struct {
                 inline for (st.fields) |field, f_i| {
                     switch (field.field_type) {
                         Vec2f => floatVertexAttrib(vao, vbo, f_i, 2, T, field.name),
+                        Vec3f => floatVertexAttrib(vao, vbo, f_i, 3, T, field.name),
                         u16 => intVertexAttrib(vao, vbo, f_i, 1, T, field.name, c.GL_UNSIGNED_SHORT),
                         u32 => intVertexAttrib(vao, vbo, f_i, 1, T, field.name, c.GL_UNSIGNED_INT),
                         else => @compileError("generateVertexAttributes struct field type not supported: " ++ @typeName(field.field_type)),
@@ -835,6 +901,91 @@ pub const GL = struct {
     }
 };
 
+//TODO have a default font that gets loaded
+//Handle dpi
+//More 3d primitives
+pub const NewCtx = struct {
+    const Self = @This();
+    pub const ColorTriVert = packed struct { pos: Vec2f, z: u16, color: u32 };
+
+    pub const Line3DVert = packed struct { pos: Vec3f, color: u32 };
+
+    pub const TexTriVert = packed struct { pos: Vec2f, uv: Vec2f, z: u16, color: u32 };
+    const ColorTriBatch = NewBatch(ColorTriVert, .{ .index_buffer = true });
+    //const FontTriBatch = NewBatch(ColorTriVert, .{ .index_buffer = true });
+    const ColorLine3DBatch = NewBatch(Line3DVert, .{ .index_buffer = false });
+
+    batch_colored_line3D: ColorLine3DBatch,
+    batch_colored_tri: ColorTriBatch,
+    zindex: u16 = 0,
+    colored_tri_shader: c_uint,
+    colored_line3d_shader: c_uint,
+
+    pub fn init(alloc: std.mem.Allocator) Self {
+        return Self{
+            .batch_colored_tri = ColorTriBatch.init(alloc),
+            .batch_colored_line3D = ColorLine3DBatch.init(alloc),
+            .colored_tri_shader = Shader.simpleShader(NewTri.shader_test_vert, NewTri.shader_test_frag),
+            .colored_line3d_shader = Shader.simpleShader(@embedFile("shader/line3d.vert"), @embedFile("shader/colorquad.frag")),
+        };
+    }
+
+    pub fn deinit(self: *Self) void {
+        self.batch_colored_tri.deinit();
+        self.batch_colored_line3D.deinit();
+    }
+    //TODO function that takes anytype used to draw
+
+    pub fn begin(self: *Self, bg: CharColor) !void {
+        try self.batch_colored_tri.clear();
+        try self.batch_colored_line3D.clear();
+        self.zindex = 1;
+        std.time.sleep(16 * std.time.ns_per_ms);
+
+        const color = charColorToFloat(bg);
+        c.glClearColor(color[0], color[1], color[2], color[3]);
+        c.glClear(c.GL_COLOR_BUFFER_BIT | c.GL_DEPTH_BUFFER_BIT);
+    }
+
+    pub fn rectPt(self: *Self, rpt: Rect, color: u32) !void {
+        self.rect(rpt.mul(163.0) / 72.0, color);
+    }
+
+    //TODO defer errors to end of frame when fn end() called
+    pub fn rect(self: *Self, rpt: Rect, color: u32) !void {
+        //const r = rpt.mul(163.0 / 72.0);
+        const r = rpt;
+        const b = &self.batch_colored_tri;
+        const z = self.zindex;
+        self.zindex += 1;
+        try b.indicies.appendSlice(&genQuadIndices(@intCast(u32, b.vertices.items.len)));
+        try b.vertices.appendSlice(&.{
+            ColorTriVert{ .pos = .{ .x = r.x + r.w, .y = r.y + r.h }, .z = z, .color = color },
+            ColorTriVert{ .pos = .{ .x = r.x + r.w, .y = r.y }, .z = z, .color = color },
+            ColorTriVert{ .pos = .{ .x = r.x, .y = r.y }, .z = z, .color = color },
+            ColorTriVert{ .pos = .{ .x = r.x, .y = r.y + r.h }, .z = z, .color = color },
+        });
+    }
+
+    pub fn line3D(self: *Self, start_point: Vec3f, end_point: Vec3f, color: u32) !void {
+        const b = &self.batch_colored_line3D;
+        try b.vertices.append(.{ .pos = start_point, .color = color });
+        try b.vertices.append(.{ .pos = end_point, .color = color });
+    }
+
+    pub fn end(self: *Self, screenW: i32, screenH: i32, camera: za.Mat4) void {
+        const view = za.orthographic(0, @intToFloat(f32, screenW), @intToFloat(f32, screenH), 0, -100000, 1).translate(za.Vec3.new(0, 0, 0));
+        const model = za.Mat4.identity();
+        //TODO when do we need to call glViewport
+        c.glViewport(0, 0, screenW, screenH);
+        self.batch_colored_tri.pushVertexData();
+        self.batch_colored_tri.draw(.{}, self.colored_tri_shader, view, model);
+
+        self.batch_colored_line3D.pushVertexData();
+        self.batch_colored_line3D.draw(.{}, self.colored_line3d_shader, camera, model);
+    }
+};
+
 pub const BatchOptions = struct {
     index_buffer: bool,
 };
@@ -870,6 +1021,12 @@ pub fn NewBatch(comptime vertex_type: type, comptime batch_options: BatchOptions
             return ret;
         }
 
+        pub fn deinit(self: *Self) void {
+            self.vertices.deinit();
+            if (batch_options.index_buffer)
+                self.indicies.deinit();
+        }
+
         pub fn pushVertexData(self: *Self) void {
             c.glBindVertexArray(self.vao);
             GL.bufferData(c.GL_ARRAY_BUFFER, self.vbo, vertex_type, self.vertices.items);
@@ -877,28 +1034,29 @@ pub fn NewBatch(comptime vertex_type: type, comptime batch_options: BatchOptions
                 GL.bufferData(c.GL_ELEMENT_ARRAY_BUFFER, self.ebo, u32, self.indicies.items);
         }
 
+        pub fn clear(self: *Self) !void {
+            try self.vertices.resize(0);
+            if (batch_options.index_buffer)
+                try self.indicies.resize(0);
+        }
+
         pub fn draw(self: *Self, params: DrawParams, shader: c_uint, view: za.Mat4, model: za.Mat4) void {
             c.glUseProgram(shader);
             c.glBindVertexArray(self.vao);
-            GL.passUniform(params.shader, "view", view);
-            GL.passUniform(params.shader, "model", model);
+            GL.passUniform(shader, "view", view);
+            GL.passUniform(shader, "model", model);
 
             if (params.texture) |texture| {
-                c.glBindTexture(c.GL_TEXTURE_2D, texture);
+                c.glBindTexture(c.GL_TEXTURE_2D, texture.id);
             }
 
             if (batch_options.index_buffer) {
                 //TODO primitive generic
                 c.glDrawElements(c.GL_TRIANGLES, @intCast(c_int, self.indicies.items.len), c.GL_UNSIGNED_INT, null);
             } else {
-                //c.glDrawArrays(c.GL_LINES, 0, @intCast(c_int, b.vertices.items.len));
+                c.glLineWidth(3.0);
+                c.glDrawArrays(c.GL_LINES, 0, @intCast(c_int, self.vertices.items.len));
             }
-        }
-
-        pub fn deinit(self: *Self) void {
-            self.vertices.deinit();
-            if (batch_options.index_buffer)
-                self.indicies.deinit();
         }
     };
 }
@@ -985,7 +1143,21 @@ pub fn intToColor(color: u32) CharColor {
     };
 }
 
-pub const Rect = struct { x: f32, y: f32, w: f32, h: f32 };
+pub const Rect = struct {
+    const Self = @This();
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+
+    pub fn addV(self: @This(), x: f32, y: f32) @This() {
+        return .{ .x = self.x + x, .y = self.y + y, .w = self.w, .h = self.h };
+    }
+
+    pub fn mul(self: Self, scalar: f32) Self {
+        return .{ .x = self.x * scalar, .y = self.y * scalar, .w = self.w * scalar, .h = self.h * scalar };
+    }
+};
 
 pub const Color = [4]f32;
 
@@ -1010,7 +1182,14 @@ pub fn normalizeTexRect(tr: Rect, tx_w: u32, tx_h: u32) Rect {
 }
 
 pub fn cube(px: f32, py: f32, pz: f32, sx: f32, sy: f32, sz: f32, tr: Rect, tx_w: u32, tx_h: u32, colorsopt: ?[]const CharColor) [24]VertexTextured {
-    const colors = if (colorsopt) |cc| cc else &[6]CharColor{ itc(0xffffffff), itc(0xffffffff), itc(0xffffffff), itc(0xffffffff), itc(0xffffffff), itc(0xffffffff) };
+    const colors = if (colorsopt) |cc| cc else &[6]CharColor{
+        itc(0x888888ff), //Front
+        itc(0x888888ff), //Back
+        itc(0x666666ff), //Bottom
+        itc(0xffffffff), //Top
+        itc(0xaaaaaaff),
+        itc(0xaaaaaaff),
+    };
     const un = normalizeTexRect(tr, tx_w, tx_h);
     return [_]VertexTextured{
         // zig fmt: off
@@ -1235,16 +1414,17 @@ pub const Font = struct {
     dpi: f32,
 
     const Self = @This();
-    const START_CHAR: usize = 32;
+    //const START_CHAR: usize = 32;
     const padding: usize = 10;
 
-    //TODO is there a more specific type than anytype for streams?
-    fn freetypeLogErr(stream: anytype, error_code: c_int) void {
+    //Add zig errors for freetype errors along with correct error defers so init() catch err can be handled correctly
+    fn freetypeLogErr(stream: anytype, error_code: c_int) !void {
         if (error_code == 0)
             return;
 
+        _ = c.FT_Err_Cannot_Open_Resource;
         var found = false;
-        for (c.ft_errors) |err| {
+        inline for (c.ft_errors) |err| {
             if (err.err_code == error_code) {
                 found = true;
                 if (err.err_msg) |msg|
@@ -1256,6 +1436,8 @@ pub const Font = struct {
 
         if (!found)
             stream.print("Freetype: Error code not found in table: {d}\n", .{error_code}) catch return;
+
+        return error.freetype;
     }
 
     //TODO pass both dpix and dpiy, and specify argument units for more clarity.
@@ -1301,6 +1483,8 @@ pub const Font = struct {
             .descent = 0,
             .line_gap = 0,
         };
+        errdefer result.glyph_set.deinit();
+
         std.debug.print("len of sparse: {d}\n", .{result.glyph_set.sparse.items.len});
 
         //TODO switch to using a grid rather than rect packing
@@ -1309,7 +1493,7 @@ pub const Font = struct {
         const stderr = std.io.getStdErr().writer();
 
         var ftlib: c.FT_Library = undefined;
-        freetypeLogErr(stderr, c.FT_Init_FreeType(&ftlib));
+        try freetypeLogErr(stderr, c.FT_Init_FreeType(&ftlib));
 
         var face: c.FT_Face = undefined;
         {
@@ -1321,7 +1505,7 @@ pub const Font = struct {
 
             //FT_New_Face loads font file from filepathname
             //the face pointer should be destroyed with FT_Done_Face()
-            freetypeLogErr(stderr, c.FT_New_Face(ftlib, @ptrCast([*:0]const u8, strbuf.items), 0, &face));
+            try freetypeLogErr(stderr, c.FT_New_Face(ftlib, @ptrCast([*:0]const u8, strbuf.items), 0, &face));
 
             try log.print("Freetype face: num_faces:  {d}\n", .{face.*.num_faces});
             try log.print("Freetype face: num_glyphs:  {d}\n", .{face.*.num_glyphs});
@@ -1369,9 +1553,9 @@ pub const Font = struct {
                 }
             }
         }
-        freetypeLogErr(stderr, c.FT_Library_SetLcdFilter(ftlib, c.FT_LCD_FILTER_DEFAULT));
+        try freetypeLogErr(stderr, c.FT_Library_SetLcdFilter(ftlib, c.FT_LCD_FILTER_DEFAULT));
 
-        freetypeLogErr(
+        try freetypeLogErr(
             stderr,
             c.FT_Set_Char_Size(
                 face,
@@ -1438,8 +1622,8 @@ pub const Font = struct {
                 continue;
             }
 
-            freetypeLogErr(stderr, c.FT_Load_Glyph(face, glyph_i, c.FT_LOAD_DEFAULT));
-            freetypeLogErr(stderr, c.FT_Render_Glyph(face.*.glyph, c.FT_RENDER_MODE_NORMAL));
+            try freetypeLogErr(stderr, c.FT_Load_Glyph(face, glyph_i, c.FT_LOAD_DEFAULT));
+            try freetypeLogErr(stderr, c.FT_Render_Glyph(face.*.glyph, c.FT_RENDER_MODE_NORMAL));
             //freetypeLogErr(stderr, c.FT_Render_Glyph(face.*.glyph, c.FT_RENDER_MODE_LCD));
 
             const bitmap = &(face.*.glyph.*.bitmap);
@@ -1690,7 +1874,7 @@ pub const GraphicsContext = struct {
     memcpy_time: u64 = 0,
     last_memcpy_time: u64 = 1000,
 
-    dpi: f32 = 72,
+    dpi: f32 = 0,
 
     pub fn init(alloc: *const std.mem.Allocator, dpi: f32) !Self {
         var ret: Self = .{
@@ -1754,9 +1938,10 @@ pub const GraphicsContext = struct {
         }
         self.frame_timer.reset();
 
-        const color = charColorToFloat(bg);
-        c.glClearColor(color[0], color[1], color[2], color[3]);
-        c.glClear(c.GL_COLOR_BUFFER_BIT | c.GL_DEPTH_BUFFER_BIT);
+        _ = bg;
+        //const color = charColorToFloat(bg);
+        //c.glClearColor(color[0], color[1], color[2], color[3]);
+        //c.glClear(c.GL_COLOR_BUFFER_BIT | c.GL_DEPTH_BUFFER_BIT);
         self.z_st = 0;
         for (self.batches.items) |*batch| {
             try batch.reset();
@@ -1855,6 +2040,7 @@ pub const GraphicsContext = struct {
 
     pub fn ptRect(self: *Self, x: f32, y: f32, w: f32, h: f32, col: CharColor) void {
         const fac = self.dpi / 72.0;
+        //const fac = pxToPt(self.dpi, 1);
         self.dRect(fac * x, fac * y, fac * w, fac * h, col);
     }
 
@@ -1948,6 +2134,7 @@ pub const GraphicsContext = struct {
         self.z_st += 0.1;
     }
 
+    //TODO Split this off into a function that draws a single unicode codepoint
     pub fn drawText(self: *Self, x: f32, y: f32, str: []const u8, font: *Font, size: f32, col: CharColor) void {
         //TODO investigae index ob when nothing happens in a drawcall
         //const SF = size / font.font_size;
@@ -1972,12 +2159,12 @@ pub const GraphicsContext = struct {
             if (ch == '\n') {
                 //vy += (font.ascent - font.descent + font.line_gap) * SF * font.scale_factor;
                 vy += font.line_gap * SF;
-                vx = x;
+                vx = x * fac;
                 continue;
             }
 
-            if (ch < Font.START_CHAR)
-                continue;
+            //if (ch < Font.START_CHAR)
+            //continue;
             //const g_i = ch - Font.START_CHAR;
             //const g = font.glyphs.items[g_i];
             const g = font.glyph_set.get(ch) catch |err| {
@@ -2498,6 +2685,8 @@ pub fn Bind(comptime map: BindList) type {
         pub fn get(self: *const @This(), scancode: usize) bind_enum {
             return self.table[scancode];
         }
+
+        //pub fn draw(self: *const Self, ctx: *NewCtx)
     };
 }
 //TODO Write tests for everything

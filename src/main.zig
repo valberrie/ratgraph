@@ -4,6 +4,8 @@ const gui = @import("gui.zig");
 
 const c = @import("c.zig");
 
+usingnamespace @import("gui.zig");
+
 const mcBlockAtlas = @import("mc_block_atlas.zig");
 
 const SparseSet = graph.SparseSet;
@@ -522,6 +524,8 @@ pub const EntityStorage = struct {
     };
 };
 
+//fn getArchetype(list of entitytypes)
+
 fn testHsvImage(alloc: std.mem.Allocator, h: f32) !graph.Texture {
     //HSV
     //S is the x axis
@@ -605,6 +609,7 @@ pub fn main() !void {
     defer serialJson("debug/save.json", sd);
 
     var dpix: u32 = @floatToInt(u32, win.getDpi());
+    std.debug.print("DPI: {d}\n", .{dpix});
     const init_size = 18;
     var font = try graph.Font.init("fonts/sfmono.otf", alloc.*, init_size, dpix, &(graph.Font.CharMaps.AsciiBasic ++ graph.Font.CharMaps.Apple), null);
     defer font.deinit();
@@ -645,6 +650,18 @@ pub fn main() !void {
 
     graph.GL.checkError();
 
+    var draw = graph.NewCtx.init(alloc.*);
+    defer draw.deinit();
+    while (!win.should_exit) {
+        try draw.begin(graph.itc(0x2f2f2fff));
+        win.pumpEvents();
+
+        try draw.rect(graph.Rec(72, 72, 72, 72), 0xff00ffff);
+
+        draw.end(win.screen_width, win.screen_height);
+        win.swap();
+    }
+
     while (!win.should_exit) {
         try ctx.beginDraw(intToColor(0x2f2f2fff));
         win.pumpEvents(); //Important that this is called after beginDraw for input lag reasons
@@ -673,6 +690,8 @@ pub fn main() !void {
                 }
             }
         }
+
+        ctx.ptRect(200, 200, 72, 72, graph.itc(0x00ffffff));
 
         //ctx.drawRect(.{ .x = 0, .y = 0, .w = 100, .h = 100 }, intToColor(0xffff00ff));
         try ctx.drawRectTex(graph.Rec(600, 600, 1000, 1000), graph.Rec(0, 0, @intToFloat(f32, my_texture.w), @intToFloat(f32, my_texture.h)), itc(0xffffffff), my_texture);
