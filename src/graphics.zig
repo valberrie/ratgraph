@@ -32,8 +32,19 @@ pub const Vec2f = packed struct {
     x: f32,
     y: f32,
 
+    pub fn new(x: f32, y: f32) @This() {
+        return @This(){ .x = x, .y = y };
+    }
+
     pub fn smul(s: @This(), scalar: f32) @This() {
         return .{ .x = s.x * scalar, .y = s.y * scalar };
+    }
+
+    pub fn toI(s: @This(), comptime I: type, comptime V: type) V {
+        return V{
+            .x = @floatToInt(I, s.x),
+            .y = @floatToInt(I, s.y),
+        };
     }
 };
 
@@ -85,6 +96,10 @@ pub fn Rec(x: anytype, y: anytype, w: anytype, h: anytype) Rect {
         .w = std.math.lossyCast(f32, w),
         .h = std.math.lossyCast(f32, h),
     };
+}
+
+pub fn rectContainsPoint(r: anytype, p: anytype) bool {
+    return (p.x >= r.x and p.x <= r.x + r.w and p.y >= r.y and p.y <= r.y + r.h);
 }
 
 pub const Plane = enum { xy, yz, xz };
@@ -187,7 +202,7 @@ pub fn basicGraphUsage()void{
 
     var dpix: u32 = @floatToInt(u32, win.getDpi());
     const init_size = 18;
-    var font = try graph.Font.init("fonts/sfmono.otf", alloc.*, init_size, dpix, &(graph.Font.CharMaps.AsciiBasic ++ graph.Font.CharMaps.Apple), null);
+    var font = try graph.Font.init("fonts/sfmono.otf", alloc, init_size, dpix, &(graph.Font.CharMaps.AsciiBasic ++ graph.Font.CharMaps.Apple), null);
 
     while (!win.should_exit) {
         try ctx.beginDraw(intToColor(0x2f2f2fff));
@@ -207,6 +222,11 @@ pub fn basicGraphUsage()void{
 
 }
 
+pub fn writeBmp(file_name: [*c]const u8, w:i32, h:i32,component_count:i32, data: []const u8, alloc: std.mem.Allocator)void{
+    _ = c.stbi_write_bmp(file_name, w,h,component_count,&data[0]);
+    alloc.free(data);
+}
+
 //Ideally I don't want to make any c.SDL calls in my application
 //TODO detect dpi changes
 pub const SDL = struct {
@@ -215,6 +235,9 @@ pub const SDL = struct {
         right: bool,
         middle: bool,
 
+        //TODO rename and add other mouse buttons
+        //each button has 4 states, Click, Hold, Up, Release
+        //This mouse state structure can be used by Gui
         left_down: bool,
 
         pos: Vec2f,
@@ -242,8 +265,11 @@ pub const SDL = struct {
         return @intToEnum(keycodes.Scancode, c.SDL_GetScancodeFromKey(@enumToInt(key)));
     }
 
+    //TODO check for ibus support on linux and log if not avail
     pub const Window = struct {
         const Self = @This();
+        pub const KeyboardStateT = std.bit_set.IntegerBitSet(c.SDL_NUM_SCANCODES);
+        pub const KeysT = std.BoundedArray(KeyState, 16);
 
         win: *c.SDL_Window,
         ctx: *anyopaque,
@@ -256,8 +282,11 @@ pub const SDL = struct {
 
         mouse: MouseState = undefined,
 
-        keys: std.BoundedArray(KeyState, 16) = std.BoundedArray(KeyState, 16).init(0) catch unreachable,
-        keyboard_state: std.bit_set.IntegerBitSet(c.SDL_NUM_SCANCODES) = std.bit_set.IntegerBitSet(c.SDL_NUM_SCANCODES).initEmpty(),
+        keys: KeysT = KeysT.init(0) catch unreachable,
+        keyboard_state: KeyboardStateT = KeyboardStateT.initEmpty(),
+
+        text_input_buffer:[32]u8 = undefined,
+        text_input:[]const u8  ,
 
         fn sdlLogErr() void {
             std.debug.print("SDL ERROR:\n{s}\n", .{c.SDL_GetError()});
@@ -277,6 +306,10 @@ pub const SDL = struct {
             //_ = c.SDL_ShowCursor(if (!should) 1 else 0);
         }
 
+        //pub fn screenshotGL(self: *const Self,alloc: std.mem.Allocator,  )void{
+
+        //}
+
         pub fn createWindow(title: [*c]const u8) !Self {
             //This does not seem to be needed
             //No errors occur
@@ -286,6 +319,15 @@ pub const SDL = struct {
                 return error.SDLInit;
             }
             errdefer c.SDL_Quit();
+
+            try setAttr(c.SDL_GL_CONTEXT_PROFILE_MASK, c.SDL_GL_CONTEXT_PROFILE_CORE);
+            try setAttr(c.SDL_GL_DOUBLEBUFFER, 1);
+            try setAttr(c.SDL_GL_CONTEXT_MAJOR_VERSION, 4);
+            try setAttr(c.SDL_GL_CONTEXT_MINOR_VERSION, 6);
+            try setAttr(c.SDL_GL_CONTEXT_FLAGS, c.SDL_GL_CONTEXT_DEBUG_FLAG);
+            try setAttr(c.SDL_GL_STENCIL_SIZE, 8);
+            try setAttr(c.SDL_GL_MULTISAMPLEBUFFERS, 1);
+            try setAttr(c.SDL_GL_MULTISAMPLESAMPLES, 16);
 
             const win = c.SDL_CreateWindow(
                 title,
@@ -300,20 +342,12 @@ pub const SDL = struct {
             };
             errdefer c.SDL_DestroyWindow(win);
 
-            try setAttr(c.SDL_GL_CONTEXT_PROFILE_MASK, c.SDL_GL_CONTEXT_PROFILE_CORE);
-            try setAttr(c.SDL_GL_DOUBLEBUFFER, 1);
-            try setAttr(c.SDL_GL_CONTEXT_MAJOR_VERSION, 4);
-            try setAttr(c.SDL_GL_CONTEXT_MINOR_VERSION, 2);
-            try setAttr(c.SDL_GL_CONTEXT_FLAGS, c.SDL_GL_CONTEXT_DEBUG_FLAG);
-
             const context = c.SDL_GL_CreateContext(win) orelse {
                 sdlLogErr();
                 return error.SDLCreatingContext;
             };
             errdefer c.SDL_GL_DeleteContext(context);
 
-            try setAttr(c.SDL_GL_MULTISAMPLEBUFFERS, 1);
-            try setAttr(c.SDL_GL_MULTISAMPLESAMPLES, 16);
             c.glEnable(c.GL_MULTISAMPLE);
 
             if (c.SDL_GL_SetSwapInterval(1) < 0) {
@@ -321,11 +355,12 @@ pub const SDL = struct {
                 return error.SetSwapInterval;
             }
             c.glEnable(c.GL_DEPTH_TEST);
+            c.glEnable(c.GL_STENCIL_TEST);
             c.glEnable(c.GL_DEBUG_OUTPUT);
 
             //_ = c.SDL_SetRelativeMouseMode(c.SDL_TRUE);
 
-            return Self{ .win = win, .ctx = context };
+            return Self{ .win = win, .ctx = context, .text_input = "", };
         }
 
         pub fn destroyWindow(self: Self) void {
@@ -350,6 +385,12 @@ pub const SDL = struct {
             var vdpi: f32 = 0;
             _ = c.SDL_GetDisplayDPI(c.SDL_GetWindowDisplayIndex(self.win), &dpi, &hdpi, &vdpi);
             return dpi;
+        }
+
+        pub fn enableNativeIme(self: *const Self,enable:bool )bool{
+            _ = self;
+            _ = c.SDL_SetHint("SDL_HINT_IME_INTERNAL_EDITING", "1");
+            return (c.SDL_SetHint("SDL_HINT_IME_SHOW_UI", if(enable) "1" else "0") == 1);
         }
 
         pub fn getKeyboardState(self: *Self, len: *usize) []const u8 {
@@ -392,6 +433,7 @@ pub const SDL = struct {
                     }
                 }
             }
+            self.text_input = "";
 
             var event: c.SDL_Event = undefined;
             while (c.SDL_PollEvent(&event) != 0) {
@@ -404,8 +446,17 @@ pub const SDL = struct {
                         self.keys.append(.{ .state = .pressed, .scancode = c.SDL_GetScancodeFromKey(event.key.keysym.sym) }) catch unreachable;
                     },
                     c.SDL_KEYUP => {},
-                    c.SDL_TEXTEDITING => {},
-                    c.SDL_TEXTINPUT => {},
+                    c.SDL_TEXTEDITING => {
+                        const ed = event.edit;
+                        const slice = std.mem.sliceTo(&ed.text, 0);
+                        std.debug.print("{s} start: {d} length: {d}\n",.{slice, ed.start, ed.length}); 
+                    },
+                    c.SDL_TEXTINPUT => {
+                        const slice = std.mem.sliceTo(&event.text.text, 0);
+                        std.mem.copy(u8, &self.text_input_buffer, slice);
+                        self.text_input = self.text_input_buffer[0..slice.len];
+                        //std.debug.print("SLICE {s}\n",.{slice}); 
+                    },
                     c.SDL_KEYMAPCHANGED => {},
                     c.SDL_MOUSEWHEEL => {
                         self.mouse.wheel_delta = event.wheel.preciseY;
@@ -443,6 +494,23 @@ pub const SDL = struct {
             }
         }
 
+        pub fn glScissor(self: *Self,x:i32, y:i32,w: i32, h:i32 )void{
+            _ = self;
+            c.glScissor(x,h - y,w, h);
+        }
+
+        pub fn startTextInput(self: *const Self)void{
+            _ = self;
+            const rec = c.SDL_Rect{.x = 50,.y = 500, .w = 300, .h = 72};
+            c.SDL_SetTextInputRect(&rec);
+            c.SDL_StartTextInput();
+        }
+        
+        pub fn stopTextInput(self: *const Self)void{
+            _ = self;
+                c.SDL_StopTextInput();
+        }
+
         pub fn keydown(self: *const Self, scancode: keycodes.Scancode) bool {
             return self.keyboard_state.isSet(@enumToInt(scancode));
         }
@@ -455,11 +523,11 @@ pub const Atlas = struct {
 
     sets: std.ArrayList(SubTileset),
 
-    pub fn init(sets_to_load: []const struct { filename: []const u8, tilesets: []const SubTileset }, alloc: *const std.mem.Allocator, texture_size: u32) !Atlas {
-        var packing_rects = std.ArrayList(c.stbrp_rect).init(alloc.*);
+    pub fn init(sets_to_load: []const struct { filename: []const u8, tilesets: []const SubTileset }, alloc: std.mem.Allocator, texture_size: u32) !Atlas {
+        var packing_rects = std.ArrayList(c.stbrp_rect).init(alloc);
         defer packing_rects.deinit();
 
-        var nodes = std.ArrayList(c.stbrp_node).init(alloc.*);
+        var nodes = std.ArrayList(c.stbrp_node).init(alloc);
         defer nodes.deinit();
         try nodes.appendNTimes(undefined, texture_size + 200); //TODO MAGICNUM
         var rect_context: c.stbrp_context = undefined;
@@ -472,7 +540,7 @@ pub const Atlas = struct {
             @intCast(c_int, nodes.items.len),
         );
 
-        var sets = std.ArrayList(SubTileset).init(alloc.*);
+        var sets = std.ArrayList(SubTileset).init(alloc);
         var id_len: usize = 0;
         for (sets_to_load) |item| {
             for (item.tilesets) |ts, j| {
@@ -505,7 +573,7 @@ pub const Atlas = struct {
         if (pack_err != 1)
             std.debug.print("RECT PACK UNSUCC\n", .{});
 
-        var bitmap = std.ArrayList(u8).init(alloc.*);
+        var bitmap = std.ArrayList(u8).init(alloc);
         defer bitmap.deinit();
         //try bitmap.resize(4 * texture_size * texture_size);
         try bitmap.appendNTimes(0, 4 * texture_size * texture_size);
@@ -658,12 +726,12 @@ pub const Bitmap = struct {
     }
 };
 
-pub fn loadPngBitmap(relative_path: []const u8, alloc: *const std.mem.Allocator) !Bitmap {
+pub fn loadPngBitmap(relative_path: []const u8, alloc: std.mem.Allocator) !Bitmap {
     const cwd = std.fs.cwd();
     const png_file = try cwd.openFile(relative_path, .{});
     defer png_file.close();
 
-    var buf = std.ArrayList(u8).init(alloc.*);
+    var buf = std.ArrayList(u8).init(alloc);
     defer buf.deinit();
 
     try png_file.reader().readAllArrayList(&buf, 1024 * 1024 * 1024);
@@ -687,18 +755,18 @@ pub fn loadPngBitmap(relative_path: []const u8, alloc: *const std.mem.Allocator)
 
     _ = c.spng_decode_image(pngctx, &decoded_data[0], out_size, c.SPNG_FMT_RGBA8, 0);
 
-    return Bitmap{ .w = ihdr.width, .h = ihdr.height, .data = std.ArrayList(u8).fromOwnedSlice(alloc.*, decoded_data) };
+    return Bitmap{ .w = ihdr.width, .h = ihdr.height, .data = std.ArrayList(u8).fromOwnedSlice(alloc, decoded_data) };
 
     //#9494ff background color
 
 }
 
-pub fn loadPng(relative_path: []const u8, alloc: *const std.mem.Allocator) !Bitmap {
+pub fn loadPng(relative_path: []const u8, alloc: std.mem.Allocator) !Bitmap {
     const cwd = std.fs.cwd();
     const png_file = try cwd.openFile(relative_path, .{});
     defer png_file.close();
 
-    var buf = std.ArrayList(u8).init(alloc.*);
+    var buf = std.ArrayList(u8).init(alloc);
     defer buf.deinit();
 
     try png_file.reader().readAllArrayList(&buf, 1024 * 1024 * 1024);
@@ -737,7 +805,7 @@ pub fn loadPng(relative_path: []const u8, alloc: *const std.mem.Allocator) !Bitm
         }
     }
 
-    return Bitmap{ .w = ihdr.width, .h = ihdr.height, .data = std.ArrayList(u8).fromOwnedSlice(alloc.*, decoded_data) };
+    return Bitmap{ .w = ihdr.width, .h = ihdr.height, .data = std.ArrayList(u8).fromOwnedSlice(alloc, decoded_data) };
 
     //#9494ff background color
 
@@ -788,8 +856,8 @@ pub const GL = struct {
         const info = @typeInfo(T);
         switch (info) {
             .Struct => {
-                //TODO should we check and ensure it is a packed struct?
                 const st = info.Struct;
+                if (st.layout != .Packed) @compileError("generateVertexAttributes only supports packed structs");
                 inline for (st.fields) |field, f_i| {
                     switch (field.field_type) {
                         Vec2f => floatVertexAttrib(vao, vbo, f_i, 2, T, field.name),
@@ -1121,7 +1189,153 @@ pub fn genQuadIndices(index: u32) [6]u32 {
     };
 }
 
-pub const CharColor = struct { r: u8, g: u8, b: u8, a: u8 };
+pub const CharColor = struct {
+    pub const DarkGreen = itc(0x006400ff);
+    pub const Green = itc(0x008000ff);
+    pub const DarkOliveGreen = itc(0x556B2Fff);
+    pub const ForestGreen = itc(0x228B22ff);
+    pub const SeaGreen = itc(0x2E8B57ff);
+    pub const Olive = itc(0x808000ff);
+    pub const OliveDrab = itc(0x6B8E23ff);
+    pub const MediumSeaGreen = itc(0x3CB371ff);
+    pub const LimeGreen = itc(0x32CD32ff);
+    pub const Lime = itc(0x00FF00ff);
+    pub const SpringGreen = itc(0x00FF7Fff);
+    pub const MediumSpringGreen = itc(0x00FA9Aff);
+    pub const DarkSeaGreen = itc(0x8FBC8Fff);
+    pub const MediumAquamarine = itc(0x66CDAAff);
+    pub const YellowGreen = itc(0x9ACD32ff);
+    pub const LawnGreen = itc(0x7CFC00ff);
+    pub const Chartreuse = itc(0x7FFF00ff);
+    pub const LightGreen = itc(0x90EE90ff);
+    pub const GreenYellow = itc(0xADFF2Fff);
+    pub const PaleGreen = itc(0x98FB98ff);
+    pub const MistyRose = itc(0xFFE4E1ff);
+    pub const AntiqueWhite = itc(0xFAEBD7ff);
+    pub const Linen = itc(0xFAF0E6ff);
+    pub const Beige = itc(0xF5F5DCff);
+    pub const WhiteSmoke = itc(0xF5F5F5ff);
+    pub const LavenderBlush = itc(0xFFF0F5ff);
+    pub const OldLace = itc(0xFDF5E6ff);
+    pub const AliceBlue = itc(0xF0F8FFff);
+    pub const Seashell = itc(0xFFF5EEff);
+    pub const GhostWhite = itc(0xF8F8FFff);
+    pub const Honeydew = itc(0xF0FFF0ff);
+    pub const FloralWhite = itc(0xFFFAF0ff);
+    pub const Azure = itc(0xF0FFFFff);
+    pub const MintCream = itc(0xF5FFFAff);
+    pub const Snow = itc(0xFFFAFAff);
+    pub const Ivory = itc(0xFFFFF0ff);
+    pub const White = itc(0xFFFFFFff);
+    pub const Black = itc(0x000000ff);
+    pub const DarkSlateGray = itc(0x2F4F4Fff);
+    pub const DimGray = itc(0x696969ff);
+    pub const SlateGray = itc(0x708090ff);
+    pub const Gray = itc(0x808080ff);
+    pub const LightSlateGray = itc(0x778899ff);
+    pub const DarkGray = itc(0xA9A9A9ff);
+    pub const Silver = itc(0xC0C0C0ff);
+    pub const LightGray = itc(0xD3D3D3ff);
+    pub const Gainsboro = itc(0xDCDCDCff);
+    pub const Indigo = itc(0x4B0082ff);
+    pub const Purple = itc(0x800080ff);
+    pub const DarkMagenta = itc(0x8B008Bff);
+    pub const DarkViolet = itc(0x9400D3ff);
+    pub const DarkSlateBlue = itc(0x483D8Bff);
+    pub const BlueViolet = itc(0x8A2BE2ff);
+    pub const DarkOrchid = itc(0x9932CCff);
+    pub const Fuchsia = itc(0xFF00FFff);
+    pub const Magenta = itc(0xFF00FFff);
+    pub const SlateBlue = itc(0x6A5ACDff);
+    pub const MediumSlateBlue = itc(0x7B68EEff);
+    pub const MediumOrchid = itc(0xBA55D3ff);
+    pub const MediumPurple = itc(0x9370DBff);
+    pub const Orchid = itc(0xDA70D6ff);
+    pub const Violet = itc(0xEE82EEff);
+    pub const Plum = itc(0xDDA0DDff);
+    pub const Thistle = itc(0xD8BFD8ff);
+    pub const Lavender = itc(0xE6E6FAff);
+    pub const MidnightBlue = itc(0x191970ff);
+    pub const Navy = itc(0x000080ff);
+    pub const DarkBlue = itc(0x00008Bff);
+    pub const MediumBlue = itc(0x0000CDff);
+    pub const Blue = itc(0x0000FFff);
+    pub const RoyalBlue = itc(0x4169E1ff);
+    pub const SteelBlue = itc(0x4682B4ff);
+    pub const DodgerBlue = itc(0x1E90FFff);
+    pub const DeepSkyBlue = itc(0x00BFFFff);
+    pub const CornflowerBlue = itc(0x6495EDff);
+    pub const SkyBlue = itc(0x87CEEBff);
+    pub const LightSkyBlue = itc(0x87CEFAff);
+    pub const LightSteelBlue = itc(0xB0C4DEff);
+    pub const LightBlue = itc(0xADD8E6ff);
+    pub const PowderBlue = itc(0xB0E0E6ff);
+    pub const Teal = itc(0x008080ff);
+    pub const DarkCyan = itc(0x008B8Bff);
+    pub const LightSeaGreen = itc(0x20B2AAff);
+    pub const CadetBlue = itc(0x5F9EA0ff);
+    pub const DarkTurquoise = itc(0x00CED1ff);
+    pub const MediumTurquoise = itc(0x48D1CCff);
+    pub const Turquoise = itc(0x40E0D0ff);
+    pub const Aqua = itc(0x00FFFFff);
+    pub const Cyan = itc(0x00FFFFff);
+    pub const Aquamarine = itc(0x7FFFD4ff);
+    pub const PaleTurquoise = itc(0xAFEEEEff);
+    pub const LightCyan = itc(0xE0FFFFff);
+    pub const MediumVioletRed = itc(0xC71585ff);
+    pub const DeepPink = itc(0xFF1493ff);
+    pub const PaleVioletRed = itc(0xDB7093ff);
+    pub const HotPink = itc(0xFF69B4ff);
+    pub const LightPink = itc(0xFFB6C1ff);
+    pub const Pink = itc(0xFFC0CBff);
+    pub const DarkRed = itc(0x8B0000ff);
+    pub const Red = itc(0xFF0000ff);
+    pub const Firebrick = itc(0xB22222ff);
+    pub const Crimson = itc(0xDC143Cff);
+    pub const IndianRed = itc(0xCD5C5Cff);
+    pub const LightCoral = itc(0xF08080ff);
+    pub const Salmon = itc(0xFA8072ff);
+    pub const DarkSalmon = itc(0xE9967Aff);
+    pub const LightSalmon = itc(0xFFA07Aff);
+    pub const OrangeRed = itc(0xFF4500ff);
+    pub const Tomato = itc(0xFF6347ff);
+    pub const DarkOrange = itc(0xFF8C00ff);
+    pub const Coral = itc(0xFF7F50ff);
+    pub const Orange = itc(0xFFA500ff);
+    pub const DarkKhaki = itc(0xBDB76Bff);
+    pub const Gold = itc(0xFFD700ff);
+    pub const Khaki = itc(0xF0E68Cff);
+    pub const PeachPuff = itc(0xFFDAB9ff);
+    pub const Yellow = itc(0xFFFF00ff);
+    pub const PaleGoldenrod = itc(0xEEE8AAff);
+    pub const Moccasin = itc(0xFFE4B5ff);
+    pub const PapayaWhip = itc(0xFFEFD5ff);
+    pub const LightGoldenrodYellow = itc(0xFAFAD2ff);
+    pub const LemonChiffon = itc(0xFFFACDff);
+    pub const LightYellow = itc(0xFFFFE0ff);
+    pub const Maroon = itc(0x800000ff);
+    pub const Brown = itc(0xA52A2Aff);
+    pub const SaddleBrown = itc(0x8B4513ff);
+    pub const Sienna = itc(0xA0522Dff);
+    pub const Chocolate = itc(0xD2691Eff);
+    pub const DarkGoldenrod = itc(0xB8860Bff);
+    pub const Peru = itc(0xCD853Fff);
+    pub const RosyBrown = itc(0xBC8F8Fff);
+    pub const Goldenrod = itc(0xDAA520ff);
+    pub const SandyBrown = itc(0xF4A460ff);
+    pub const Tan = itc(0xD2B48Cff);
+    pub const Burlywood = itc(0xDEB887ff);
+    pub const Wheat = itc(0xF5DEB3ff);
+    pub const NavajoWhite = itc(0xFFDEADff);
+    pub const Bisque = itc(0xFFE4C4ff);
+    pub const BlanchedAlmond = itc(0xFFEBCDff);
+    pub const Cornsilk = itc(0xFFF8DCff);
+
+    r: u8,
+    g: u8,
+    b: u8,
+    a: u8,
+};
 
 pub fn charColorToFloat(col: CharColor) Color {
     return .{
@@ -1150,6 +1364,10 @@ pub const Rect = struct {
     w: f32,
     h: f32,
 
+    pub fn new(x: f32, y: f32, w: f32, h: f32) @This() {
+        return .{ .x = x, .y = y, .w = w, .h = h };
+    }
+
     pub fn addV(self: @This(), x: f32, y: f32) @This() {
         return .{ .x = self.x + x, .y = self.y + y, .w = self.w, .h = self.h };
     }
@@ -1157,9 +1375,35 @@ pub const Rect = struct {
     pub fn mul(self: Self, scalar: f32) Self {
         return .{ .x = self.x * scalar, .y = self.y * scalar, .w = self.w * scalar, .h = self.h * scalar };
     }
+
+    pub fn inset(self: Self, amount: f32) Self {
+        return .{ .x = self.x + amount, .y = self.y + amount, .w = self.w - amount * 2, .h = self.h - amount * 2 };
+    }
+
+    pub fn pos(self: Self) Vec2f {
+        return .{ .x = self.x, .y = self.y };
+    }
+
+    pub fn toIntRect(self: @This(), comptime int_type: type, comptime vec_type: type) vec_type {
+        return vec_type{
+            .x = @floatToInt(int_type, self.x),
+            .y = @floatToInt(int_type, self.y),
+            .w = @floatToInt(int_type, self.w),
+            .h = @floatToInt(int_type, self.h),
+        };
+    }
 };
 
 pub const Color = [4]f32;
+
+pub fn createQuadColor(r: Rect, z: f32, color: [4]CharColor) [4]Vertex {
+    return [_]Vertex{
+        vertex(r.x + r.w, r.y + r.h, z, charColorToFloat(color[0])),
+        vertex(r.x + r.w, r.y, z, charColorToFloat(color[1])),
+        vertex(r.x, r.y, z, charColorToFloat(color[2])),
+        vertex(r.x, r.y + r.h, z, charColorToFloat(color[3])),
+    };
+}
 
 pub fn createQuad(r: Rect, z: f32, color: Color) [4]Vertex {
     return [_]Vertex{
@@ -1398,7 +1642,7 @@ pub const Font = struct {
         };
     };
 
-    font_size: f32,
+    font_size: f32, //Native size in points
 
     glyph_set: SparseSet(Glyph, u21),
 
@@ -1440,12 +1684,20 @@ pub const Font = struct {
         return error.freetype;
     }
 
+    //TODO System for loading unicode chars on the fly
+    //This system would have to keep freetype or STBTT loaded during the lifetime of a Font. When a glyph isn't found attempt to load
+    //Baking glyphs in a fixed grid rather than rect packing simplifies this
+    //Store a list of glyphs unavailable in the current font to prevent repeated requests to bake a glyph
+    //
+    //
     //TODO pass both dpix and dpiy, and specify argument units for more clarity.
     //Better init functions, more default parameters
     //Allow logging and debug to be disabled
     pub fn init(filename: []const u8, alloc: std.mem.Allocator, point_size: f32, dpi: u32, codepoints_to_load: []const CharMapEntry, opt_pack_factor: ?f32) !Self {
         const codepoints = blk: {
+            //TODO should we ensure no duplicates?
             var codepoint_list = std.ArrayList(Glyph).init(alloc);
+            try codepoint_list.append(.{ .i = std.unicode.replacement_character });
             for (codepoints_to_load) |codepoint| {
                 switch (codepoint) {
                     .range => |range| {
@@ -1754,6 +2006,7 @@ pub const Font = struct {
                     .internal_format = c.GL_RED,
                     .pixel_format = c.GL_RED,
                     .min_filter = c.GL_LINEAR,
+                    //TODO provide options for these params
                     .mag_filter = c.GL_LINEAR,
                 });
                 //result.texture.id = GL.grayscaleTexture(result.texture.w, result.texture.h, texture_bitmap.items);
@@ -1763,34 +2016,68 @@ pub const Font = struct {
         return result;
     }
 
+    pub fn textBounds(self: *Self, string: []const u8, size_px: f32) Vec2f {
+        const scale = (size_px / self.dpi * 72) / self.font_size;
+
+        var x_bound: f32 = 0;
+        var bounds = Vec2f{ .x = 0, .y = self.line_gap * scale };
+
+        var it = std.unicode.Utf8Iterator{ .bytes = string, .i = 0 };
+
+        var char = it.nextCodepoint();
+        while (char != null) : (char = it.nextCodepoint()) {
+            switch (char.?) {
+                '\n' => {
+                    bounds.y += self.line_gap * scale;
+                    if (x_bound > bounds.x)
+                        bounds.x = x_bound;
+                    x_bound = 0;
+                },
+                else => {},
+            }
+
+            const glyph = self.glyph_set.get(char.?) catch |err|
+                switch (err) {
+                error.invalidIndex => self.glyph_set.get(std.unicode.replacement_character) catch unreachable,
+            };
+
+            x_bound += (glyph.advance_x) * scale;
+        }
+
+        if (x_bound > bounds.x)
+            bounds.x = x_bound;
+
+        return bounds;
+    }
+
     pub fn deinit(self: *Self) void {
         self.glyph_set.deinit();
     }
 
-    pub fn measureText(self: *Self, string: []const u8) f32 {
-        var it = std.unicode.Utf8Iterator{ .bytes = string, .i = 0 };
-        var cho = it.nextCodepoint();
+    //pub fn measureText(self: *Self, string: []const u8) f32 {
+    //    var it = std.unicode.Utf8Iterator{ .bytes = string, .i = 0 };
+    //    var cho = it.nextCodepoint();
 
-        var len: f32 = 0;
-        while (cho != null) : (cho = it.nextCodepoint()) {
-            const ch = cho orelse unreachable;
+    //    var len: f32 = 0;
+    //    while (cho != null) : (cho = it.nextCodepoint()) {
+    //        const ch = cho orelse unreachable;
 
-            if (ch == '\n') {
-                unreachable;
-            }
+    //        if (ch == '\n') {
+    //            unreachable;
+    //        }
 
-            const g = self.glyph_set.get(ch) catch |err| {
-                switch (err) {
-                    error.invalidIndex => {
-                        continue;
-                    },
-                }
-            };
+    //        const g = self.glyph_set.get(ch) catch |err| {
+    //            switch (err) {
+    //                error.invalidIndex => {
+    //                    continue;
+    //                },
+    //            }
+    //        };
 
-            len += g.advance_x;
-        }
-        return len;
-    }
+    //        len += g.advance_x;
+    //    }
+    //    return len;
+    //}
 
     pub fn ptToPixel(self: *Self, pt: f32) f32 {
         return pt * (self.dpi / 72.0);
@@ -1854,7 +2141,7 @@ pub const GraphicsContext = struct {
     last_batch: ?*Batch = null,
 
     batches: std.ArrayList(Batch),
-    alloc: *const std.mem.Allocator,
+    alloc: std.mem.Allocator,
 
     z_st: f32 = 0,
 
@@ -1876,10 +2163,10 @@ pub const GraphicsContext = struct {
 
     dpi: f32 = 0,
 
-    pub fn init(alloc: *const std.mem.Allocator, dpi: f32) !Self {
+    pub fn init(alloc: std.mem.Allocator, dpi: f32) !Self {
         var ret: Self = .{
             .dpi = dpi,
-            .batches = std.ArrayList(Batch).init(alloc.*),
+            .batches = std.ArrayList(Batch).init(alloc),
             .alloc = alloc,
             .colored_tri_shader = 0,
             .tex_shad = 0,
@@ -1938,11 +2225,36 @@ pub const GraphicsContext = struct {
         }
         self.frame_timer.reset();
 
-        _ = bg;
-        //const color = charColorToFloat(bg);
-        //c.glClearColor(color[0], color[1], color[2], color[3]);
-        //c.glClear(c.GL_COLOR_BUFFER_BIT | c.GL_DEPTH_BUFFER_BIT);
+        const color = charColorToFloat(bg);
+        c.glClearColor(color[0], color[1], color[2], color[3]);
+        c.glClear(c.GL_COLOR_BUFFER_BIT | c.GL_DEPTH_BUFFER_BIT);
         self.z_st = 0;
+        for (self.batches.items) |*batch| {
+            try batch.reset();
+        }
+    }
+
+    pub fn flush(self: *Self, screenW: i32, screenH: i32) !void {
+        const camera_bounds = Rec(
+            0,
+            0,
+            @intToFloat(f32, screenW),
+            @intToFloat(f32, screenH),
+        );
+
+        for (self.batches.items) |*batch| {
+            switch (batch.*) {
+                .TriTex => {},
+                else => batch.draw(camera_bounds, .{ .x = 0, .y = 0 }, self.colored_tri_shader, self.tex_shad),
+            }
+        }
+        for (self.batches.items) |*batch| {
+            switch (batch.*) {
+                .TriTex => batch.draw(camera_bounds, .{ .x = 0, .y = 0 }, self.colored_tri_shader, self.tex_shad),
+                else => {},
+            }
+        }
+
         for (self.batches.items) |*batch| {
             try batch.reset();
         }
@@ -2067,6 +2379,26 @@ pub const GraphicsContext = struct {
         self.z_st += 0.1;
     }
 
+    pub fn drawRectCol(self: *Self, r: Rect, col: [4]CharColor) void {
+        const batch = self.getBatch(.{ .mode = .triangles, .texture = 0, .shader = self.colored_tri_shader }) catch {
+            logErr("batch");
+            return;
+        };
+
+        const b = &batch.Tri;
+        const index = b.vertices.items.len;
+
+        b.vertices.appendSlice(&createQuadColor(r, self.z_st, col)) catch {
+            logErr("vert");
+            return;
+        };
+        b.indicies.appendSlice(&genQuadIndices(@intCast(u32, index))) catch {
+            logErr("indicies");
+            return;
+        };
+        self.z_st += 0.1;
+    }
+
     pub fn drawRect(self: *Self, r: Rect, col: CharColor) void {
         const batch = self.getBatch(.{ .mode = .triangles, .texture = 0, .shader = self.colored_tri_shader }) catch {
             logErr("batch");
@@ -2084,7 +2416,7 @@ pub const GraphicsContext = struct {
             logErr("indicies");
             return;
         };
-        //self.z_st += 0.1;
+        self.z_st += 0.1;
     }
 
     pub fn drawRectTex(
@@ -2134,13 +2466,23 @@ pub const GraphicsContext = struct {
         self.z_st += 0.1;
     }
 
+    pub fn drawTextFmt(self: *Self, x: f32, y: f32, comptime fmt: []const u8, args: anytype, font: *Font, size: f32, col: CharColor) void {
+        var buf: [256]u8 = undefined;
+        var fbs = std.io.FixedBufferStream([]u8){ .pos = 0, .buffer = &buf };
+        fbs.writer().print(fmt, args) catch unreachable;
+        const slice = fbs.getWritten();
+        self.drawText(x, y, slice, font, size, col);
+    }
+
     //TODO Split this off into a function that draws a single unicode codepoint
+    //TODO have a function that takes pts and one that takes pixels,(this one takes pixels)
     pub fn drawText(self: *Self, x: f32, y: f32, str: []const u8, font: *Font, size: f32, col: CharColor) void {
         //TODO investigae index ob when nothing happens in a drawcall
         //const SF = size / font.font_size;
         //const SF = size / font.line_gap;
-        const SF = size / font.font_size;
-        const fac = self.dpi / 72;
+        const SF = (size / self.dpi * 72) / font.font_size;
+        //const fac = self.dpi / 72;
+        const fac = 1;
 
         const batch = (self.getBatch(.{ .mode = .triangles, .texture = font.texture.id, .shader = self.font_shad }) catch unreachable);
         const b = &batch.TriTex;
@@ -2167,12 +2509,9 @@ pub const GraphicsContext = struct {
             //continue;
             //const g_i = ch - Font.START_CHAR;
             //const g = font.glyphs.items[g_i];
-            const g = font.glyph_set.get(ch) catch |err| {
+            const g = font.glyph_set.get(ch) catch |err|
                 switch (err) {
-                    error.invalidIndex => {
-                        continue;
-                    },
-                }
+                error.invalidIndex => font.glyph_set.get(std.unicode.replacement_character) catch unreachable,
             };
             //if (ch == ' ') {
             //    vx += g.advance_x * SF;
@@ -2349,13 +2688,6 @@ pub const NewTri = struct {
         c.glGenBuffers(1, &ret.ebo);
 
         GL.generateVertexAttributes(ret.vao, ret.vbo, Vertu);
-        //GL.floatVertexAttrib(ret.vao, ret.vbo, 0, 2, Vertu, "pos"); //XY
-        //GL.intVertexAttrib(ret.vao, ret.vbo, 1, 1, Vertu, "z", c.GL_UNSIGNED_SHORT);
-        //GL.intVertexAttrib(ret.vao, ret.vbo, 2, 1, Vertu, "color", c.GL_UNSIGNED_INT);
-
-        //c.glBindVertexArray(ret.vao);
-        //GL.bufferData(c.GL_ARRAY_BUFFER, ret.vbo, Vertu, ret.vertices.items);
-        //GL.bufferData(c.GL_ELEMENT_ARRAY_BUFFER, ret.ebo, u32, ret.indicies.items);
         return ret;
     }
 
@@ -2364,8 +2696,13 @@ pub const NewTri = struct {
         self.indicies.deinit();
     }
 
+    pub fn reset(self: *Self) !void {
+        try self.vertices.resize(0);
+        try self.indicies.resize(0);
+    }
+
     pub fn quad(self: *Self, r: Rect, z: u16) !void {
-        const color = 0xff0000ff;
+        const color = 0xffffffff;
         try self.indicies.appendSlice(&genQuadIndices(@intCast(u32, self.vertices.items.len)));
         try self.vertices.appendSlice(&.{
             Vert{ .pos = .{ .x = r.x + r.w, .y = r.y + r.h }, .z = z, .color = color },
@@ -2389,6 +2726,7 @@ pub const NewTri = struct {
         GL.passUniform(b.shader, "model", model);
 
         c.glDrawElements(c.GL_TRIANGLES, @intCast(c_int, b.indicies.items.len), c.GL_UNSIGNED_INT, null);
+        c.glBindVertexArray(0);
     }
 };
 
@@ -2425,10 +2763,10 @@ pub const Cubes = struct {
         c.glDrawElements(c.GL_TRIANGLES, @intCast(c_int, b.indicies.items.len), c.GL_UNSIGNED_INT, null);
     }
 
-    pub fn init(alloc: *const std.mem.Allocator, texture: glID, shader: glID) @This() {
+    pub fn init(alloc: std.mem.Allocator, texture: glID, shader: glID) @This() {
         var ret = Self{
-            .vertices = std.ArrayList(VertexTextured).init(alloc.*),
-            .indicies = std.ArrayList(u32).init(alloc.*),
+            .vertices = std.ArrayList(VertexTextured).init(alloc),
+            .indicies = std.ArrayList(u32).init(alloc),
             .texture = texture,
             .shader = shader,
         };
@@ -2472,10 +2810,10 @@ const TriangleBatchTex = struct {
     vbo: c_uint = undefined,
     ebo: c_uint = undefined,
 
-    pub fn init(alloc: *const std.mem.Allocator, texture: glID, shader: glID) @This() {
+    pub fn init(alloc: std.mem.Allocator, texture: glID, shader: glID) @This() {
         var ret = Self{
-            .vertices = std.ArrayList(VertexTextured).init(alloc.*),
-            .indicies = std.ArrayList(u32).init(alloc.*),
+            .vertices = std.ArrayList(VertexTextured).init(alloc),
+            .indicies = std.ArrayList(u32).init(alloc),
             .texture = texture,
             .shader = shader,
         };
@@ -2510,10 +2848,10 @@ const TriangleBatch = struct {
     vbo: c_uint = undefined,
     ebo: c_uint = undefined,
 
-    pub fn init(alloc: *const std.mem.Allocator, shader: glID) @This() {
+    pub fn init(alloc: std.mem.Allocator, shader: glID) @This() {
         var ret = Self{
-            .vertices = std.ArrayList(Vertex).init(alloc.*),
-            .indicies = std.ArrayList(u32).init(alloc.*),
+            .vertices = std.ArrayList(Vertex).init(alloc),
+            .indicies = std.ArrayList(u32).init(alloc),
             .shader = shader,
         };
         c.glGenVertexArrays(1, &ret.vao);
@@ -2539,8 +2877,8 @@ const LineBatch = struct {
     vao: c_uint = undefined,
     vbo: c_uint = undefined,
 
-    pub fn init(alloc: *const std.mem.Allocator, shader: glID) @This() {
-        var ret = Self{ .vertices = std.ArrayList(Vertex).init(alloc.*), .shader = shader };
+    pub fn init(alloc: std.mem.Allocator, shader: glID) @This() {
+        var ret = Self{ .vertices = std.ArrayList(Vertex).init(alloc), .shader = shader };
         c.glGenVertexArrays(1, &ret.vao);
         c.glGenBuffers(1, &ret.vbo);
 
@@ -2659,31 +2997,38 @@ pub fn Bind(comptime map: BindList) type {
     return struct {
         const bind_enum = GenerateBindingEnum(map);
 
-        table: [@enumToInt(keycodes.Scancode.ODES)]bind_enum,
+        scancode_table: [@enumToInt(keycodes.Scancode.ODES)]bind_enum,
+        bind_table: [map.len]keycodes.Scancode,
 
         pub fn init() @This() {
             var ret: @This() = undefined;
 
-            for (ret.table) |*item|
+            for (ret.scancode_table) |*item|
                 item.* = .no_action;
 
             for (map) |bind, i| {
                 var buffer: [256]u8 = undefined;
-                if (bind.len >= buffer.len)
-                    @compileError("Keybinding name to long");
+                //if (bind.len >= buffer.len)
+                //    @compileError("Keybinding name to long");
 
                 std.mem.copy(u8, buffer[0..], bind[1]);
                 buffer[bind[1].len] = 0;
 
                 const sc = c.SDL_GetScancodeFromName(&buffer[0]);
-                ret.table[sc] = @intToEnum(bind_enum, i);
+                //if (sc == c.SDL_SCANCODE_UNKNOWN) @compileError("Unknown scancode");
+                ret.scancode_table[sc] = @intToEnum(bind_enum, i);
+                ret.bind_table[i] = @intToEnum(keycodes.Scancode, sc);
             }
 
             return ret;
         }
 
+        pub fn getScancode(self: *const @This(), key: bind_enum) keycodes.Scancode {
+            return self.bind_table[@enumToInt(key)];
+        }
+
         pub fn get(self: *const @This(), scancode: usize) bind_enum {
-            return self.table[scancode];
+            return self.scancode_table[scancode];
         }
 
         //pub fn draw(self: *const Self, ctx: *NewCtx)

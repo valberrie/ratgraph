@@ -530,7 +530,7 @@ fn testHsvImage(alloc: std.mem.Allocator, h: f32) !graph.Texture {
     //HSV
     //S is the x axis
     //V is the y axis
-    var bmp = try graph.Bitmap.initBlank(alloc, 25, 25);
+    var bmp = try graph.Bitmap.initBlank(alloc, 250, 250);
     defer bmp.data.deinit();
     defer bmp.writeToBmpFile(alloc, "debug/hsv.bmp") catch unreachable;
 
@@ -637,81 +637,140 @@ pub fn main() !void {
         cubes.vertices.items[1].b = 0;
         cubes.setData();
     }
-    const my_texture = try testHsvImage(alloc.*, 0);
+    //const my_texture = try testHsvImage(alloc.*, 0);
 
     var newtri = graph.NewTri.init(alloc.*);
     defer newtri.deinit();
 
-    var testbatch = graph.NewBatch(graph.NewTri.Vert, .{ .index_buffer = false }).init(alloc.*);
-    var testbatchebo = graph.NewBatch(graph.NewTri.Vert, .{ .index_buffer = true }).init(alloc.*);
-    std.debug.print("ebo vs non {d} {d}\n", .{ @sizeOf(@TypeOf(testbatchebo)), @sizeOf(@TypeOf(testbatch)) });
+    //var testbatch = graph.NewBatch(graph.NewTri.Vert, .{ .index_buffer = false }).init(alloc.*);
+    //var testbatchebo = graph.NewBatch(graph.NewTri.Vert, .{ .index_buffer = true }).init(alloc.*);
 
     try newtri.quad(graph.Rec(50, 50, 100, 100), 10000);
 
     graph.GL.checkError();
 
-    var draw = graph.NewCtx.init(alloc.*);
-    defer draw.deinit();
+    //var draw = graph.NewCtx.init(alloc.*);
+    //defer draw.deinit();
+    //while (!win.should_exit) {
+    //    try draw.begin(graph.itc(0x2f2f2fff));
+    //    win.pumpEvents();
+
+    //    try draw.rect(graph.Rec(72, 72, 72, 72), 0xff00ffff);
+
+    //    draw.end(win.screen_width, win.screen_height);
+    //    win.swap();
+    //}
+    var do_write = true;
+
     while (!win.should_exit) {
-        try draw.begin(graph.itc(0x2f2f2fff));
-        win.pumpEvents();
-
-        try draw.rect(graph.Rec(72, 72, 72, 72), 0xff00ffff);
-
-        draw.end(win.screen_width, win.screen_height);
-        win.swap();
-    }
-
-    while (!win.should_exit) {
-        try ctx.beginDraw(intToColor(0x2f2f2fff));
+        //try ctx.beginDraw(intToColor(0x2f2f2fff));
         win.pumpEvents(); //Important that this is called after beginDraw for input lag reasons
-        camera.update(&win);
+        if (false) {
+            camera.update(&win);
 
-        {
-            var buf: [300]u8 = undefined;
-            var fbs = std.io.FixedBufferStream([]u8){ .buffer = buf[0..], .pos = 0 };
-            //try fbs.writer().print("{any} \n{any}", .{ cam_pos.data, camera_front.data });
+            {
+                var buf: [300]u8 = undefined;
+                var fbs = std.io.FixedBufferStream([]u8){ .buffer = buf[0..], .pos = 0 };
+                //try fbs.writer().print("{any} \n{any}", .{ cam_pos.data, camera_front.data });
 
-            ctx.drawText(50, 300, buf[0..fbs.pos], &font, 16, intToColor(0xffffffff));
-        }
-
-        for (win.keys.slice()) |key| {
-            switch (testmap.get(key.scancode)) {
-                .fuck => std.debug.print("FUCK pressed\n", .{}),
-                else => {},
+                ctx.drawText(50, 300, buf[0..fbs.pos], &font, 16, intToColor(0xffffffff));
             }
-        }
 
-        for (testmap.table) |key, i| {
-            if (key != .no_action and win.keyboard_state.isSet(i)) {
-                switch (key) {
-                    .fuck => std.debug.print("FUCK HELLED\n", .{}),
+            for (win.keys.slice()) |key| {
+                switch (testmap.get(key.scancode)) {
+                    .fuck => std.debug.print("FUCK pressed\n", .{}),
                     else => {},
                 }
             }
-        }
 
-        ctx.ptRect(200, 200, 72, 72, graph.itc(0x00ffffff));
-
-        //ctx.drawRect(.{ .x = 0, .y = 0, .w = 100, .h = 100 }, intToColor(0xffff00ff));
-        try ctx.drawRectTex(graph.Rec(600, 600, 1000, 1000), graph.Rec(0, 0, @intToFloat(f32, my_texture.w), @intToFloat(f32, my_texture.h)), itc(0xffffffff), my_texture);
-
-        ctx.drawFPS(sd.fps_posx, sd.fps_posy, &font);
-
-        {
-            var ii: usize = 0;
-            var j: f32 = 0;
-            while (j < 10) : (j += 1) {
-                ctx.drawRect(graph.Rec(50 + j * 25, 50 + j * 25, 40, 40), if (ii % 2 == 0) itc(0xff0000ff) else itc(0xffff00ff));
-                ii += 1;
+            for (testmap.table) |key, i| {
+                if (key != .no_action and win.keyboard_state.isSet(i)) {
+                    switch (key) {
+                        .fuck => std.debug.print("FUCK HELLED\n", .{}),
+                        else => {},
+                    }
+                }
             }
+
+            //ctx.ptRect(200, 200, 72, 72, graph.itc(0x00ffffff));
+
+            //ctx.drawRect(.{ .x = 0, .y = 0, .w = 100, .h = 100 }, intToColor(0xffff00ff));
+            //try ctx.drawRectTex(graph.Rec(600, 600, 1000, 1000), graph.Rec(0, 0, @intToFloat(f32, my_texture.w), @intToFloat(f32, my_texture.h)), itc(0xffffffff), my_texture);
+
+            ctx.drawFPS(sd.fps_posx, sd.fps_posy, &font);
+
+            //ctx.drawRectCol(graph.Rec(0, 0, win.screen_height, win.screen_height), .{ itc(0xffffffff), itc(0xff), itc(0xff), itc(0xffffffff) });
+            //ctx.drawRect(graph.Rec(0, 0, win.screen_height, win.screen_height), itc(0xff00006f));
+            //ctx.drawRectCol(graph.Rec(0, 0, win.screen_height, win.screen_height), .{ itc(0x33000011), itc(0xff), itc(0xff), itc(0xff0000fa) });
+
+            //try ctx.drawT
+
+            ctx.endDraw(win.screen_width, win.screen_height);
         }
+        //cubes.draw(win.screen_width, win.screen_height, camera.getMatrix(3840.0 / 2160.0, 85, 0.1, 10000));
+        {
+            c.glClear(c.GL_DEPTH_BUFFER_BIT | c.GL_COLOR_BUFFER_BIT);
+            c.glEnable(c.GL_STENCIL_TEST);
+            c.glEnable(c.GL_DEPTH_TEST);
+            c.glColorMask(c.GL_FALSE, c.GL_FALSE, c.GL_FALSE, c.GL_FALSE);
+            c.glDepthMask(c.GL_FALSE);
+            c.glClearStencil(0xff);
+            c.glStencilFunc(c.GL_NEVER, 1, 0xFF);
+            c.glStencilOp(c.GL_REPLACE, c.GL_KEEP, c.GL_KEEP); // draw 1s on test fail (always)
 
-        //try ctx.drawT
+            // draw stencil pattern
+            c.glStencilMask(0xFF);
+            c.glClear(c.GL_STENCIL_BUFFER_BIT); // needs mask=0xFF
+            {
+                try newtri.reset();
+                try newtri.quad(graph.Rec(500, 500, 500, 500), 1000);
+                newtri.draw(win.screen_width, win.screen_height);
+            }
+            //c.draw_circle();
 
-        ctx.endDraw(win.screen_width, win.screen_height);
-        cubes.draw(win.screen_width, win.screen_height, camera.getMatrix(3840.0 / 2160.0, 85, 0.1, 10000));
-        newtri.draw(win.screen_width, win.screen_height);
+            c.glColorMask(c.GL_TRUE, c.GL_TRUE, c.GL_TRUE, c.GL_TRUE);
+            c.glDepthMask(c.GL_TRUE);
+            c.glStencilMask(0x00);
+            // draw where stencil's value is 0
+            //c.glStencilFunc(c.GL_EQUAL, 0, 0xFF);
+            c.glStencilFunc(c.GL_EQUAL, 1, 0xFF);
+
+            {
+                try newtri.reset();
+                var i: u32 = 0;
+                while (i < 40) : (i += 1) {
+                    const fi = @intToFloat(f32, i);
+                    try newtri.quad(graph.Rec(fi * 50, 600, 40, 40), 1000);
+                }
+                newtri.draw(win.screen_width, win.screen_height);
+            }
+
+            if (do_write) {
+                do_write = false;
+                var vec = std.ArrayList(u8).init(alloc.*);
+                try vec.resize(@intCast(usize, win.screen_width * win.screen_height));
+                c.glReadPixels(0, 0, win.screen_width, win.screen_height, c.GL_STENCIL_INDEX, c.GL_UNSIGNED_BYTE, &vec.items[0]);
+                const thread = try std.Thread.spawn(.{}, graph.writeBmp, .{ "stencil.bmp", win.screen_width, win.screen_height, 1, vec.toOwnedSlice(), alloc.* });
+                win.should_exit = true;
+                thread.join();
+
+                //var vec2 = std.ArrayList(u8).init(alloc.*);
+                //defer vec2.deinit();
+                //try vec2.resize(@intCast(usize, win.screen_width * win.screen_height) * 3);
+                //c.glReadPixels(0, 0, win.screen_width, win.screen_height, c.GL_RGB, c.GL_UNSIGNED_BYTE, &vec2.items[0]);
+                //_ = c.stbi_write_bmp(
+                //    "win.bmp",
+                //    win.screen_width,
+                //    win.screen_height,
+                //    3,
+                //    &vec2.items[0],
+                //);
+
+                //return;
+            }
+
+            c.glDisable(c.GL_STENCIL_TEST);
+        }
 
         win.swap();
     }

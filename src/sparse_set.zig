@@ -113,7 +113,7 @@ pub fn SparseSet(comptime child_type: type, comptime index_type: type) type {
 
         pub fn getDenseIndex(self: *Self, index: index_type) !index_type {
             if (index >= self.sparse.items.len or self.sparse.items[index] == null_marker) {
-                std.debug.print("Index {d}\n", .{index});
+                //std.debug.print("Index {d}\n", .{index});
                 return error.invalidIndex;
             }
 
