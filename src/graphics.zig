@@ -1337,6 +1337,47 @@ pub const CharColor = struct {
     a: u8,
 };
 
+pub fn CharColorNew(r: u8, g: u8, b: u8, a: u8) CharColor {
+    return .{ .r = r, .g = g, .b = b, .a = a };
+}
+
+pub const Hsva = struct {
+    h: f32,
+    s: f32,
+    v: f32,
+    a: f32,
+};
+
+pub fn hsvaToColor(hsva: Hsva) CharColor {
+    //HSV
+    //S is the x axis
+    //V is the y axis
+    const H = hsva.h;
+    const S = hsva.s;
+    const V = hsva.v;
+
+    const C = V * S;
+    const hp = (@mod(H, 360)) / 60.0;
+    const X = C * (1 - @fabs(@mod(hp, 2) - 1));
+    const rgb1 = switch (@floatToInt(u32, hp)) {
+        0 => za.Vec3.new(C, X, 0),
+        1 => za.Vec3.new(X, C, 0),
+        2 => za.Vec3.new(0, C, X),
+        3 => za.Vec3.new(0, X, C),
+        4 => za.Vec3.new(X, 0, C),
+        5 => za.Vec3.new(C, 0, X),
+        else => unreachable,
+    };
+    const M = V - C;
+
+    return CharColorNew(
+        @floatToInt(u8, (M + rgb1.data[0]) * 255),
+        @floatToInt(u8, (M + rgb1.data[1]) * 255),
+        @floatToInt(u8, (M + rgb1.data[2]) * 255),
+        @floatToInt(u8, hsva.a * 255),
+    );
+}
+
 pub fn charColorToFloat(col: CharColor) Color {
     return .{
         @intToFloat(f32, col.r) / 255.0,
@@ -1398,10 +1439,10 @@ pub const Color = [4]f32;
 
 pub fn createQuadColor(r: Rect, z: f32, color: [4]CharColor) [4]Vertex {
     return [_]Vertex{
-        vertex(r.x + r.w, r.y + r.h, z, charColorToFloat(color[0])),
-        vertex(r.x + r.w, r.y, z, charColorToFloat(color[1])),
-        vertex(r.x, r.y, z, charColorToFloat(color[2])),
-        vertex(r.x, r.y + r.h, z, charColorToFloat(color[3])),
+        vertex(r.x + r.w, r.y + r.h, z, charColorToFloat(color[2])), //low right
+        vertex(r.x + r.w, r.y, z, charColorToFloat(color[3])), //up right
+        vertex(r.x, r.y, z, charColorToFloat(color[0])), //up left
+        vertex(r.x, r.y + r.h, z, charColorToFloat(color[1])), //low left
     };
 }
 
