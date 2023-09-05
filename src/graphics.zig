@@ -222,9 +222,8 @@ pub fn basicGraphUsage()void{
 
 }
 
-pub fn writeBmp(file_name: [*c]const u8, w:i32, h:i32,component_count:i32, data: []const u8, alloc: std.mem.Allocator)void{
+pub fn writeBmp(file_name: [*c]const u8, w:i32, h:i32,component_count:i32, data: []const u8)void{
     _ = c.stbi_write_bmp(file_name, w,h,component_count,&data[0]);
-    alloc.free(data);
 }
 
 //Ideally I don't want to make any c.SDL calls in my application
@@ -517,33 +516,67 @@ pub const SDL = struct {
     };
 };
 
-///A Texture atlas, loads many SubTileSet from many png files and packs them into a single texture.
 pub const Atlas = struct {
+    pub const AtlasJson = struct {
+        pub const SetJson = struct {
+            filename: []const u8,
+            tilesets: []const SubTileset,
+        };
+
+        img_dir_path:[]const u8,
+        sets: []const SetJson,
+    };
+
     texture: Texture,
 
     sets: std.ArrayList(SubTileset),
 
-    pub fn init(sets_to_load: []const struct { filename: []const u8, tilesets: []const SubTileset }, alloc: std.mem.Allocator, texture_size: u32) !Atlas {
+    //TODO determine optimal texture_size
+    pub fn initFromJsonFile(json_filename: []const u8, alloc: std.mem.Allocator, texture_size: ?u32) !Atlas {
+        const cwd = std.fs.cwd();
+        const json_slice = try cwd.readFileAlloc(alloc,json_filename,  std.math.maxInt(usize));
+        defer alloc.free(json_slice);
+
+        //const cache_dir = try cwd.makeOpenPath("cache", .{});
+        //const cache_in: ?[]const u8 = cache_dir.readFileAlloc(alloc,json_filename, std.math.maxInt(usize)) catch |err| switch(err){
+        //    error.FileNotFound => null,
+        //    else => return err,
+        //};
+
+        //var cached = false;
+        //if(cache_in)|cc|{
+        //    if(std.mem.eql(u8,cc, json_slice)){
+        //        std.debug.print("Cache is the same\n",.{}); 
+        //        cached = true;
+        //    }
+        //    alloc.free(cc);
+        //}
+
+        //_ = try cwd.updateFile(json_filename, cache_dir, json_filename ,.{});
+
+        //if(cached){
+        //    //open cached data and load into sets
+        //}
+        //else{
+
+        {
+        const json = try parseJson(AtlasJson, json_slice, .{.allocator = alloc,});
+        defer json.parseFree();
+        const img_path = json.data.img_dir_path;
+        const sets_to_load = json.data.sets;
+
+        if(sets_to_load.len == 0) return error.noSets;
+
+
         var packing_rects = std.ArrayList(c.stbrp_rect).init(alloc);
         defer packing_rects.deinit();
 
-        var nodes = std.ArrayList(c.stbrp_node).init(alloc);
-        defer nodes.deinit();
-        try nodes.appendNTimes(undefined, texture_size + 200); //TODO MAGICNUM
-        var rect_context: c.stbrp_context = undefined;
-
-        c.stbrp_init_target(
-            &rect_context,
-            @intCast(c_int, texture_size),
-            @intCast(c_int, texture_size),
-            @ptrCast([*c]c.stbrp_node, nodes.items[0..nodes.items.len]),
-            @intCast(c_int, nodes.items.len),
-        );
-
+        var running_area:i32 = 0;
         var sets = std.ArrayList(SubTileset).init(alloc);
         var id_len: usize = 0;
         for (sets_to_load) |item| {
             for (item.tilesets) |ts, j| {
+                running_area += ts.tw * ts.num.x * ts.th * ts.num.y;
                 try sets.append(SubTileset{
                     .start = ts.start,
                     .tw = ts.tw,
@@ -554,8 +587,6 @@ pub const Atlas = struct {
                 });
                 try packing_rects.append(.{
                     .id = @intCast(i32, id_len + j),
-                    //.w = @intCast(c_ushort, ts.num.x * (ts.pad.x + ts.tw) - ts.pad.x),
-                    //.h = @intCast(c_ushort, ts.num.y * (ts.pad.y + ts.th) - ts.pad.y),
                     .w = @intCast(c_ushort, ts.num.x * ts.tw),
                     .h = @intCast(c_ushort, ts.num.y * ts.th),
                     .x = 50,
@@ -565,6 +596,29 @@ pub const Atlas = struct {
             }
             id_len += item.tilesets.len;
         }
+        const atlas_size = blk: {
+            if(texture_size)|ts|{
+                break :blk ts;
+            }
+            else{
+                break :blk @floatToInt(u32,@sqrt(@intToFloat(f32, running_area) * 2));
+                
+            }
+        };
+
+        var nodes = std.ArrayList(c.stbrp_node).init(alloc);
+        defer nodes.deinit();
+        try nodes.appendNTimes(undefined, atlas_size + 200); //TODO MAGICNUM
+        var rect_context: c.stbrp_context = undefined;
+
+        c.stbrp_init_target(
+            &rect_context,
+            @intCast(c_int, atlas_size),
+            @intCast(c_int, atlas_size),
+            @ptrCast([*c]c.stbrp_node, nodes.items[0..nodes.items.len]),
+            @intCast(c_int, nodes.items.len),
+        );
+
         const pack_err = c.stbrp_pack_rects(
             &rect_context,
             @ptrCast([*c]c.stbrp_rect, packing_rects.items[0 .. packing_rects.items.len - 1]),
@@ -575,11 +629,13 @@ pub const Atlas = struct {
 
         var bitmap = std.ArrayList(u8).init(alloc);
         defer bitmap.deinit();
-        //try bitmap.resize(4 * texture_size * texture_size);
-        try bitmap.appendNTimes(0, 4 * texture_size * texture_size);
+        try bitmap.appendNTimes(0, 4 * atlas_size * atlas_size);
 
-        var bit = Bitmap{ .data = bitmap, .w = texture_size, .h = texture_size };
+        var bit = Bitmap{ .data = bitmap, .w = atlas_size, .h = atlas_size };
 
+        var full_filename = std.ArrayList(u8).init(alloc);
+        defer full_filename.deinit();
+        try full_filename.appendSlice(img_path);
         for (packing_rects.items) |rect| {
             var in: usize = 0;
             var j: usize = @intCast(usize, rect.id);
@@ -588,12 +644,13 @@ pub const Atlas = struct {
             }
 
             const set = sets_to_load[in].tilesets[j];
-            var ts_bmp = try loadPng(sets_to_load[in].filename, alloc);
+
+            try full_filename.appendSlice(sets_to_load[in].filename);
+            var ts_bmp = try loadPng(full_filename.items, alloc);
+            try full_filename.resize(img_path.len);
             defer ts_bmp.data.deinit();
-            //const bmp = ts_bmp.data.items;
 
             sets.items[@intCast(usize, rect.id)].start = .{ .x = rect.x, .y = rect.y };
-            //try sets.append(SubTileset{ .start = .{ .x = rect.x, .y = rect.y }, .tw = set.tw, .th = set.th, .pad = .{ .x = 0, .y = 0 }, .num = set.num, .count = set.count });
 
             var i: i32 = 0;
             while (i < set.count) : (i += 1) {
@@ -609,18 +666,13 @@ pub const Atlas = struct {
                 );
             }
         }
-        _ = c.stbi_write_bmp(
-            "debug/atlas.bmp",
-            @intCast(c_int, texture_size),
-            @intCast(c_int, texture_size),
-            4,
-            @ptrCast([*c]u8, bitmap.items[0..bitmap.items.len]),
-        );
+        writeBmp("debug/atlas.bmp", @intCast(c_int, atlas_size), @intCast(c_int, atlas_size), 4, bitmap.items);
 
         return Atlas{
-            .texture = Texture.fromBitmap(Bitmap{ .data = bitmap, .w = texture_size, .h = texture_size }),
+            .texture = Texture.fromArray(bitmap.items, atlas_size, atlas_size, .{}),
             .sets = sets,
         };
+        }
     }
 
     pub fn getTexRec(m: @This(), si: usize, ti: usize) Rect {
@@ -637,6 +689,7 @@ pub const Atlas = struct {
 pub const SubTileset = struct {
     const Self = @This();
 
+    description: []const u8 = "", 
     start: Vec2i, //xy of first tile
     tw: i32,      //width of tile
     th: i32,
@@ -656,6 +709,7 @@ pub const SubTileset = struct {
 };
 
 ///A Fixed width bitmap font structure
+//TODO make this a part of Font. Functions that accept a font should accept this too
 pub const FixedBitmapFont = struct {
     const Self = @This();
 
@@ -975,38 +1029,50 @@ pub const GL = struct {
 pub const NewCtx = struct {
     const Self = @This();
     pub const ColorTriVert = packed struct { pos: Vec2f, z: u16, color: u32 };
-
     pub const Line3DVert = packed struct { pos: Vec3f, color: u32 };
-
     pub const TexTriVert = packed struct { pos: Vec2f, uv: Vec2f, z: u16, color: u32 };
+
     const ColorTriBatch = NewBatch(ColorTriVert, .{ .index_buffer = true });
-    //const FontTriBatch = NewBatch(ColorTriVert, .{ .index_buffer = true });
     const ColorLine3DBatch = NewBatch(Line3DVert, .{ .index_buffer = false });
+    const TextureTriBatch = NewBatch(TexTriVert, .{ .index_buffer = true });
 
     batch_colored_line3D: ColorLine3DBatch,
     batch_colored_tri: ColorTriBatch,
+
+    //batch_textured_tri_map:std.AutoHashMap(c_uint, TextureTriBatch),
+
+    batch_textured_tri: TextureTriBatch,
+
     zindex: u16 = 0,
     colored_tri_shader: c_uint,
     colored_line3d_shader: c_uint,
+    textured_tri_shader: c_uint,
+    dpi: f32,
 
-    pub fn init(alloc: std.mem.Allocator) Self {
+    pub fn init(alloc: std.mem.Allocator, dpi: f32) Self {
         return Self{
+            .dpi = dpi,
             .batch_colored_tri = ColorTriBatch.init(alloc),
             .batch_colored_line3D = ColorLine3DBatch.init(alloc),
+            .batch_textured_tri = TextureTriBatch.init(alloc),
             .colored_tri_shader = Shader.simpleShader(NewTri.shader_test_vert, NewTri.shader_test_frag),
             .colored_line3d_shader = Shader.simpleShader(@embedFile("shader/line3d.vert"), @embedFile("shader/colorquad.frag")),
+            .textured_tri_shader = Shader.simpleShader(@embedFile("shader/tex_tri2d.vert"), @embedFile("shader/tex_tri2d.frag")),
         };
     }
 
     pub fn deinit(self: *Self) void {
         self.batch_colored_tri.deinit();
         self.batch_colored_line3D.deinit();
+        self.batch_textured_tri.deinit();
     }
     //TODO function that takes anytype used to draw
 
     pub fn begin(self: *Self, bg: CharColor) !void {
         try self.batch_colored_tri.clear();
         try self.batch_colored_line3D.clear();
+        try self.batch_textured_tri.clear();
+
         self.zindex = 1;
         std.time.sleep(16 * std.time.ns_per_ms);
 
@@ -1016,12 +1082,11 @@ pub const NewCtx = struct {
     }
 
     pub fn rectPt(self: *Self, rpt: Rect, color: u32) !void {
-        self.rect(rpt.mul(163.0) / 72.0, color);
+        try self.rect(rpt.mul(self.dpi / 72.0), color);
     }
 
     //TODO defer errors to end of frame when fn end() called
     pub fn rect(self: *Self, rpt: Rect, color: u32) !void {
-        //const r = rpt.mul(163.0 / 72.0);
         const r = rpt;
         const b = &self.batch_colored_tri;
         const z = self.zindex;
@@ -1032,6 +1097,21 @@ pub const NewCtx = struct {
             ColorTriVert{ .pos = .{ .x = r.x + r.w, .y = r.y }, .z = z, .color = color },
             ColorTriVert{ .pos = .{ .x = r.x, .y = r.y }, .z = z, .color = color },
             ColorTriVert{ .pos = .{ .x = r.x, .y = r.y + r.h }, .z = z, .color = color },
+        });
+    }
+
+    pub fn rectTex(self: *Self, r: Rect, tr: Rect, col: u32, texture: Texture) !void {
+        const b = &self.batch_textured_tri;
+        const z = self.zindex;
+        self.zindex += 1;
+        const un = normalizeTexRect(tr, texture.w, texture.h);
+
+        try b.indicies.appendSlice(&genQuadIndices(@intCast(u32, b.vertices.items.len)));
+        try b.vertices.appendSlice(&.{
+            TexTriVert{ .pos = .{ .x = r.x + r.w, .y = r.y + r.h }, .z = z, .uv = .{ .x = un.x + un.w, .y = un.y + un.h }, .color = col }, //0
+            TexTriVert{ .pos = .{ .x = r.x + r.w, .y = r.y }, .z = z, .uv = .{ .x = un.x + un.w, .y = un.y }, .color = col }, //1
+            TexTriVert{ .pos = .{ .x = r.x, .y = r.y }, .z = z, .uv = .{ .x = un.x, .y = un.y }, .color = col }, //2
+            TexTriVert{ .pos = .{ .x = r.x, .y = r.y + r.h }, .z = z, .uv = .{ .x = un.x, .y = un.y + un.h }, .color = col }, //3
         });
     }
 
@@ -1051,6 +1131,14 @@ pub const NewCtx = struct {
 
         self.batch_colored_line3D.pushVertexData();
         self.batch_colored_line3D.draw(.{}, self.colored_line3d_shader, camera, model);
+
+        self.batch_textured_tri.pushVertexData();
+        //TODO how will we manage textures
+        //Do we want to allow having different texture settings. User wants to draw one quad with bilinear and the other one with nearest
+        //Instead of having one textured_tri_batch we have a hashmap hashed by texture_id storing batches
+        //
+        //only allow context managed textures. All textures are loaded through context.
+        self.batch_textured_tri.draw(.{}, self.textured_tri_shader, camera, model);
     }
 };
 
@@ -1425,6 +1513,10 @@ pub const Rect = struct {
         return .{ .x = self.x, .y = self.y };
     }
 
+    pub fn farY(self: Self) f32 {
+        return self.y + self.h;
+    }
+
     pub fn toIntRect(self: @This(), comptime int_type: type, comptime vec_type: type) vec_type {
         return vec_type{
             .x = @floatToInt(int_type, self.x),
@@ -1432,6 +1524,10 @@ pub const Rect = struct {
             .w = @floatToInt(int_type, self.w),
             .h = @floatToInt(int_type, self.h),
         };
+    }
+
+    pub fn swapAxis(self: Self) Self {
+        return Rec(self.y, self.x, self.h, self.w);
     }
 };
 
@@ -1754,7 +1850,7 @@ pub const Font = struct {
             }
             break :blk codepoint_list.toOwnedSlice();
         };
-        const dump_bitmaps = true;
+        const dump_bitmaps = false;
 
         const dir = std.fs.cwd();
         dir.makeDir("debug") catch |err| switch (err) {
@@ -1777,8 +1873,6 @@ pub const Font = struct {
             .line_gap = 0,
         };
         errdefer result.glyph_set.deinit();
-
-        std.debug.print("len of sparse: {d}\n", .{result.glyph_set.sparse.items.len});
 
         //TODO switch to using a grid rather than rect packing
         const pack_factor = opt_pack_factor orelse 1.3;
@@ -2034,14 +2128,8 @@ pub const Font = struct {
                     }
                 }
 
-                _ = c.stbi_write_bmp(
-                    "debug/freetype.bmp",
-                    @intCast(c_int, result.texture.w),
-                    @intCast(c_int, result.texture.h),
-                    1,
-                    @ptrCast([*c]u8, texture_bitmap.items[0..texture_bitmap.items.len]),
-                );
-                // zig fmt: on
+                if (dump_bitmaps)
+                    writeBmp("debug/freetype.bmp", @intCast(c_int, result.texture.w), @intCast(c_int, result.texture.h), 1, texture_bitmap.items);
                 result.texture = Texture.fromArray(texture_bitmap.items, result.texture.w, result.texture.h, .{
                     .pixel_store_alignment = 1,
                     .internal_format = c.GL_RED,
@@ -2197,6 +2285,7 @@ pub const GraphicsContext = struct {
     fps_timer: std.time.Timer,
     fps_time: u64 = 1000,
     fpsavg: AvgBuf = .{},
+    call_count: usize = 0,
 
     draw_time: u64 = 1000,
     memcpy_time: u64 = 0,
@@ -2253,7 +2342,8 @@ pub const GraphicsContext = struct {
         return b;
     }
 
-    pub fn beginDraw(self: *Self, bg: CharColor) !void {
+    pub fn beginDraw(self: *Self, bg: CharColor, clear_color: bool) !void {
+        self.call_count = 0;
         self.fps_time = self.fps_timer.read();
         self.fpsavg.insert(std.time.ns_per_s / @intToFloat(f32, self.fps_time));
         self.fps_timer.reset();
@@ -2268,7 +2358,9 @@ pub const GraphicsContext = struct {
 
         const color = charColorToFloat(bg);
         c.glClearColor(color[0], color[1], color[2], color[3]);
-        c.glClear(c.GL_COLOR_BUFFER_BIT | c.GL_DEPTH_BUFFER_BIT);
+        if (clear_color)
+            c.glClear(c.GL_COLOR_BUFFER_BIT);
+        c.glClear(c.GL_DEPTH_BUFFER_BIT);
         self.z_st = 0;
         for (self.batches.items) |*batch| {
             try batch.reset();
@@ -2298,6 +2390,7 @@ pub const GraphicsContext = struct {
 
         for (self.batches.items) |*batch| {
             try batch.reset();
+            self.call_count += 1;
         }
     }
 
@@ -2322,6 +2415,7 @@ pub const GraphicsContext = struct {
                 else => {},
             }
         }
+        self.call_count += self.batches.items.len;
 
         if (draw_time) |*dt|
             self.draw_time = dt.read();
@@ -2966,6 +3060,12 @@ const Batch = union(enum) {
 
     pub fn draw(self: *Self, view_bounds: Rect, translate: Vec2f, shader_program: glID, texture_shader: glID) void {
         //const view = za.orthographic(0, @intToFloat(f32, scrw), @intToFloat(f32, scrh), 0, -100, 100);
+        const count = switch (self.*) {
+            .Tri => |*b| b.vertices.items.len,
+            .TriTex => |*b| b.vertices.items.len,
+            .Line => |*b| b.vertices.items.len,
+        };
+        if (count == 0) return;
         const view = za.orthographic(view_bounds.x, view_bounds.w, view_bounds.h, view_bounds.y, -100000, 1).translate(za.Vec3.new(0, 0, 0));
         const model = za.Mat4.identity().translate(za.Vec3.new(translate.x, translate.y, 0));
 
@@ -3009,6 +3109,21 @@ const Batch = union(enum) {
         }
     }
 };
+
+pub fn parseJson(comptime T: type, slice: []const u8, parseOptions: std.json.ParseOptions) !struct {
+    data: T,
+    opts: std.json.ParseOptions,
+
+    pub fn parseFree(self: @This()) void {
+        std.json.parseFree(T, self.data, self.opts);
+    }
+} {
+    var ts = std.json.TokenStream.init(slice);
+    return .{
+        .data = try std.json.parse(T, &ts, parseOptions),
+        .opts = parseOptions,
+    };
+}
 
 pub const BindType = [2][]const u8;
 pub const BindList = []const BindType;

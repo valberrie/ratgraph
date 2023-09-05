@@ -349,17 +349,17 @@ const unique_colors = [_]Color{
     intToColor(0xE85EBE88),
 };
 
-pub fn deSerializeJson(file_name: []const u8, comptime schema: type, alloc: *const std.mem.Allocator) !schema {
+pub fn deSerializeJson(file_name: []const u8, comptime schema: type, alloc: std.mem.Allocator) !schema {
     @setEvalBranchQuota(10000);
     const cwd = std.fs.cwd();
     const saved = cwd.openFile(file_name, .{}) catch null;
     if (saved) |file| {
-        var buf: []const u8 = try file.readToEndAlloc(alloc.*, 1024 * 1024);
+        var buf: []const u8 = try file.readToEndAlloc(alloc, 1024 * 1024);
         defer alloc.free(buf);
 
         var token_stream = std.json.TokenStream.init(buf);
-        var ret = try std.json.parse(schema, &token_stream, .{ .allocator = alloc.* });
-        defer std.json.parseFree(schema, ret, .{ .allocator = alloc.* });
+        var ret = try std.json.parse(schema, &token_stream, .{ .allocator = alloc });
+        defer std.json.parseFree(schema, ret, .{ .allocator = alloc });
         return ret;
     }
     const ret: schema = undefined;
@@ -576,7 +576,7 @@ fn testHsvImage(alloc: std.mem.Allocator, h: f32) !graph.Texture {
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.detectLeaks();
-    const alloc = &gpa.allocator();
+    const alloc = gpa.allocator();
 
     var testmap = graph.Bind(&.{.{ "fuck", "a" }}).init();
 
@@ -586,8 +586,14 @@ pub fn main() !void {
     var ctx = try graph.GraphicsContext.init(alloc, 163);
     defer ctx.deinit();
 
-    const mc_atlas = try mcBlockAtlas.buildAtlas(alloc.*);
-    defer mc_atlas.deinit(alloc.*);
+    const mc_atlas = try mcBlockAtlas.buildAtlas(alloc);
+    defer mc_atlas.deinit(alloc);
+
+    var timer = try std.time.Timer.start();
+    var mario_atlas = try graph.Atlas.initFromJsonFile("mario_assets/tileset_manifest.json", alloc, null);
+    defer mario_atlas.deinit();
+    const time_took = timer.read();
+    std.debug.print("Loaded mario in {d}ms\n", .{time_took / std.time.ns_per_ms});
 
     const SaveData = struct {
         fps_posx: f32 = 0,
@@ -611,7 +617,7 @@ pub fn main() !void {
     var dpix: u32 = @floatToInt(u32, win.getDpi());
     std.debug.print("DPI: {d}\n", .{dpix});
     const init_size = 18;
-    var font = try graph.Font.init("fonts/sfmono.otf", alloc.*, init_size, dpix, &(graph.Font.CharMaps.AsciiBasic ++ graph.Font.CharMaps.Apple), null);
+    var font = try graph.Font.init("fonts/sfmono.otf", alloc, init_size, dpix, &(graph.Font.CharMaps.AsciiBasic ++ graph.Font.CharMaps.Apple), null);
     defer font.deinit();
 
     var sdat = gui.SaveData{ .x = 200, .y = 0 };
@@ -639,7 +645,7 @@ pub fn main() !void {
     }
     //const my_texture = try testHsvImage(alloc.*, 0);
 
-    var newtri = graph.NewTri.init(alloc.*);
+    var newtri = graph.NewTri.init(alloc);
     defer newtri.deinit();
 
     //var testbatch = graph.NewBatch(graph.NewTri.Vert, .{ .index_buffer = false }).init(alloc.*);
@@ -649,128 +655,57 @@ pub fn main() !void {
 
     graph.GL.checkError();
 
-    //var draw = graph.NewCtx.init(alloc.*);
-    //defer draw.deinit();
-    //while (!win.should_exit) {
-    //    try draw.begin(graph.itc(0x2f2f2fff));
-    //    win.pumpEvents();
+    var draw = graph.NewCtx.init(alloc, win.getDpi());
+    defer draw.deinit();
+    while (!win.should_exit) {
+        try draw.begin(graph.itc(0x2f2f2fff));
+        win.pumpEvents();
 
-    //    try draw.rect(graph.Rec(72, 72, 72, 72), 0xff00ffff);
+        try draw.rect(graph.Rec(72, 72, 72, 72), 0xff00ffff);
 
-    //    draw.end(win.screen_width, win.screen_height);
-    //    win.swap();
-    //}
-    var do_write = true;
+        try draw.rectPt(graph.Rec(72, 72, 72, 72), 0xffffffff);
+        try draw.rectTex(graph.Rec(100, 100, 1000, 1000), graph.Rec(0, 0, 1, 1), 0xffffffff, mario_atlas.texture);
+
+        draw.end(win.screen_width, win.screen_height, graph.za.Mat4.identity());
+        win.swap();
+    }
 
     while (!win.should_exit) {
-        //try ctx.beginDraw(intToColor(0x2f2f2fff));
+        try ctx.beginDraw(intToColor(0x2f2f2fff), true);
         win.pumpEvents(); //Important that this is called after beginDraw for input lag reasons
-        if (false) {
-            camera.update(&win);
+        camera.update(&win);
 
-            {
-                var buf: [300]u8 = undefined;
-                var fbs = std.io.FixedBufferStream([]u8){ .buffer = buf[0..], .pos = 0 };
-                //try fbs.writer().print("{any} \n{any}", .{ cam_pos.data, camera_front.data });
-
-                ctx.drawText(50, 300, buf[0..fbs.pos], &font, 16, intToColor(0xffffffff));
-            }
-
-            for (win.keys.slice()) |key| {
-                switch (testmap.get(key.scancode)) {
-                    .fuck => std.debug.print("FUCK pressed\n", .{}),
-                    else => {},
-                }
-            }
-
-            for (testmap.table) |key, i| {
-                if (key != .no_action and win.keyboard_state.isSet(i)) {
-                    switch (key) {
-                        .fuck => std.debug.print("FUCK HELLED\n", .{}),
-                        else => {},
-                    }
-                }
-            }
-
-            //ctx.ptRect(200, 200, 72, 72, graph.itc(0x00ffffff));
-
-            //ctx.drawRect(.{ .x = 0, .y = 0, .w = 100, .h = 100 }, intToColor(0xffff00ff));
-            //try ctx.drawRectTex(graph.Rec(600, 600, 1000, 1000), graph.Rec(0, 0, @intToFloat(f32, my_texture.w), @intToFloat(f32, my_texture.h)), itc(0xffffffff), my_texture);
-
-            ctx.drawFPS(sd.fps_posx, sd.fps_posy, &font);
-
-            //ctx.drawRectCol(graph.Rec(0, 0, win.screen_height, win.screen_height), .{ itc(0xffffffff), itc(0xff), itc(0xff), itc(0xffffffff) });
-            //ctx.drawRect(graph.Rec(0, 0, win.screen_height, win.screen_height), itc(0xff00006f));
-            //ctx.drawRectCol(graph.Rec(0, 0, win.screen_height, win.screen_height), .{ itc(0x33000011), itc(0xff), itc(0xff), itc(0xff0000fa) });
-
-            //try ctx.drawT
-
-            ctx.endDraw(win.screen_width, win.screen_height);
-        }
-        //cubes.draw(win.screen_width, win.screen_height, camera.getMatrix(3840.0 / 2160.0, 85, 0.1, 10000));
         {
-            c.glClear(c.GL_DEPTH_BUFFER_BIT | c.GL_COLOR_BUFFER_BIT);
-            c.glEnable(c.GL_STENCIL_TEST);
-            c.glEnable(c.GL_DEPTH_TEST);
-            c.glColorMask(c.GL_FALSE, c.GL_FALSE, c.GL_FALSE, c.GL_FALSE);
-            c.glDepthMask(c.GL_FALSE);
-            c.glClearStencil(0xff);
-            c.glStencilFunc(c.GL_NEVER, 1, 0xFF);
-            c.glStencilOp(c.GL_REPLACE, c.GL_KEEP, c.GL_KEEP); // draw 1s on test fail (always)
+            var buf: [300]u8 = undefined;
+            var fbs = std.io.FixedBufferStream([]u8){ .buffer = buf[0..], .pos = 0 };
+            //try fbs.writer().print("{any} \n{any}", .{ cam_pos.data, camera_front.data });
 
-            // draw stencil pattern
-            c.glStencilMask(0xFF);
-            c.glClear(c.GL_STENCIL_BUFFER_BIT); // needs mask=0xFF
-            {
-                try newtri.reset();
-                try newtri.quad(graph.Rec(500, 500, 500, 500), 1000);
-                newtri.draw(win.screen_width, win.screen_height);
-            }
-            //c.draw_circle();
-
-            c.glColorMask(c.GL_TRUE, c.GL_TRUE, c.GL_TRUE, c.GL_TRUE);
-            c.glDepthMask(c.GL_TRUE);
-            c.glStencilMask(0x00);
-            // draw where stencil's value is 0
-            //c.glStencilFunc(c.GL_EQUAL, 0, 0xFF);
-            c.glStencilFunc(c.GL_EQUAL, 1, 0xFF);
-
-            {
-                try newtri.reset();
-                var i: u32 = 0;
-                while (i < 40) : (i += 1) {
-                    const fi = @intToFloat(f32, i);
-                    try newtri.quad(graph.Rec(fi * 50, 600, 40, 40), 1000);
-                }
-                newtri.draw(win.screen_width, win.screen_height);
-            }
-
-            if (do_write) {
-                do_write = false;
-                var vec = std.ArrayList(u8).init(alloc.*);
-                try vec.resize(@intCast(usize, win.screen_width * win.screen_height));
-                c.glReadPixels(0, 0, win.screen_width, win.screen_height, c.GL_STENCIL_INDEX, c.GL_UNSIGNED_BYTE, &vec.items[0]);
-                const thread = try std.Thread.spawn(.{}, graph.writeBmp, .{ "stencil.bmp", win.screen_width, win.screen_height, 1, vec.toOwnedSlice(), alloc.* });
-                win.should_exit = true;
-                thread.join();
-
-                //var vec2 = std.ArrayList(u8).init(alloc.*);
-                //defer vec2.deinit();
-                //try vec2.resize(@intCast(usize, win.screen_width * win.screen_height) * 3);
-                //c.glReadPixels(0, 0, win.screen_width, win.screen_height, c.GL_RGB, c.GL_UNSIGNED_BYTE, &vec2.items[0]);
-                //_ = c.stbi_write_bmp(
-                //    "win.bmp",
-                //    win.screen_width,
-                //    win.screen_height,
-                //    3,
-                //    &vec2.items[0],
-                //);
-
-                //return;
-            }
-
-            c.glDisable(c.GL_STENCIL_TEST);
+            ctx.drawText(50, 300, buf[0..fbs.pos], &font, 16, intToColor(0xffffffff));
         }
+
+        for (win.keys.slice()) |key| {
+            switch (testmap.get(key.scancode)) {
+                .fuck => std.debug.print("FUCK pressed\n", .{}),
+                else => {},
+            }
+        }
+
+        try ctx.drawCircle(400, 400, 4000, itc(0xff0000ff));
+        //try ctx.drawRectTex(graph.Rec(0, 0, 2000, 2000), graph.Rec(0, 0, mario_atlas.texture.w, mario_atlas.texture.h), itc(0xffffffff), mario_atlas.texture);
+        //ctx.ptRect(200, 200, 72, 72, graph.itc(0x00ffffff));
+
+        //ctx.drawRect(.{ .x = 0, .y = 0, .w = 100, .h = 100 }, intToColor(0xffff00ff));
+        //try ctx.drawRectTex(graph.Rec(600, 600, 1000, 1000), graph.Rec(0, 0, @intToFloat(f32, my_texture.w), @intToFloat(f32, my_texture.h)), itc(0xffffffff), my_texture);
+
+        ctx.drawFPS(sd.fps_posx, sd.fps_posy, &font);
+
+        //ctx.drawRectCol(graph.Rec(0, 0, win.screen_height, win.screen_height), .{ itc(0xffffffff), itc(0xff), itc(0xff), itc(0xffffffff) });
+        //ctx.drawRect(graph.Rec(0, 0, win.screen_height, win.screen_height), itc(0xff00006f));
+        //ctx.drawRectCol(graph.Rec(0, 0, win.screen_height, win.screen_height), .{ itc(0x33000011), itc(0xff), itc(0xff), itc(0xff0000fa) });
+
+        //try ctx.drawT
+
+        ctx.endDraw(win.screen_width, win.screen_height);
 
         win.swap();
     }

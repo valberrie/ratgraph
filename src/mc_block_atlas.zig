@@ -152,7 +152,7 @@ pub fn buildAtlas(alloc: std.mem.Allocator) !McAtlas {
                 try strcat.append('/');
                 try strcat.appendSlice(pngs.items[matches.items[0].index]);
 
-                var bmp = try graph.loadPngBitmap(strcat.items, &alloc);
+                var bmp = try graph.loadPngBitmap(strcat.items, alloc);
                 defer bmp.data.deinit();
                 bmp.copySub(
                     0,
