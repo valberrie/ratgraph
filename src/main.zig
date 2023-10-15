@@ -578,7 +578,7 @@ pub fn main() !void {
     defer _ = gpa.detectLeaks();
     const alloc = gpa.allocator();
 
-    var testmap = graph.Bind(&.{.{ "fuck", "a" }}).init();
+    //var testmap = graph.Bind(&.{.{ "fuck", "a" }}).init();
 
     var win = try graph.SDL.Window.createWindow("My window");
     defer win.destroyWindow();
@@ -616,7 +616,7 @@ pub fn main() !void {
 
     var dpix: u32 = @floatToInt(u32, win.getDpi());
     std.debug.print("DPI: {d}\n", .{dpix});
-    const init_size = 18;
+    const init_size = 72;
     var font = try graph.Font.init("fonts/sfmono.otf", alloc, init_size, dpix, &(graph.Font.CharMaps.AsciiBasic ++ graph.Font.CharMaps.Apple), null);
     defer font.deinit();
 
@@ -627,15 +627,12 @@ pub fn main() !void {
     const rand = prng.random();
     _ = rand;
 
-    var camera = graph.Camera3D{};
-    //const my_image = try graph.loadPngIntoTexture("sky.png", alloc);
-
     win.grabMouse(true);
     var cubes = graph.Cubes.init(alloc, mc_atlas.texture.id, ctx.tex_shad);
     defer cubes.deinit();
     {
         const index = cubes.vertices.items.len;
-        try cubes.vertices.appendSlice(&graph.cube(0, 0, 0, 1, 1, 1, mc_atlas.getTextureRec(1), mc_atlas.texture.w, mc_atlas.texture.h, null));
+        try cubes.vertices.appendSlice(&graph.cube(0, 0, 0, 1, 1, 1, mc_atlas.getTextureRec(1), @intCast(u32, mc_atlas.texture.w), @intCast(u32, mc_atlas.texture.h), null));
         try cubes.indicies.appendSlice(&graph.genCubeIndicies(@intCast(u32, index)));
         cubes.vertices.items[0].g = 0;
         cubes.vertices.items[0].b = 0;
@@ -643,13 +640,9 @@ pub fn main() !void {
         cubes.vertices.items[1].b = 0;
         cubes.setData();
     }
-    //const my_texture = try testHsvImage(alloc.*, 0);
 
     var newtri = graph.NewTri.init(alloc);
     defer newtri.deinit();
-
-    //var testbatch = graph.NewBatch(graph.NewTri.Vert, .{ .index_buffer = false }).init(alloc.*);
-    //var testbatchebo = graph.NewBatch(graph.NewTri.Vert, .{ .index_buffer = true }).init(alloc.*);
 
     try newtri.quad(graph.Rec(50, 50, 100, 100), 10000);
 
@@ -661,52 +654,11 @@ pub fn main() !void {
         try draw.begin(graph.itc(0x2f2f2fff));
         win.pumpEvents();
 
-        try draw.rect(graph.Rec(72, 72, 72, 72), 0xff00ffff);
+        //try draw.rectTex(graph.Rec(0, 0, 1000, 1000), graph.Rec(0, 0, mario_atlas.texture.w, mario_atlas.texture.h), 0xffffffff, mario_atlas.texture);
 
-        try draw.rectPt(graph.Rec(72, 72, 72, 72), 0xffffffff);
-        try draw.rectTex(graph.Rec(100, 100, 1000, 1000), graph.Rec(0, 0, 1, 1), 0xffffffff, mario_atlas.texture);
+        try draw.text(.{ .x = 1000, .y = 200 }, "Test string ____.!", &font, 72, 0xffffffff);
 
         draw.end(win.screen_width, win.screen_height, graph.za.Mat4.identity());
-        win.swap();
-    }
-
-    while (!win.should_exit) {
-        try ctx.beginDraw(intToColor(0x2f2f2fff), true);
-        win.pumpEvents(); //Important that this is called after beginDraw for input lag reasons
-        camera.update(&win);
-
-        {
-            var buf: [300]u8 = undefined;
-            var fbs = std.io.FixedBufferStream([]u8){ .buffer = buf[0..], .pos = 0 };
-            //try fbs.writer().print("{any} \n{any}", .{ cam_pos.data, camera_front.data });
-
-            ctx.drawText(50, 300, buf[0..fbs.pos], &font, 16, intToColor(0xffffffff));
-        }
-
-        for (win.keys.slice()) |key| {
-            switch (testmap.get(key.scancode)) {
-                .fuck => std.debug.print("FUCK pressed\n", .{}),
-                else => {},
-            }
-        }
-
-        try ctx.drawCircle(400, 400, 4000, itc(0xff0000ff));
-        //try ctx.drawRectTex(graph.Rec(0, 0, 2000, 2000), graph.Rec(0, 0, mario_atlas.texture.w, mario_atlas.texture.h), itc(0xffffffff), mario_atlas.texture);
-        //ctx.ptRect(200, 200, 72, 72, graph.itc(0x00ffffff));
-
-        //ctx.drawRect(.{ .x = 0, .y = 0, .w = 100, .h = 100 }, intToColor(0xffff00ff));
-        //try ctx.drawRectTex(graph.Rec(600, 600, 1000, 1000), graph.Rec(0, 0, @intToFloat(f32, my_texture.w), @intToFloat(f32, my_texture.h)), itc(0xffffffff), my_texture);
-
-        ctx.drawFPS(sd.fps_posx, sd.fps_posy, &font);
-
-        //ctx.drawRectCol(graph.Rec(0, 0, win.screen_height, win.screen_height), .{ itc(0xffffffff), itc(0xff), itc(0xff), itc(0xffffffff) });
-        //ctx.drawRect(graph.Rec(0, 0, win.screen_height, win.screen_height), itc(0xff00006f));
-        //ctx.drawRectCol(graph.Rec(0, 0, win.screen_height, win.screen_height), .{ itc(0x33000011), itc(0xff), itc(0xff), itc(0xff0000fa) });
-
-        //try ctx.drawT
-
-        ctx.endDraw(win.screen_width, win.screen_height);
-
         win.swap();
     }
 }

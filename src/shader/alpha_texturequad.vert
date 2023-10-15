@@ -11,7 +11,7 @@ uniform mat4 view = mat4(1.0f);
 void main() {
    //gl_Position = vec4(aPos.x, aPos.y, aPos.z, 1.0);
    //gl_Position = model * view * vec4(aPos,  1.0);
-   gl_Position =   view * model* vec4(aPos,  1.0);
+   gl_Position =   view * model * vec4(aPos,  1.0);
    out_color = color;
    out_texcoord = texcoord;
 };

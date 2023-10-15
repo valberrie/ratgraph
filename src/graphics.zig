@@ -28,6 +28,28 @@ pub const keycodes = @import("keycodes.zig");
 
 pub const V3 = za.Vec3;
 
+pub fn RingBuffer(comptime size: u32, comptime T: type, comptime default: T) type {
+    return struct {
+        const Self = @This();
+        items: [size]T = [_]T{default} ** size,
+
+        index: usize = 0,
+
+        pub fn put(self: *Self, item: T) void {
+            self.items[self.index] = item;
+            self.index = (self.index + 1) % self.items.len;
+        }
+
+        pub fn avg(self: *Self) T {
+            var count: T = 0;
+            for (self.items) |item| {
+                count += item;
+            }
+            return count / self.items.len;
+        }
+    };
+}
+
 pub const Vec2f = packed struct {
     x: f32,
     y: f32,
@@ -38,6 +60,15 @@ pub const Vec2f = packed struct {
 
     pub fn smul(s: @This(), scalar: f32) @This() {
         return .{ .x = s.x * scalar, .y = s.y * scalar };
+    }
+
+    pub fn add(a: @This(), b: @This()) @This() {
+        return .{ .x = a.x + b.x, .y = a.y + b.y };
+    }
+
+    /// a - b
+    pub fn sub(a: @This(), b: @This()) @This() {
+        return .{ .x = a.x - b.x, .y = a.y - b.y };
     }
 
     pub fn toI(s: @This(), comptime I: type, comptime V: type) V {
@@ -136,6 +167,11 @@ pub fn quadTex(pos: V3, w: f32, h: f32, plane: Plane, neg: bool, tr: Rect, tx_w:
         };
     }
 }
+
+pub const Camera2D = struct {
+    screen_area: Rect,
+    canvas_area:Rect,
+};
 
 pub const Camera3D = struct {
     const Self = @This(); 
@@ -498,6 +534,11 @@ pub const SDL = struct {
             c.glScissor(x,h - y,w, h);
         }
 
+        pub fn bindScreenFramebuffer(self: *Self)void{
+            c.glBindFramebuffer(c.GL_FRAMEBUFFER, 0);
+            c.glViewport(0,0,self.screen_width, self.screen_height);
+        }
+
         pub fn startTextInput(self: *const Self)void{
             _ = self;
             const rec = c.SDL_Rect{.x = 50,.y = 500, .w = 300, .h = 72};
@@ -536,28 +577,6 @@ pub const Atlas = struct {
         const cwd = std.fs.cwd();
         const json_slice = try cwd.readFileAlloc(alloc,json_filename,  std.math.maxInt(usize));
         defer alloc.free(json_slice);
-
-        //const cache_dir = try cwd.makeOpenPath("cache", .{});
-        //const cache_in: ?[]const u8 = cache_dir.readFileAlloc(alloc,json_filename, std.math.maxInt(usize)) catch |err| switch(err){
-        //    error.FileNotFound => null,
-        //    else => return err,
-        //};
-
-        //var cached = false;
-        //if(cache_in)|cc|{
-        //    if(std.mem.eql(u8,cc, json_slice)){
-        //        std.debug.print("Cache is the same\n",.{}); 
-        //        cached = true;
-        //    }
-        //    alloc.free(cc);
-        //}
-
-        //_ = try cwd.updateFile(json_filename, cache_dir, json_filename ,.{});
-
-        //if(cached){
-        //    //open cached data and load into sets
-        //}
-        //else{
 
         {
         const json = try parseJson(AtlasJson, json_slice, .{.allocator = alloc,});
@@ -669,7 +688,7 @@ pub const Atlas = struct {
         writeBmp("debug/atlas.bmp", @intCast(c_int, atlas_size), @intCast(c_int, atlas_size), 4, bitmap.items);
 
         return Atlas{
-            .texture = Texture.fromArray(bitmap.items, atlas_size, atlas_size, .{}),
+            .texture = Texture.fromArray(bitmap.items, @intCast(i32,atlas_size), @intCast(i32,atlas_size), .{}),
             .sets = sets,
         };
         }
@@ -865,9 +884,22 @@ pub fn loadPng(relative_path: []const u8, alloc: std.mem.Allocator) !Bitmap {
 
 }
 
-//TODO mario specific crap
-
 pub const GL = struct {
+    pub const PrimitiveMode = enum(u32) {
+        points = c.GL_POINTS,
+        line_strip = c.GL_LINE_STRIP,
+        line_loop = c.GL_LINE_LOOP,
+        lines = c.GL_LINES,
+        line_strip_adjacency = c.GL_LINE_STRIP_ADJACENCY,
+        lines_adjacency = c.GL_LINES_ADJACENCY,
+        triangle_strip = c.GL_TRIANGLE_STRIP,
+        triangle_fan = c.GL_TRIANGLE_FAN,
+        triangles = c.GL_TRIANGLES,
+        triangle_strip_adjacency = c.GL_TRIANGLE_STRIP_ADJACENCY,
+        triangles_adjacency = c.GL_TRIANGLES_ADJACENCY,
+        patches = c.GL_PATCHES,
+    };
+
     pub fn checkError() void {
         var err = c.glGetError();
         // zig fmt: on
@@ -1032,46 +1064,78 @@ pub const NewCtx = struct {
     pub const Line3DVert = packed struct { pos: Vec3f, color: u32 };
     pub const TexTriVert = packed struct { pos: Vec2f, uv: Vec2f, z: u16, color: u32 };
 
-    const ColorTriBatch = NewBatch(ColorTriVert, .{ .index_buffer = true });
-    const ColorLine3DBatch = NewBatch(Line3DVert, .{ .index_buffer = false });
-    const TextureTriBatch = NewBatch(TexTriVert, .{ .index_buffer = true });
+    const ColorTriBatch = NewBatch(ColorTriVert, .{ .index_buffer = true, .primitive_mode = .triangles });
+    const ColorLine3DBatch = NewBatch(Line3DVert, .{ .index_buffer = false, .primitive_mode = .lines });
+    const TextureTriBatch = NewBatch(TexTriVert, .{ .index_buffer = true, .primitive_mode = .triangles });
+    const FontBatch = NewBatch(TexTriVert, .{ .index_buffer = true, .primitive_mode = .triangles });
 
     batch_colored_line3D: ColorLine3DBatch,
     batch_colored_tri: ColorTriBatch,
+    batch_font: FontBatch,
 
-    //batch_textured_tri_map:std.AutoHashMap(c_uint, TextureTriBatch),
-
-    batch_textured_tri: TextureTriBatch,
+    batch_textured_tri_map: std.AutoHashMap(c_uint, TextureTriBatch),
 
     zindex: u16 = 0,
+    font_shader: c_uint,
     colored_tri_shader: c_uint,
     colored_line3d_shader: c_uint,
     textured_tri_shader: c_uint,
     dpi: f32,
 
+    delete_me_font_tex: ?Texture = null,
+
+    alloc: std.mem.Allocator,
+
     pub fn init(alloc: std.mem.Allocator, dpi: f32) Self {
         return Self{
+            .alloc = alloc,
             .dpi = dpi,
             .batch_colored_tri = ColorTriBatch.init(alloc),
             .batch_colored_line3D = ColorLine3DBatch.init(alloc),
-            .batch_textured_tri = TextureTriBatch.init(alloc),
+            .batch_textured_tri_map = std.AutoHashMap(c_uint, TextureTriBatch).init(alloc),
+            .batch_font = FontBatch.init(alloc),
+
             .colored_tri_shader = Shader.simpleShader(NewTri.shader_test_vert, NewTri.shader_test_frag),
             .colored_line3d_shader = Shader.simpleShader(@embedFile("shader/line3d.vert"), @embedFile("shader/colorquad.frag")),
             .textured_tri_shader = Shader.simpleShader(@embedFile("shader/tex_tri2d.vert"), @embedFile("shader/tex_tri2d.frag")),
+
+            .font_shader = Shader.simpleShader(@embedFile("shader/tex_tri2d.vert"), @embedFile("shader/tex_tri2d_alpha.frag")),
         };
     }
 
     pub fn deinit(self: *Self) void {
         self.batch_colored_tri.deinit();
+        self.batch_font.deinit();
         self.batch_colored_line3D.deinit();
-        self.batch_textured_tri.deinit();
+        var tex_it = self.batch_textured_tri_map.valueIterator();
+        var v = tex_it.next();
+        while (v) |joj| : (v = tex_it.next()) {
+            _ = joj;
+            v.?.deinit();
+        }
+        self.batch_textured_tri_map.deinit();
     }
     //TODO function that takes anytype used to draw
+
+    fn getTexturedTriBatch(self: *Self, tex_id: c_uint) !*TextureTriBatch {
+        const res = try self.batch_textured_tri_map.getOrPut(tex_id);
+        if (!res.found_existing) {
+            res.value_ptr.* = TextureTriBatch.init(self.alloc);
+            res.key_ptr.* = tex_id;
+            try res.value_ptr.clear();
+        }
+        return res.value_ptr;
+    }
 
     pub fn begin(self: *Self, bg: CharColor) !void {
         try self.batch_colored_tri.clear();
         try self.batch_colored_line3D.clear();
-        try self.batch_textured_tri.clear();
+        try self.batch_font.clear();
+        var tex_it = self.batch_textured_tri_map.valueIterator();
+        var vo = tex_it.next();
+        while (vo) |v| : (vo = tex_it.next()) {
+            try v.clear();
+        }
 
         self.zindex = 1;
         std.time.sleep(16 * std.time.ns_per_ms);
@@ -1101,7 +1165,7 @@ pub const NewCtx = struct {
     }
 
     pub fn rectTex(self: *Self, r: Rect, tr: Rect, col: u32, texture: Texture) !void {
-        const b = &self.batch_textured_tri;
+        const b = try self.getTexturedTriBatch(texture.id);
         const z = self.zindex;
         self.zindex += 1;
         const un = normalizeTexRect(tr, texture.w, texture.h);
@@ -1115,6 +1179,62 @@ pub const NewCtx = struct {
         });
     }
 
+    pub fn text(self: *Self, pos: Vec2f, str: []const u8, font: *Font, pt_size: f32, col: u32) !void {
+        self.delete_me_font_tex = font.texture;
+        const SF = (pt_size / font.font_size);
+        const fac = 1;
+        const x = pos.x;
+        const y = pos.y;
+
+        const b = &self.batch_font;
+
+        b.vertices.ensureUnusedCapacity(str.len * 4) catch unreachable;
+        b.indicies.ensureUnusedCapacity(str.len * 6) catch unreachable;
+
+        var it = std.unicode.Utf8Iterator{ .bytes = str, .i = 0 };
+
+        var vx = x * fac;
+        var vy = y * fac + ((font.ascent + font.descent) * SF);
+        var cho = it.nextCodepoint();
+        while (cho != null) : (cho = it.nextCodepoint()) {
+            const ch = cho orelse unreachable;
+            if (ch == '\n') {
+                vy += font.line_gap * SF;
+                vx = x * fac;
+                continue;
+            }
+
+            const g = font.glyph_set.get(ch) catch |err|
+                switch (err) {
+                error.invalidIndex => font.glyph_set.get(std.unicode.replacement_character) catch unreachable,
+            };
+            const fpad = @intToFloat(f32, Font.padding) / 2;
+            const pad = @intToFloat(f32, Font.padding);
+
+            const r = Rect{
+                .x = vx + (g.offset_x - fpad) * SF,
+                .y = vy - (g.offset_y + fpad) * SF,
+                .w = (pad + g.width) * SF,
+                .h = (pad + g.height) * SF,
+            };
+
+            // try self.rect(r, 0xffffffff);
+
+            b.indicies.appendSlice(&genQuadIndices(@intCast(u32, b.vertices.items.len))) catch unreachable;
+            const un = normalizeTexRect(g.tr, font.texture.w, font.texture.h);
+            const z = self.zindex;
+            try b.vertices.appendSlice(&.{
+                TexTriVert{ .pos = .{ .x = r.x + r.w, .y = r.y + r.h }, .z = z, .uv = .{ .x = un.x + un.w, .y = un.y + un.h }, .color = col }, //0
+                TexTriVert{ .pos = .{ .x = r.x + r.w, .y = r.y }, .z = z, .uv = .{ .x = un.x + un.w, .y = un.y }, .color = col }, //1
+                TexTriVert{ .pos = .{ .x = r.x, .y = r.y }, .z = z, .uv = .{ .x = un.x, .y = un.y }, .color = col }, //2
+                TexTriVert{ .pos = .{ .x = r.x, .y = r.y + r.h }, .z = z, .uv = .{ .x = un.x, .y = un.y + un.h }, .color = col }, //3
+            });
+
+            vx += (g.advance_x) * SF;
+        }
+        self.zindex += 1;
+    }
+
     pub fn line3D(self: *Self, start_point: Vec3f, end_point: Vec3f, color: u32) !void {
         const b = &self.batch_colored_line3D;
         try b.vertices.append(.{ .pos = start_point, .color = color });
@@ -1122,35 +1242,36 @@ pub const NewCtx = struct {
     }
 
     pub fn end(self: *Self, screenW: i32, screenH: i32, camera: za.Mat4) void {
-        const view = za.orthographic(0, @intToFloat(f32, screenW), @intToFloat(f32, screenH), 0, -100000, 1).translate(za.Vec3.new(0, 0, 0));
+        const view = za.orthographic(0, @intToFloat(f32, screenW), @intToFloat(f32, screenH), 0, -100000, 1);
         const model = za.Mat4.identity();
-        //TODO when do we need to call glViewport
-        c.glViewport(0, 0, screenW, screenH);
+
         self.batch_colored_tri.pushVertexData();
         self.batch_colored_tri.draw(.{}, self.colored_tri_shader, view, model);
 
         self.batch_colored_line3D.pushVertexData();
         self.batch_colored_line3D.draw(.{}, self.colored_line3d_shader, camera, model);
 
-        self.batch_textured_tri.pushVertexData();
-        //TODO how will we manage textures
-        //Do we want to allow having different texture settings. User wants to draw one quad with bilinear and the other one with nearest
-        //Instead of having one textured_tri_batch we have a hashmap hashed by texture_id storing batches
-        //
-        //only allow context managed textures. All textures are loaded through context.
-        self.batch_textured_tri.draw(.{}, self.textured_tri_shader, camera, model);
+        var tex_it = self.batch_textured_tri_map.iterator();
+        var vo = tex_it.next();
+        while (vo) |v| : (vo = tex_it.next()) {
+            v.value_ptr.pushVertexData();
+            v.value_ptr.draw(.{ .texture = v.key_ptr.* }, self.textured_tri_shader, view, model);
+        }
+        self.batch_font.pushVertexData();
+        self.batch_font.draw(.{ .texture = self.delete_me_font_tex.?.id }, self.font_shader, view, model);
     }
 };
 
 pub const BatchOptions = struct {
     index_buffer: bool,
+    primitive_mode: GL.PrimitiveMode,
 };
 pub fn NewBatch(comptime vertex_type: type, comptime batch_options: BatchOptions) type {
     const IndexType = u32;
     return struct {
         pub const Self = @This();
         pub const DrawParams = struct {
-            texture: ?Texture = null,
+            texture: ?c_uint = null,
         };
 
         vbo: c_uint,
@@ -1158,6 +1279,7 @@ pub fn NewBatch(comptime vertex_type: type, comptime batch_options: BatchOptions
         ebo: if (batch_options.index_buffer) c_uint else void,
         vertices: std.ArrayList(vertex_type),
         indicies: if (batch_options.index_buffer) std.ArrayList(IndexType) else void,
+        primitive_mode: GL.PrimitiveMode = batch_options.primitive_mode,
 
         pub fn init(alloc: std.mem.Allocator) @This() {
             var ret = @This(){
@@ -1199,12 +1321,11 @@ pub fn NewBatch(comptime vertex_type: type, comptime batch_options: BatchOptions
         pub fn draw(self: *Self, params: DrawParams, shader: c_uint, view: za.Mat4, model: za.Mat4) void {
             c.glUseProgram(shader);
             c.glBindVertexArray(self.vao);
+            if (params.texture) |texture| {
+                c.glBindTexture(c.GL_TEXTURE_2D, texture);
+            }
             GL.passUniform(shader, "view", view);
             GL.passUniform(shader, "model", model);
-
-            if (params.texture) |texture| {
-                c.glBindTexture(c.GL_TEXTURE_2D, texture.id);
-            }
 
             if (batch_options.index_buffer) {
                 //TODO primitive generic
@@ -1275,6 +1396,14 @@ pub fn genQuadIndices(index: u32) [6]u32 {
         index + 2,
         index + 3,
     };
+}
+
+pub fn contrastColor(color: CharColor) CharColor {
+    var hsva = colorToHsva(color);
+    hsva.h = @mod(hsva.h + 180, 360);
+    //hsva.v = 1;
+    hsva.v = @mod(hsva.v + 0.5, 1);
+    return hsvaToColor(hsva);
 }
 
 pub const CharColor = struct {
@@ -1436,6 +1565,34 @@ pub const Hsva = struct {
     a: f32,
 };
 
+pub fn colorToHsva(color: CharColor) Hsva {
+    const fl = charColorToFloat(color);
+    const max = std.math.max3(fl[0], fl[1], fl[2]);
+    const min = std.math.min3(fl[0], fl[1], fl[2]);
+    const C = max - min;
+
+    const r = fl[0];
+    const g = fl[1];
+    const b = fl[2];
+
+    const M = 0.001;
+    const hue: f32 = 60 * blk: {
+        if (@fabs(C) < M) {
+            break :blk 0;
+        } else if (@fabs(max - r) < M) {
+            break :blk @mod((g - b) / C, 6);
+        } else if (@fabs(max - g) < M) {
+            break :blk ((b - r) / C) + 2;
+        } else if (@fabs(max - b) < M) {
+            break :blk ((r - g) / C) + 4;
+        }
+        unreachable;
+    };
+
+    const sat: f32 = if (@fabs(max) < M) 0 else C / max;
+    return .{ .h = hue, .s = sat, .v = max, .a = fl[3] };
+}
+
 pub fn hsvaToColor(hsva: Hsva) CharColor {
     //HSV
     //S is the x axis
@@ -1486,8 +1643,44 @@ pub fn intToColor(color: u32) CharColor {
     };
 }
 
+pub const IRect = struct {
+    x: i32,
+    y: i32,
+    w: i32,
+    h: i32,
+
+    pub fn new(x: i32, y: i32, w: i32, h: i32) @This() {
+        return .{ .x = x, .y = y, .w = w, .h = h };
+    }
+
+    pub fn toF32(self: @This()) Rect {
+        return .{ .x = @intToFloat(f32, self.x), .y = @intToFloat(f32, self.y), .w = @intToFloat(f32, self.w), .h = @intToFloat(f32, self.h) };
+    }
+};
+
+pub const Padding = struct {
+    const Self = @This();
+    top: f32,
+    bottom: f32,
+    left: f32,
+    right: f32,
+
+    pub fn new(t: f32, b: f32, l: f32, r: f32) Self {
+        return .{ .top = t, .bottom = b, .left = l, .right = r };
+    }
+
+    pub fn vertical(self: Self) f32 {
+        return self.top + self.bottom;
+    }
+
+    pub fn horizontal(self: Self) f32 {
+        return self.left + self.right;
+    }
+};
+
 pub const Rect = struct {
     const Self = @This();
+
     x: f32,
     y: f32,
     w: f32,
@@ -1497,8 +1690,16 @@ pub const Rect = struct {
         return .{ .x = x, .y = y, .w = w, .h = h };
     }
 
+    pub fn newV(_pos: Vec2f, dim: Vec2f) @This() {
+        return .{ .x = _pos.x, .y = _pos.y, .w = dim.x, .h = dim.y };
+    }
+
     pub fn addV(self: @This(), x: f32, y: f32) @This() {
         return .{ .x = self.x + x, .y = self.y + y, .w = self.w, .h = self.h };
+    }
+
+    pub fn addVec(self: @This(), v: Vec2f) @This() {
+        return .{ .x = self.x + v.x, .y = self.y + v.y, .w = self.w, .h = self.h };
     }
 
     pub fn mul(self: Self, scalar: f32) Self {
@@ -1509,13 +1710,49 @@ pub const Rect = struct {
         return .{ .x = self.x + amount, .y = self.y + amount, .w = self.w - amount * 2, .h = self.h - amount * 2 };
     }
 
+    //TODO remove in favor of topL()
     pub fn pos(self: Self) Vec2f {
         return .{ .x = self.x, .y = self.y };
+    }
+
+    pub fn topL(self: Self) Vec2f {
+        return .{ .x = self.x, .y = self.y };
+    }
+
+    pub fn topR(self: Self) Vec2f {
+        return .{ .x = self.x + self.w, .y = self.y };
+    }
+
+    pub fn botL(self: Self) Vec2f {
+        return .{ .x = self.x, .y = self.y + self.h };
+    }
+
+    pub fn botR(self: Self) Vec2f {
+        return .{ .x = self.x + self.w, .y = self.y + self.h };
     }
 
     pub fn farY(self: Self) f32 {
         return self.y + self.h;
     }
+
+    pub fn farX(self: Self) f32 {
+        return self.x + self.w;
+    }
+
+    pub fn toAbsRect(self: Self) Rect {
+        return Rec(self.x, self.y, self.x + self.w, self.y + self.h);
+    }
+
+    //pub fn param(
+    //    self: Self,
+    //) @This() {
+    //    return .{
+    //        .x = parseParam(self.x, xop),
+    //        .y = parseParam(self.y, yop),
+    //        .w = parseParam(self.w, wop),
+    //        .h = parseParam(self.h, hop),
+    //    };
+    //}
 
     pub fn toIntRect(self: @This(), comptime int_type: type, comptime vec_type: type) vec_type {
         return vec_type{
@@ -1551,7 +1788,7 @@ pub fn createQuad(r: Rect, z: f32, color: Color) [4]Vertex {
     };
 }
 
-pub fn normalizeTexRect(tr: Rect, tx_w: u32, tx_h: u32) Rect {
+pub fn normalizeTexRect(tr: Rect, tx_w: i32, tx_h: i32) Rect {
     const tw = @intToFloat(f32, tx_w);
     const th = @intToFloat(f32, tx_h);
     return .{
@@ -1571,7 +1808,7 @@ pub fn cube(px: f32, py: f32, pz: f32, sx: f32, sy: f32, sz: f32, tr: Rect, tx_w
         itc(0xaaaaaaff),
         itc(0xaaaaaaff),
     };
-    const un = normalizeTexRect(tr, tx_w, tx_h);
+    const un = normalizeTexRect(tr, @intCast(i32, tx_w), @intCast(i32, tx_h));
     return [_]VertexTextured{
         // zig fmt: off
         // front
@@ -1659,7 +1896,7 @@ pub fn genCubeIndicies(index: u32) [36]u32 {
     };
 }
 
-pub fn createQuadTextured(r: Rect, z: f32, tr: Rect, tx_w: u32, tx_h: u32, color: Color) [4]VertexTextured {
+pub fn createQuadTextured(r: Rect, z: f32, tr: Rect, tx_w: i32, tx_h: i32, color: Color) [4]VertexTextured {
     const un = normalizeTexRect(tr, tx_w, tx_h);
     return [_]VertexTextured{
         // zig fmt: off
@@ -1671,10 +1908,75 @@ pub fn createQuadTextured(r: Rect, z: f32, tr: Rect, tx_w: u32, tx_h: u32, color
                                                                               };
 }
 
+pub const RenderTexture = struct {
+    const Self = @This();
+    fb: c_uint,
+    depth_rb: c_uint,
+    texture: Texture,
+    w:i32,
+    h:i32,
+
+    pub fn init(w: i32, h: i32) !Self {
+        var ret = Self{
+            .w = w,
+            .h = h,
+            .fb = 0,
+            .depth_rb = 0,
+            .texture = Texture.fromArray(null, w, h, .{.min_filter = c.GL_LINEAR, .mag_filter = c.GL_LINEAR,.generate_mipmaps = false }),
+        };
+        c.glGenFramebuffers(1, &ret.fb);
+        c.glBindFramebuffer(c.GL_FRAMEBUFFER, ret.fb);
+
+        c.glGenRenderbuffers(1, &ret.depth_rb);
+        c.glBindRenderbuffer(c.GL_RENDERBUFFER, ret.depth_rb);
+        c.glRenderbufferStorage(c.GL_RENDERBUFFER, c.GL_DEPTH_COMPONENT, w, h);
+        c.glFramebufferRenderbuffer(c.GL_FRAMEBUFFER, c.GL_DEPTH_ATTACHMENT, c.GL_RENDERBUFFER, ret.depth_rb);
+        c.glFramebufferTexture(c.GL_FRAMEBUFFER, c.GL_COLOR_ATTACHMENT0, ret.texture.id, 0);
+        const draw_buffers = [_]c.GLenum{c.GL_COLOR_ATTACHMENT0};
+        c.glDrawBuffers(draw_buffers.len, &draw_buffers[0]);
+
+        if (c.glCheckFramebufferStatus(c.GL_FRAMEBUFFER) != c.GL_FRAMEBUFFER_COMPLETE) return error.framebufferCreateFailed;
+
+        c.glBindFramebuffer(c.GL_FRAMEBUFFER, 0);
+        c.glBindRenderbuffer(c.GL_RENDERBUFFER, 0);
+
+        return ret;
+    }
+
+    pub fn setSize(self: *Self, w:i32, h:i32)!void{
+                    if (w != self.w or h != self.h) {
+                        self.deinit();
+                        self.* = try RenderTexture.init(w, h);
+                    }
+    }
+
+    pub fn deinit(self: *Self) void{
+        c.glDeleteFramebuffers(1, &self.fb);
+        c.glDeleteRenderbuffers(1, &self.depth_rb);
+        c.glDeleteTextures(1, &self.texture.id);
+    }
+
+    pub fn bind(self: *Self, clear:bool)void{
+        c.glBindFramebuffer(c.GL_FRAMEBUFFER,self.fb);
+        c.glViewport(0,0,self.w,self.h);
+        if(clear)
+            c.glClear(c.GL_COLOR_BUFFER_BIT);
+        c.glClear(c.GL_DEPTH_BUFFER_BIT);
+    }
+};
+
 pub const Texture = struct {
     id: glID,
-    w: u32,
-    h: u32,
+    w: i32,
+    h: i32,
+
+    pub fn rect(t:Texture)Rect{
+        return Rec(0,0,t.w, t.h);
+    }
+
+    pub fn aspectRatio(t:Texture)f32{
+        return @intToFloat(f32, t.w) / @intToFloat(f32, t.h);
+    }
 
     pub const Options = struct {
         internal_format: c.GLint = c.GL_RGBA,
@@ -1692,8 +1994,10 @@ pub const Texture = struct {
         border_color: [4]f32 = .{0,0,0,1.0},
 
     };
+    //TODO function for texture destruction
 
-    pub fn fromArray(bitmap: []const u8, w: u32, h:u32, o: Options) Texture {
+    //TODO rename this function to create or new or something
+    pub fn fromArray(bitmap: ?[]const u8, w: i32, h:i32, o: Options) Texture {
         var tex_id: glID = 0;
         c.glPixelStorei(c.GL_UNPACK_ALIGNMENT, o.pixel_store_alignment);
         c.glGenTextures(1, &tex_id);
@@ -1707,7 +2011,7 @@ pub const Texture = struct {
             0,//khronos.org: this value must be 0
             o.pixel_format,
             o.pixel_type,
-            &bitmap[0],
+            if(bitmap)|bmp| &bmp[0] else null,
         );
         if(o.generate_mipmaps)
             c.glGenerateMipmap(o.target);
@@ -1728,6 +2032,12 @@ pub const Texture = struct {
 
         c.glBindTexture(c.GL_TEXTURE_2D, 0);
         return Texture{ .w = w, .h = h, .id = tex_id };
+    }
+
+    pub fn fromImage(relative_file_name:[]const u8, alloc: std.mem.Allocator,opts:Options  )!Texture{
+        const bmp = try loadPngBitmap(relative_file_name, alloc);
+        defer bmp.data.deinit();
+        return fromArray(bmp.data.items,@intCast(i32,bmp.w), @intCast(i32,bmp.h) ,opts);
     }
 };
 
@@ -1759,7 +2069,10 @@ pub const Font = struct {
     ///Used to specify what codepoints are to be loaded
     pub const CharMapEntry = union(enum) {
         unicode: u21, //A single codepoint
+        list: []const u21,
         range: [2]u21, //A range of codepoints (inclusive)
+
+        //TODO how does comptime memory work? Is returning a comptime "stack" buffer ub
     };
 
     ///Define common character sets
@@ -1781,6 +2094,7 @@ pub const Font = struct {
 
     font_size: f32, //Native size in points
 
+    //TODO this should be a hashmap
     glyph_set: SparseSet(Glyph, u21),
 
     //The units for all of these is pixels
@@ -1837,6 +2151,11 @@ pub const Font = struct {
             try codepoint_list.append(.{ .i = std.unicode.replacement_character });
             for (codepoints_to_load) |codepoint| {
                 switch (codepoint) {
+                    .list => |list| {
+                        for (list) |cp| {
+                            try codepoint_list.append(.{ .i = cp });
+                        }
+                    },
                     .range => |range| {
                         var i = range[0];
                         while (i <= range[1]) : (i += 1) {
@@ -2005,7 +2324,7 @@ pub const Font = struct {
         for (result.glyph_set.dense.items) |*codepoint| {
             const glyph_i = c.FT_Get_Char_Index(face, codepoint.i);
             if (glyph_i == 0) {
-                std.debug.print("Undefined char index: {d}\n", .{codepoint.i});
+                std.debug.print("Undefined char index: {d} {x}\n", .{ codepoint.i, codepoint.i });
                 continue;
             }
 
@@ -2070,6 +2389,7 @@ pub const Font = struct {
             };
             codepoint.* = glyph;
         }
+
         const elapsed = timer.read();
         try log.print("Rendered {d} glyphs in {d} ms, {d} ms avg\n", .{ result.glyph_set.dense.items.len, @intToFloat(f32, elapsed) / std.time.ns_per_ms, @intToFloat(f32, elapsed) / std.time.ns_per_ms / @intToFloat(f32, result.glyph_set.dense.items.len) });
         {
@@ -2077,13 +2397,13 @@ pub const Font = struct {
             for (packing_rects.items) |r| {
                 num_pixels += (@intCast(usize, r.w) * @intCast(usize, r.h));
             }
-            result.texture.w = @floatToInt(u32, @sqrt(@intToFloat(f32, num_pixels) * pack_factor));
-            result.texture.h = @floatToInt(u32, @sqrt(@intToFloat(f32, num_pixels) * pack_factor));
+            result.texture.w = @floatToInt(i32, @sqrt(@intToFloat(f32, num_pixels) * pack_factor));
+            result.texture.h = @floatToInt(i32, @sqrt(@intToFloat(f32, num_pixels) * pack_factor));
             try log.print("Texture size: {d} x {d}\n", .{ result.texture.w, result.texture.h });
 
             var nodes = std.ArrayList(c.stbrp_node).init(alloc);
             defer nodes.deinit();
-            try nodes.appendNTimes(undefined, result.texture.w + 200); //TODO MAGICNUM
+            try nodes.appendNTimes(undefined, @intCast(u32, result.texture.w) + 200); //TODO MAGICNUM
             var rect_context: c.stbrp_context = undefined;
             c.stbrp_init_target(
                 &rect_context,
@@ -2099,12 +2419,12 @@ pub const Font = struct {
                 @intCast(c_int, packing_rects.items.len),
             );
             if (pack_err != 1)
-                std.debug.print("RECT PACK UNSUCC\n", .{});
+                return error.needLargerPackingFactor;
 
             {
                 var texture_bitmap = std.ArrayList(u8).init(alloc);
                 defer texture_bitmap.deinit();
-                try texture_bitmap.appendNTimes(0, result.texture.w * result.texture.h);
+                try texture_bitmap.appendNTimes(0, @intCast(usize, result.texture.w * result.texture.h));
 
                 for (packing_rects.items) |rect, i| {
                     const g = try result.glyph_set.getPtr(@intCast(u21, rect.id));
@@ -2118,9 +2438,9 @@ pub const Font = struct {
                             while (col < rect.w) : (col += 1) {
                                 if (row < bitmap.h + padding and col < bitmap.w + padding and row >= padding and col >= padding) {
                                     const dat = bitmap.buffer.items[((row - padding) * bitmap.w) + col - padding];
-                                    texture_bitmap.items[(result.texture.w * (row + @intCast(usize, rect.y))) + col + @intCast(usize, rect.x)] = dat;
+                                    texture_bitmap.items[(@intCast(u32, result.texture.w) * (row + @intCast(usize, rect.y))) + col + @intCast(usize, rect.x)] = dat;
                                 } else {
-                                    texture_bitmap.items[(result.texture.h * (row + @intCast(usize, rect.y))) + col + @intCast(usize, rect.x)] = 0;
+                                    texture_bitmap.items[(@intCast(u32, result.texture.h) * (row + @intCast(usize, rect.y))) + col + @intCast(usize, rect.x)] = 0;
                                 }
                             }
                             col = 0;
@@ -2145,6 +2465,47 @@ pub const Font = struct {
         return result;
     }
 
+    pub fn nearestGlyphX(self: *Self, string: []const u8, size_px: f32, rel_coord: Vec2f) ?usize {
+        const scale = (size_px / self.dpi * 72) / self.font_size;
+
+        var x_bound: f32 = 0;
+        var bounds = Vec2f{ .x = 0, .y = 0 };
+
+        var it = std.unicode.Utf8Iterator{ .bytes = string, .i = 0 };
+        var char = it.nextCodepoint();
+        while (char != null) : (char = it.nextCodepoint()) {
+            const glyph = self.glyph_set.get(char.?) catch |err|
+                switch (err) {
+                error.invalidIndex => self.glyph_set.get(std.unicode.replacement_character) catch unreachable,
+            };
+            const xw = glyph.advance_x * scale;
+            const yw = self.line_gap * scale;
+
+            switch (char.?) {
+                '\n' => {
+                    bounds.y += yw;
+                    if (x_bound > bounds.x)
+                        bounds.x = x_bound;
+                    x_bound = 0;
+                },
+                else => {
+                    const x = rel_coord.x;
+                    const y = rel_coord.y;
+                    if (x < x_bound + xw and x > x_bound and y < bounds.y + yw and y > bounds.y) {
+                        return it.i;
+                    }
+                },
+            }
+
+            x_bound += xw;
+        }
+
+        if (x_bound > bounds.x)
+            bounds.x = x_bound;
+
+        return null;
+    }
+
     pub fn textBounds(self: *Self, string: []const u8, size_px: f32) Vec2f {
         const scale = (size_px / self.dpi * 72) / self.font_size;
 
@@ -2152,7 +2513,6 @@ pub const Font = struct {
         var bounds = Vec2f{ .x = 0, .y = self.line_gap * scale };
 
         var it = std.unicode.Utf8Iterator{ .bytes = string, .i = 0 };
-
         var char = it.nextCodepoint();
         while (char != null) : (char = it.nextCodepoint()) {
             switch (char.?) {
@@ -2182,31 +2542,6 @@ pub const Font = struct {
     pub fn deinit(self: *Self) void {
         self.glyph_set.deinit();
     }
-
-    //pub fn measureText(self: *Self, string: []const u8) f32 {
-    //    var it = std.unicode.Utf8Iterator{ .bytes = string, .i = 0 };
-    //    var cho = it.nextCodepoint();
-
-    //    var len: f32 = 0;
-    //    while (cho != null) : (cho = it.nextCodepoint()) {
-    //        const ch = cho orelse unreachable;
-
-    //        if (ch == '\n') {
-    //            unreachable;
-    //        }
-
-    //        const g = self.glyph_set.get(ch) catch |err| {
-    //            switch (err) {
-    //                error.invalidIndex => {
-    //                    continue;
-    //                },
-    //            }
-    //        };
-
-    //        len += g.advance_x;
-    //    }
-    //    return len;
-    //}
 
     pub fn ptToPixel(self: *Self, pt: f32) f32 {
         return pt * (self.dpi / 72.0);
@@ -2293,8 +2628,11 @@ pub const GraphicsContext = struct {
 
     dpi: f32 = 0,
 
+    screen_bounds: IRect,
+
     pub fn init(alloc: std.mem.Allocator, dpi: f32) !Self {
         var ret: Self = .{
+            .screen_bounds = IRect.new(0, 0, 0, 0),
             .dpi = dpi,
             .batches = std.ArrayList(Batch).init(alloc),
             .alloc = alloc,
@@ -2342,7 +2680,8 @@ pub const GraphicsContext = struct {
         return b;
     }
 
-    pub fn beginDraw(self: *Self, bg: CharColor, clear_color: bool) !void {
+    pub fn beginDraw(self: *Self, screen_w: i32, screen_h: i32, bg: CharColor, clear_color: bool) !void {
+        self.screen_bounds = IRect.new(0, 0, screen_w, screen_h);
         self.call_count = 0;
         self.fps_time = self.fps_timer.read();
         self.fpsavg.insert(std.time.ns_per_s / @intToFloat(f32, self.fps_time));
@@ -2367,41 +2706,45 @@ pub const GraphicsContext = struct {
         }
     }
 
-    pub fn flush(self: *Self, screenW: i32, screenH: i32) !void {
-        const camera_bounds = Rec(
-            0,
-            0,
-            @intToFloat(f32, screenW),
-            @intToFloat(f32, screenH),
+    //pub fn beginCamera(self: *Self, )
+
+    pub fn setViewport(self: *Self, v: Rect) void {
+        _ = self;
+        c.glViewport(
+            @floatToInt(i32, v.x),
+            @floatToInt(i32, v.y),
+            @floatToInt(i32, v.w),
+            @floatToInt(i32, v.h),
         );
+    }
+
+    pub fn flush(self: *Self, offset: Vec2f, custom_camera: ?Rect) !void {
+        const camera_bounds = if (custom_camera) |cc| cc else self.screen_bounds.toF32();
 
         for (self.batches.items) |*batch| {
             switch (batch.*) {
                 .TriTex => {},
-                else => batch.draw(camera_bounds, .{ .x = 0, .y = 0 }, self.colored_tri_shader, self.tex_shad),
+                else => batch.draw(camera_bounds, offset, self.colored_tri_shader, self.tex_shad),
             }
         }
         for (self.batches.items) |*batch| {
             switch (batch.*) {
-                .TriTex => batch.draw(camera_bounds, .{ .x = 0, .y = 0 }, self.colored_tri_shader, self.tex_shad),
+                .TriTex => batch.draw(camera_bounds, offset, self.colored_tri_shader, self.tex_shad),
                 else => {},
             }
         }
+        self.call_count += 1;
 
         for (self.batches.items) |*batch| {
             try batch.reset();
-            self.call_count += 1;
+            //self.call_count += 1;
         }
     }
 
-    pub fn endDraw(self: *Self, screenW: i32, screenH: i32) void {
+    pub fn endDraw(self: *Self, custom_camera: ?Rect) void {
         var draw_time = std.time.Timer.start() catch null;
-        const camera_bounds = Rec(
-            0,
-            0,
-            @intToFloat(f32, screenW),
-            @intToFloat(f32, screenH),
-        );
+        //const camera_bounds = self.screen_bounds.toF32();
+        const camera_bounds = if (custom_camera) |cc| cc else self.screen_bounds.toF32();
 
         for (self.batches.items) |*batch| {
             switch (batch.*) {
@@ -2415,7 +2758,8 @@ pub const GraphicsContext = struct {
                 else => {},
             }
         }
-        self.call_count += self.batches.items.len;
+        //self.call_count += self.batches.items.len;
+        self.call_count += 1;
 
         if (draw_time) |*dt|
             self.draw_time = dt.read();
@@ -2423,49 +2767,6 @@ pub const GraphicsContext = struct {
         self.last_frame_time = self.frame_timer.read();
         self.lftavg.insert(1.0 / (std.time.ns_per_us / @intToFloat(f32, self.last_frame_time)));
         self.last_memcpy_time = self.memcpy_time;
-    }
-
-    pub fn beginCameraDraw(self: *Self, screenW: i32, screenH: i32) !void {
-        const camera_bounds = .{
-            .x = 0,
-            .y = 0,
-            .w = @intToFloat(f32, screenW),
-            .h = @intToFloat(f32, screenH),
-        };
-        for (self.batches.items) |*batch| {
-            switch (batch.*) {
-                .TriTex => {},
-                else => batch.draw(camera_bounds, .{ .x = 0, .y = 0 }, self.colored_tri_shader, self.tex_shad),
-            }
-        }
-        for (self.batches.items) |*batch| {
-            switch (batch.*) {
-                .TriTex => batch.draw(camera_bounds, .{ .x = 0, .y = 0 }, self.colored_tri_shader, self.tex_shad),
-                else => {},
-            }
-        }
-
-        for (self.batches.items) |*batch| {
-            try batch.reset();
-        }
-    }
-
-    pub fn endCameraDraw(self: *Self, camera_bounds: Rect, translate: Vec2f) !void {
-        for (self.batches.items) |*batch| {
-            switch (batch.*) {
-                .TriTex => {},
-                else => batch.draw(camera_bounds, translate, self.colored_tri_shader, self.tex_shad),
-            }
-        }
-        for (self.batches.items) |*batch| {
-            switch (batch.*) {
-                .TriTex => batch.draw(camera_bounds, translate, self.colored_tri_shader, self.tex_shad),
-                else => {},
-            }
-        }
-        for (self.batches.items) |*batch| {
-            try batch.reset();
-        }
     }
 
     pub fn drawFPS(self: *Self, x: f32, y: f32, font: *Font) void {
@@ -2848,9 +3149,9 @@ pub const NewTri = struct {
     }
 
     pub fn draw(b: *Self, screenw: i32, screenh: i32) void {
-        const view = za.orthographic(0, @intToFloat(f32, screenw), @intToFloat(f32, screenh), 0, -100000, 1).translate(za.Vec3.new(0, 0, 0));
+        const view = za.orthographic(0, @intToFloat(f32, screenw), @intToFloat(f32, screenh), 0, -100000, 1);
 
-        c.glViewport(0, 0, screenw, screenh);
+        //c.glViewport(0, 0, screenw, screenh);
         const model = za.Mat4.identity();
         c.glUseProgram(b.shader);
         c.glBindVertexArray(b.vao);
@@ -3066,7 +3367,14 @@ const Batch = union(enum) {
             .Line => |*b| b.vertices.items.len,
         };
         if (count == 0) return;
-        const view = za.orthographic(view_bounds.x, view_bounds.w, view_bounds.h, view_bounds.y, -100000, 1).translate(za.Vec3.new(0, 0, 0));
+        const view = za.orthographic(
+            view_bounds.x,
+            view_bounds.w,
+            view_bounds.h,
+            view_bounds.y,
+            -100000,
+            1,
+        );
         const model = za.Mat4.identity().translate(za.Vec3.new(translate.x, translate.y, 0));
 
         switch (self.*) {
@@ -3242,6 +3550,4 @@ test "Main test" {
     var ctx = GraphicsContext.init(&alloc);
 
     try ctx.beginDraw();
-
-    ctx.deinit();
 }

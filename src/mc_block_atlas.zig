@@ -173,7 +173,7 @@ pub fn buildAtlas(alloc: std.mem.Allocator) !McAtlas {
         try atlas_bitmap.writeToBmpFile(alloc, "debug/mcatlas.bmp");
         std.debug.print("left out: {d}\n", .{left_out_count});
         return McAtlas{
-            .texture = graph.Texture.fromArray(atlas_bitmap.data.items, atlas_bitmap.w, atlas_bitmap.h, .{
+            .texture = graph.Texture.fromArray(atlas_bitmap.data.items, @intCast(i32, atlas_bitmap.w), @intCast(i32, atlas_bitmap.h), .{
                 .mag_filter = graph.c.GL_NEAREST,
             }),
             .protocol_id_to_atlas_map = proto_map.toOwnedSlice(),
