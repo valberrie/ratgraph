@@ -430,7 +430,7 @@ pub const Scancode = enum(u32) {
 
 const SDLK_SCANCODE_MASK = (1 << 30);
 fn scanToKey(comptime x: Scancode) u32 {
-    return @enumToInt(x) | SDLK_SCANCODE_MASK;
+    return @intFromEnum(x) | SDLK_SCANCODE_MASK;
 }
 
 pub const Keycode = enum(u32) {

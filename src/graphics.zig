@@ -73,8 +73,8 @@ pub const Vec2f = packed struct {
 
     pub fn toI(s: @This(), comptime I: type, comptime V: type) V {
         return V{
-            .x = @floatToInt(I, s.x),
-            .y = @floatToInt(I, s.y),
+            .x = @as(I, @intFromFloat(s.x)),
+            .y = @as(I, @intFromFloat(s.y)),
         };
     }
 };
@@ -113,10 +113,10 @@ pub fn RecV(pos: Vec2f, w: f32, h: f32) Rect {
 
 pub fn IRec(x: i32, y: i32, w: i32, h: i32) Rect {
     return .{
-        .x = @intToFloat(f32, x),
-        .y = @intToFloat(f32, y),
-        .w = @intToFloat(f32, w),
-        .h = @intToFloat(f32, h),
+        .x = @as(f32, @floatFromInt(x)),
+        .y = @as(f32, @floatFromInt(y)),
+        .w = @as(f32, @floatFromInt(w)),
+        .h = @as(f32, @floatFromInt(h)),
     };
 }
 
@@ -236,7 +236,7 @@ pub fn basicGraphUsage()void{
     var ctx = try graph.GraphicsContext.init(alloc, 163);
     defer ctx.deinit();
 
-    var dpix: u32 = @floatToInt(u32, win.getDpi());
+    var dpix: u32 = @intFromFloat(win.getDpi());
     const init_size = 18;
     var font = try graph.Font.init("fonts/sfmono.otf", alloc, init_size, dpix, &(graph.Font.CharMaps.AsciiBasic ++ graph.Font.CharMaps.Apple), null);
 
@@ -293,11 +293,11 @@ pub const SDL = struct {
     };
 
     pub fn getKeyFromScancode(scancode: keycodes.Scancode) keycodes.Keycode {
-        return @intToEnum(keycodes.Keycode, c.SDL_GetKeyFromScancode(@enumToInt(scancode)));
+        return @enumFromInt(c.SDL_GetKeyFromScancode(@intFromEnum(scancode)));
     }
 
     pub fn getScancodeFromKey(key: keycodes.Keycode) keycodes.Scancode {
-        return @intToEnum(keycodes.Scancode, c.SDL_GetScancodeFromKey(@enumToInt(key)));
+        return @enumFromInt(c.SDL_GetScancodeFromKey(@intFromEnum(key)));
     }
 
     //TODO check for ibus support on linux and log if not avail
@@ -432,8 +432,8 @@ pub const SDL = struct {
             _ = self;
             var l: i32 = 0;
             const ret = c.SDL_GetKeyboardState(&l);
-            len.* = @intCast(usize, l);
-            return ret[0..@intCast(usize, l)];
+            len.* = @intCast(l);
+            return ret[0..@intCast(l)];
         }
 
         pub fn pumpEvents(self: *Self) void {
@@ -442,7 +442,7 @@ pub const SDL = struct {
                 var x: c_int = undefined;
                 var y: c_int = undefined;
                 const button = c.SDL_GetMouseState(&x, &y);
-                self.mouse.pos = .{ .x = @intToFloat(f32, x), .y = @intToFloat(f32, y) };
+                self.mouse.pos = .{ .x = @floatFromInt(x), .y = @floatFromInt(y) };
 
                 const old_left = self.mouse.left;
 
@@ -450,7 +450,7 @@ pub const SDL = struct {
                 self.mouse.right = button & c.SDL_BUTTON_RMASK != 0;
                 self.mouse.middle = button & c.SDL_BUTTON_MMASK != 0;
                 _ = c.SDL_GetRelativeMouseState(&x, &y);
-                self.mouse.delta = .{ .x = @intToFloat(f32, x), .y = @intToFloat(f32, y) };
+                self.mouse.delta = .{ .x = @floatFromInt(x), .y = @floatFromInt( y) };
 
                 self.mouse.left_down = !self.mouse.left_down and self.mouse.left and !old_left;
                 self.mouse.wheel_delta = 0;
@@ -460,9 +460,9 @@ pub const SDL = struct {
             self.keyboard_state.mask = 0;
             {
                 var l: i32 = 0;
-                const ret = c.SDL_GetKeyboardState(&l)[0..@intCast(usize, l)];
+                const ret = c.SDL_GetKeyboardState(&l)[0..@intCast(l)];
                 //ret[0..@intCast(usize, l)];
-                for (ret) |key, i| {
+                for (ret,0..) |key, i| {
                     if (key == 1) {
                         self.keyboard_state.set(i);
                     }
@@ -552,7 +552,7 @@ pub const SDL = struct {
         }
 
         pub fn keydown(self: *const Self, scancode: keycodes.Scancode) bool {
-            return self.keyboard_state.isSet(@enumToInt(scancode));
+            return self.keyboard_state.isSet(@intFromEnum(scancode));
         }
     };
 };
@@ -579,10 +579,13 @@ pub const Atlas = struct {
         defer alloc.free(json_slice);
 
         {
-        const json = try parseJson(AtlasJson, json_slice, .{.allocator = alloc,});
-        defer json.parseFree();
-        const img_path = json.data.img_dir_path;
-        const sets_to_load = json.data.sets;
+            const json_p = try std.json.parseFromSlice(AtlasJson, alloc,json_slice, .{});
+            defer json_p.deinit();
+            const json = json_p.value;
+        //const json = try parseJson(AtlasJson, json_slice, .{.allocator = alloc,});
+        //defer json.parseFree();
+        const img_path = json.img_dir_path;
+        const sets_to_load = json.sets;
 
         if(sets_to_load.len == 0) return error.noSets;
 
@@ -594,7 +597,7 @@ pub const Atlas = struct {
         var sets = std.ArrayList(SubTileset).init(alloc);
         var id_len: usize = 0;
         for (sets_to_load) |item| {
-            for (item.tilesets) |ts, j| {
+            for (item.tilesets,0..) |ts, j| {
                 running_area += ts.tw * ts.num.x * ts.th * ts.num.y;
                 try sets.append(SubTileset{
                     .start = ts.start,
@@ -605,9 +608,9 @@ pub const Atlas = struct {
                     .count = ts.count,
                 });
                 try packing_rects.append(.{
-                    .id = @intCast(i32, id_len + j),
-                    .w = @intCast(c_ushort, ts.num.x * ts.tw),
-                    .h = @intCast(c_ushort, ts.num.y * ts.th),
+                    .id = @intCast(id_len + j),
+                    .w = @intCast(ts.num.x * ts.tw),
+                    .h = @intCast(ts.num.y * ts.th),
                     .x = 50,
                     .y = 50,
                     .was_packed = 1,
@@ -615,12 +618,12 @@ pub const Atlas = struct {
             }
             id_len += item.tilesets.len;
         }
-        const atlas_size = blk: {
+        const atlas_size:u32 = blk: {
             if(texture_size)|ts|{
                 break :blk ts;
             }
             else{
-                break :blk @floatToInt(u32,@sqrt(@intToFloat(f32, running_area) * 2));
+                break :blk @intFromFloat(@sqrt(@as(f32,@floatFromInt(running_area)) * 2));
                 
             }
         };
@@ -632,16 +635,16 @@ pub const Atlas = struct {
 
         c.stbrp_init_target(
             &rect_context,
-            @intCast(c_int, atlas_size),
-            @intCast(c_int, atlas_size),
-            @ptrCast([*c]c.stbrp_node, nodes.items[0..nodes.items.len]),
-            @intCast(c_int, nodes.items.len),
+            @intCast(atlas_size),
+            @intCast(atlas_size),
+            @ptrCast(nodes.items[0..nodes.items.len]),
+            @intCast(nodes.items.len),
         );
 
         const pack_err = c.stbrp_pack_rects(
             &rect_context,
-            @ptrCast([*c]c.stbrp_rect, packing_rects.items[0 .. packing_rects.items.len - 1]),
-            @intCast(c_int, packing_rects.items.len),
+            @ptrCast( packing_rects.items[0 .. packing_rects.items.len - 1]),
+            @intCast( packing_rects.items.len),
         );
         if (pack_err != 1)
             std.debug.print("RECT PACK UNSUCC\n", .{});
@@ -657,7 +660,7 @@ pub const Atlas = struct {
         try full_filename.appendSlice(img_path);
         for (packing_rects.items) |rect| {
             var in: usize = 0;
-            var j: usize = @intCast(usize, rect.id);
+            var j: usize = @intCast(rect.id);
             while (j >= sets_to_load[in].tilesets.len) : (in += 1) {
                 j -= sets_to_load[in].tilesets.len;
             }
@@ -669,26 +672,26 @@ pub const Atlas = struct {
             try full_filename.resize(img_path.len);
             defer ts_bmp.data.deinit();
 
-            sets.items[@intCast(usize, rect.id)].start = .{ .x = rect.x, .y = rect.y };
+            sets.items[@intCast( rect.id)].start = .{ .x = rect.x, .y = rect.y };
 
             var i: i32 = 0;
             while (i < set.count) : (i += 1) {
                 Bitmap.copySub(
                     &ts_bmp,
-                    @intCast(u32, set.start.x + @mod(i, set.num.x) * (set.tw + set.pad.x)),
-                    @intCast(u32, set.start.y + @divFloor(i, set.num.x) * (set.th + set.pad.y)),
-                    @intCast(u32, set.tw),
-                    @intCast(u32, set.th),
+                    @intCast( set.start.x + @mod(i, set.num.x) * (set.tw + set.pad.x)),
+                    @intCast( set.start.y + @divFloor(i, set.num.x) * (set.th + set.pad.y)),
+                    @intCast( set.tw),
+                    @intCast( set.th),
                     &bit,
-                    @intCast(u32, rect.x) + @intCast(u32, @mod(i, set.num.x) * set.tw),
-                    @intCast(u32, rect.y) + @intCast(u32, @divFloor(i, set.num.x) * set.th),
+                    @as(u32, @intCast(rect.x)) + @as(u32, @intCast(@mod(i, set.num.x) * set.tw)),
+                    @as(u32, @intCast(rect.y)) + @as(u32, @intCast(@divFloor(i, set.num.x) * set.th)),
                 );
             }
         }
-        writeBmp("debug/atlas.bmp", @intCast(c_int, atlas_size), @intCast(c_int, atlas_size), 4, bitmap.items);
+        writeBmp("debug/atlas.bmp", @intCast( atlas_size), @intCast( atlas_size), 4, bitmap.items);
 
         return Atlas{
-            .texture = Texture.fromArray(bitmap.items, @intCast(i32,atlas_size), @intCast(i32,atlas_size), .{}),
+            .texture = Texture.fromArray(bitmap.items, @intCast(atlas_size), @intCast(atlas_size), .{}),
             .sets = sets,
         };
         }
@@ -717,12 +720,12 @@ pub const SubTileset = struct {
     count: usize, //Total number of tiles, useful if last row is short
 
     pub fn getTexRec(self: Self, index: usize) Rect {
-        const i = @intCast(i32, index % self.count);
+        const i:i32 = @intCast( index % self.count);
         return Rec(
-            @intToFloat(f32, self.start.x + @mod(i, self.num.x) * (self.tw + self.pad.x)),
-            @intToFloat(f32, self.start.y + @divFloor(i, self.num.x) * (self.th + self.pad.y)),
-            @intToFloat(f32, self.tw),
-            @intToFloat(f32, self.th),
+            @floatFromInt(self.start.x + @mod(i, self.num.x) * (self.tw + self.pad.x)),
+            @floatFromInt(self.start.y + @divFloor(i, self.num.x) * (self.th + self.pad.y)),
+            @floatFromInt(self.tw),
+            @floatFromInt(self.th),
         );
     }
 };
@@ -744,8 +747,8 @@ pub const FixedBitmapFont = struct {
             .texture = texture,
             .sts = sts,
         };
-        for (decode_string) |ch, i| {
-            ret.translation_table[ch] = @intCast(u8, i);
+        for (decode_string, 0..) |ch, i| {
+            ret.translation_table[ch] = @as(u8, @intCast(i));
         }
 
         return ret;
@@ -772,7 +775,7 @@ pub const Bitmap = struct {
         try null_str_buf.appendSlice(file_name);
         try null_str_buf.append(0);
 
-        _ = c.stbi_write_bmp(@ptrCast([*c]const u8, null_str_buf.items), @intCast(c_int, self.w), @intCast(c_int, self.h), 4, @ptrCast([*c]u8, self.data.items[0..self.data.items.len]));
+        _ = c.stbi_write_bmp(@as([*c]const u8, @ptrCast(null_str_buf.items)), @as(c_int, @intCast(self.w)), @as(c_int, @intCast(self.h)), 4, @as([*c]u8, @ptrCast(self.data.items[0..self.data.items.len])));
     }
 
     pub fn copySub(source: *m, srect_x: u32, srect_y: u32, srect_w: u32, srect_h: u32, dest: *m, des_x: u32, des_y: u32) void {
@@ -930,7 +933,7 @@ pub const GL = struct {
         c.glBindBuffer(buffer_type, handle);
         c.glBufferData(
             buffer_type,
-            @intCast(c_long, slice.len) * @sizeOf(item),
+            @as(c_long, @intCast(slice.len)) * @sizeOf(item),
             slice.ptr,
             c.GL_STATIC_DRAW,
         );
@@ -944,8 +947,8 @@ pub const GL = struct {
             .Struct => {
                 const st = info.Struct;
                 if (st.layout != .Packed) @compileError("generateVertexAttributes only supports packed structs");
-                inline for (st.fields) |field, f_i| {
-                    switch (field.field_type) {
+                inline for (st.fields, 0..) |field, f_i| {
+                    switch (field.type) {
                         Vec2f => floatVertexAttrib(vao, vbo, f_i, 2, T, field.name),
                         Vec3f => floatVertexAttrib(vao, vbo, f_i, 3, T, field.name),
                         u16 => intVertexAttrib(vao, vbo, f_i, 1, T, field.name, c.GL_UNSIGNED_SHORT),
@@ -962,8 +965,8 @@ pub const GL = struct {
         c.glBindBuffer(buffer_type, handle);
         c.glBufferSubData(
             buffer_type,
-            @intCast(c_long, offset) * @sizeOf(item),
-            @intCast(c_long, len) * @sizeOf(item),
+            @as(c_long, @intCast(offset)) * @sizeOf(item),
+            @as(c_long, @intCast(len)) * @sizeOf(item),
             &slice[offset],
         );
 
@@ -980,12 +983,12 @@ pub const GL = struct {
             c.GL_TEXTURE_2D,
             0,
             c.GL_RED,
-            @intCast(i32, w),
-            @intCast(i32, h),
+            @as(i32, @intCast(w)),
+            @as(i32, @intCast(h)),
             0,
             c.GL_RED,
             c.GL_UNSIGNED_BYTE,
-            @ptrCast([*c]u8, data[0..data.len]),
+            @as([*c]u8, @ptrCast(data[0..data.len])),
         );
         // set texture options
         c.glGenerateMipmap(c.GL_TEXTURE_2D);
@@ -1010,10 +1013,10 @@ pub const GL = struct {
         const byte_offset = @offsetOf(item, starting_field);
         c.glVertexAttribIPointer(
             index,
-            @intCast(c_int, num_elem),
+            @as(c_int, @intCast(num_elem)),
             int_type,
             @sizeOf(item),
-            if (byte_offset != 0) @intToPtr(*const anyopaque, byte_offset) else null,
+            if (byte_offset != 0) @as(*const anyopaque, @ptrFromInt(byte_offset)) else null,
         );
         c.glEnableVertexAttribArray(index);
     }
@@ -1027,11 +1030,11 @@ pub const GL = struct {
         const byte_offset = @offsetOf(item, starting_field);
         c.glVertexAttribPointer(
             index,
-            @intCast(c_int, size),
+            @as(c_int, @intCast(size)),
             c.GL_FLOAT,
             c.GL_FALSE,
             @sizeOf(item),
-            if (byte_offset != 0) @intToPtr(*const anyopaque, byte_offset) else null,
+            if (byte_offset != 0) @as(*const anyopaque, @ptrFromInt(byte_offset)) else null,
         );
         c.glEnableVertexAttribArray(index);
     }
@@ -1049,7 +1052,7 @@ pub const GL = struct {
         GL.passUniform(batch.shader, "view", view);
         GL.passUniform(batch.shader, "model", model);
 
-        c.glDrawElements(c.GL_TRIANGLES, @intCast(c_int, batch.indicies.items.len), c.GL_UNSIGNED_INT, null);
+        c.glDrawElements(c.GL_TRIANGLES, @as(c_int, @intCast(batch.indicies.items.len)), c.GL_UNSIGNED_INT, null);
         //c.glBindVertexArray(0);
 
     }
@@ -1155,7 +1158,7 @@ pub const NewCtx = struct {
         const b = &self.batch_colored_tri;
         const z = self.zindex;
         self.zindex += 1;
-        try b.indicies.appendSlice(&genQuadIndices(@intCast(u32, b.vertices.items.len)));
+        try b.indicies.appendSlice(&genQuadIndices(@as(u32, @intCast(b.vertices.items.len))));
         try b.vertices.appendSlice(&.{
             ColorTriVert{ .pos = .{ .x = r.x + r.w, .y = r.y + r.h }, .z = z, .color = color },
             ColorTriVert{ .pos = .{ .x = r.x + r.w, .y = r.y }, .z = z, .color = color },
@@ -1170,7 +1173,7 @@ pub const NewCtx = struct {
         self.zindex += 1;
         const un = normalizeTexRect(tr, texture.w, texture.h);
 
-        try b.indicies.appendSlice(&genQuadIndices(@intCast(u32, b.vertices.items.len)));
+        try b.indicies.appendSlice(&genQuadIndices(@as(u32, @intCast(b.vertices.items.len))));
         try b.vertices.appendSlice(&.{
             TexTriVert{ .pos = .{ .x = r.x + r.w, .y = r.y + r.h }, .z = z, .uv = .{ .x = un.x + un.w, .y = un.y + un.h }, .color = col }, //0
             TexTriVert{ .pos = .{ .x = r.x + r.w, .y = r.y }, .z = z, .uv = .{ .x = un.x + un.w, .y = un.y }, .color = col }, //1
@@ -1208,8 +1211,8 @@ pub const NewCtx = struct {
                 switch (err) {
                 error.invalidIndex => font.glyph_set.get(std.unicode.replacement_character) catch unreachable,
             };
-            const fpad = @intToFloat(f32, Font.padding) / 2;
-            const pad = @intToFloat(f32, Font.padding);
+            const fpad = @as(f32, @floatFromInt(Font.padding)) / 2;
+            const pad = @as(f32, @floatFromInt(Font.padding));
 
             const r = Rect{
                 .x = vx + (g.offset_x - fpad) * SF,
@@ -1220,7 +1223,7 @@ pub const NewCtx = struct {
 
             // try self.rect(r, 0xffffffff);
 
-            b.indicies.appendSlice(&genQuadIndices(@intCast(u32, b.vertices.items.len))) catch unreachable;
+            b.indicies.appendSlice(&genQuadIndices(@as(u32, @intCast(b.vertices.items.len)))) catch unreachable;
             const un = normalizeTexRect(g.tr, font.texture.w, font.texture.h);
             const z = self.zindex;
             try b.vertices.appendSlice(&.{
@@ -1242,7 +1245,7 @@ pub const NewCtx = struct {
     }
 
     pub fn end(self: *Self, screenW: i32, screenH: i32, camera: za.Mat4) void {
-        const view = za.orthographic(0, @intToFloat(f32, screenW), @intToFloat(f32, screenH), 0, -100000, 1);
+        const view = za.orthographic(0, @as(f32, @floatFromInt(screenW)), @as(f32, @floatFromInt(screenH)), 0, -100000, 1);
         const model = za.Mat4.identity();
 
         self.batch_colored_tri.pushVertexData();
@@ -1329,10 +1332,10 @@ pub fn NewBatch(comptime vertex_type: type, comptime batch_options: BatchOptions
 
             if (batch_options.index_buffer) {
                 //TODO primitive generic
-                c.glDrawElements(c.GL_TRIANGLES, @intCast(c_int, self.indicies.items.len), c.GL_UNSIGNED_INT, null);
+                c.glDrawElements(c.GL_TRIANGLES, @as(c_int, @intCast(self.indicies.items.len)), c.GL_UNSIGNED_INT, null);
             } else {
                 c.glLineWidth(3.0);
-                c.glDrawArrays(c.GL_LINES, 0, @intCast(c_int, self.vertices.items.len));
+                c.glDrawArrays(c.GL_LINES, 0, @as(c_int, @intCast(self.vertices.items.len)));
             }
         }
     };
@@ -1346,7 +1349,7 @@ const Shader = struct {
         if (success == 0) {
             var len: c_int = 0;
             c.glGetShaderInfoLog(shader, 512, &len, &infoLog);
-            std.debug.panic("ERROR::SHADER::\n{s}\n", .{infoLog[0..@intCast(usize, len)]});
+            std.debug.panic("ERROR::SHADER::\n{s}\n", .{infoLog[0..@as(usize, @intCast(len))]});
         }
     }
 
@@ -1604,7 +1607,7 @@ pub fn hsvaToColor(hsva: Hsva) CharColor {
     const C = V * S;
     const hp = (@mod(H, 360)) / 60.0;
     const X = C * (1 - @fabs(@mod(hp, 2) - 1));
-    const rgb1 = switch (@floatToInt(u32, hp)) {
+    const rgb1 = switch (@as(u32, @intFromFloat(hp))) {
         0 => za.Vec3.new(C, X, 0),
         1 => za.Vec3.new(X, C, 0),
         2 => za.Vec3.new(0, C, X),
@@ -1616,19 +1619,19 @@ pub fn hsvaToColor(hsva: Hsva) CharColor {
     const M = V - C;
 
     return CharColorNew(
-        @floatToInt(u8, (M + rgb1.data[0]) * 255),
-        @floatToInt(u8, (M + rgb1.data[1]) * 255),
-        @floatToInt(u8, (M + rgb1.data[2]) * 255),
-        @floatToInt(u8, hsva.a * 255),
+        @as(u8, @intFromFloat((M + rgb1.data[0]) * 255)),
+        @as(u8, @intFromFloat((M + rgb1.data[1]) * 255)),
+        @as(u8, @intFromFloat((M + rgb1.data[2]) * 255)),
+        @as(u8, @intFromFloat(hsva.a * 255)),
     );
 }
 
 pub fn charColorToFloat(col: CharColor) Color {
     return .{
-        @intToFloat(f32, col.r) / 255.0,
-        @intToFloat(f32, col.g) / 255.0,
-        @intToFloat(f32, col.b) / 255.0,
-        @intToFloat(f32, col.a) / 255.0,
+        @as(f32, @floatFromInt(col.r)) / 255.0,
+        @as(f32, @floatFromInt(col.g)) / 255.0,
+        @as(f32, @floatFromInt(col.b)) / 255.0,
+        @as(f32, @floatFromInt(col.a)) / 255.0,
     };
 }
 
@@ -1636,10 +1639,10 @@ pub const itc = intToColor;
 
 pub fn intToColor(color: u32) CharColor {
     return .{
-        .r = @intCast(u8, (color >> 24) & 0xff),
-        .g = @intCast(u8, (color >> 16) & 0xff),
-        .b = @intCast(u8, (color >> 8) & 0xff),
-        .a = @intCast(u8, (color >> 0) & 0xff),
+        .r = @as(u8, @intCast((color >> 24) & 0xff)),
+        .g = @as(u8, @intCast((color >> 16) & 0xff)),
+        .b = @as(u8, @intCast((color >> 8) & 0xff)),
+        .a = @as(u8, @intCast((color >> 0) & 0xff)),
     };
 }
 
@@ -1654,7 +1657,7 @@ pub const IRect = struct {
     }
 
     pub fn toF32(self: @This()) Rect {
-        return .{ .x = @intToFloat(f32, self.x), .y = @intToFloat(f32, self.y), .w = @intToFloat(f32, self.w), .h = @intToFloat(f32, self.h) };
+        return .{ .x = @as(f32, @floatFromInt(self.x)), .y = @as(f32, @floatFromInt(self.y)), .w = @as(f32, @floatFromInt(self.w)), .h = @as(f32, @floatFromInt(self.h)) };
     }
 };
 
@@ -1756,10 +1759,10 @@ pub const Rect = struct {
 
     pub fn toIntRect(self: @This(), comptime int_type: type, comptime vec_type: type) vec_type {
         return vec_type{
-            .x = @floatToInt(int_type, self.x),
-            .y = @floatToInt(int_type, self.y),
-            .w = @floatToInt(int_type, self.w),
-            .h = @floatToInt(int_type, self.h),
+            .x = @as(int_type, @intFromFloat(self.x)),
+            .y = @as(int_type, @intFromFloat(self.y)),
+            .w = @as(int_type, @intFromFloat(self.w)),
+            .h = @as(int_type, @intFromFloat(self.h)),
         };
     }
 
@@ -1789,8 +1792,8 @@ pub fn createQuad(r: Rect, z: f32, color: Color) [4]Vertex {
 }
 
 pub fn normalizeTexRect(tr: Rect, tx_w: i32, tx_h: i32) Rect {
-    const tw = @intToFloat(f32, tx_w);
-    const th = @intToFloat(f32, tx_h);
+    const tw = @as(f32, @floatFromInt(tx_w));
+    const th = @as(f32, @floatFromInt(tx_h));
     return .{
         .x = tr.x / tw,
         .y = tr.y / th,
@@ -1808,7 +1811,7 @@ pub fn cube(px: f32, py: f32, pz: f32, sx: f32, sy: f32, sz: f32, tr: Rect, tx_w
         itc(0xaaaaaaff),
         itc(0xaaaaaaff),
     };
-    const un = normalizeTexRect(tr, @intCast(i32, tx_w), @intCast(i32, tx_h));
+    const un = normalizeTexRect(tr, @as(i32, @intCast(tx_w)), @as(i32, @intCast(tx_h)));
     return [_]VertexTextured{
         // zig fmt: off
         // front
@@ -1975,7 +1978,7 @@ pub const Texture = struct {
     }
 
     pub fn aspectRatio(t:Texture)f32{
-        return @intToFloat(f32, t.w) / @intToFloat(f32, t.h);
+        return @as(f32,@floatFromInt(t.w)) / @as(f32,@floatFromInt(t.h));
     }
 
     pub const Options = struct {
@@ -2006,8 +2009,8 @@ pub const Texture = struct {
             o.target,
             0,//Level of detail number
             o.internal_format,
-            @intCast(i32, w),
-            @intCast(i32, h),
+            @intCast( w),
+            @intCast( h),
             0,//khronos.org: this value must be 0
             o.pixel_format,
             o.pixel_type,
@@ -2037,7 +2040,7 @@ pub const Texture = struct {
     pub fn fromImage(relative_file_name:[]const u8, alloc: std.mem.Allocator,opts:Options  )!Texture{
         const bmp = try loadPngBitmap(relative_file_name, alloc);
         defer bmp.data.deinit();
-        return fromArray(bmp.data.items,@intCast(i32,bmp.w), @intCast(i32,bmp.h) ,opts);
+        return fromArray(bmp.data.items,@intCast(bmp.w), @intCast(bmp.h) ,opts);
     }
 };
 
@@ -2145,7 +2148,7 @@ pub const Font = struct {
     //Better init functions, more default parameters
     //Allow logging and debug to be disabled
     pub fn init(filename: []const u8, alloc: std.mem.Allocator, point_size: f32, dpi: u32, codepoints_to_load: []const CharMapEntry, opt_pack_factor: ?f32) !Self {
-        const codepoints = blk: {
+        const codepoints: []Glyph = blk: {
             //TODO should we ensure no duplicates?
             var codepoint_list = std.ArrayList(Glyph).init(alloc);
             try codepoint_list.append(.{ .i = std.unicode.replacement_character });
@@ -2167,7 +2170,7 @@ pub const Font = struct {
                     },
                 }
             }
-            break :blk codepoint_list.toOwnedSlice();
+            break :blk try codepoint_list.toOwnedSlice();
         };
         const dump_bitmaps = false;
 
@@ -2182,7 +2185,7 @@ pub const Font = struct {
         try log.print("zig: Init font with arguments:\nfilename: \"{s}\"\npoint_size: {d}\ndpi: {d}\n", .{ filename, point_size, dpi });
 
         var result = Font{
-            .dpi = @intToFloat(f32, dpi),
+            .dpi = @as(f32, @floatFromInt(dpi)),
             .max_advance = 0,
             .glyph_set = try (SparseSet(Glyph, u21).fromOwnedDenseSlice(alloc, codepoints)),
             .font_size = point_size,
@@ -2211,7 +2214,7 @@ pub const Font = struct {
 
             //FT_New_Face loads font file from filepathname
             //the face pointer should be destroyed with FT_Done_Face()
-            try freetypeLogErr(stderr, c.FT_New_Face(ftlib, @ptrCast([*:0]const u8, strbuf.items), 0, &face));
+            try freetypeLogErr(stderr, c.FT_New_Face(ftlib, @as([*:0]const u8, @ptrCast(strbuf.items)), 0, &face));
 
             try log.print("Freetype face: num_faces:  {d}\n", .{face.*.num_faces});
             try log.print("Freetype face: num_glyphs:  {d}\n", .{face.*.num_glyphs});
@@ -2266,7 +2269,7 @@ pub const Font = struct {
             c.FT_Set_Char_Size(
                 face,
                 0,
-                @floatToInt(c_int, point_size) * 64, //expects a size in 1/64 of points, font_size is in points
+                @as(c_int, @intFromFloat(point_size)) * 64, //expects a size in 1/64 of points, font_size is in points
                 dpi,
                 dpi,
             ),
@@ -2282,7 +2285,7 @@ pub const Font = struct {
                     col = 0;
                     try log.print("\n", .{});
                 }
-                try log.print("[{x} {u}] ", .{ charcode, @intCast(u21, charcode) });
+                try log.print("[{x} {u}] ", .{ charcode, @as(u21, @intCast(charcode)) });
 
                 charcode = c.FT_Get_Next_Char(face, charcode, &agindex);
             }
@@ -2290,10 +2293,10 @@ pub const Font = struct {
 
         const fr = face.*;
 
-        result.ascent = @intToFloat(f32, fr.size.*.metrics.ascender) / 64;
-        result.descent = @intToFloat(f32, fr.size.*.metrics.descender) / 64;
-        result.max_advance = @intToFloat(f32, fr.size.*.metrics.max_advance) / 64;
-        result.line_gap = @intToFloat(f32, fr.size.*.metrics.height) / 64;
+        result.ascent = @as(f32, @floatFromInt(fr.size.*.metrics.ascender)) / 64;
+        result.descent = @as(f32, @floatFromInt(fr.size.*.metrics.descender)) / 64;
+        result.max_advance = @as(f32, @floatFromInt(fr.size.*.metrics.max_advance)) / 64;
+        result.line_gap = @as(f32, @floatFromInt(fr.size.*.metrics.height)) / 64;
 
         try log.print("Freetype face: ascender:  {d}px\n", .{result.ascent});
         try log.print("Freetype face: descender:  {d}px\n", .{result.descent});
@@ -2341,11 +2344,11 @@ pub const Font = struct {
                     try fbs.writer().print("debug/bitmaps/{d}.bmp", .{glyph_i});
                     try fbs.writer().writeByte(0);
                     _ = c.stbi_write_bmp(
-                        @ptrCast([*c]const u8, fbs.getWritten()),
-                        @intCast(c_int, bitmap.width),
-                        @intCast(c_int, bitmap.rows),
+                        @as([*c]const u8, @ptrCast(fbs.getWritten())),
+                        @as(c_int, @intCast(bitmap.width)),
+                        @as(c_int, @intCast(bitmap.rows)),
                         1,
-                        @ptrCast([*c]u8, bitmap.buffer[0 .. bitmap.rows * bitmap.width]),
+                        @as([*c]u8, @ptrCast(bitmap.buffer[0 .. bitmap.rows * bitmap.width])),
                     );
                 }
                 const ind = bitmaps.items.len;
@@ -2359,8 +2362,8 @@ pub const Font = struct {
                 try packing_rects.append(.{
                     //.id = @intCast(c_int, ind),
                     .id = codepoint.i,
-                    .w = @intCast(c_ushort, bitmap.width + padding + padding),
-                    .h = @intCast(c_ushort, bitmap.rows + padding + padding),
+                    .w = @as(c_ushort, @intCast(bitmap.width + padding + padding)),
+                    .h = @as(c_ushort, @intCast(bitmap.rows + padding + padding)),
                     .x = 50,
                     .y = 50,
                     .was_packed = 1,
@@ -2368,7 +2371,7 @@ pub const Font = struct {
             }
             const metrics = &face.*.glyph.*.metrics;
             {
-                try log.print("Freetype glyph: {u}\n", .{@intCast(u21, codepoint.i)});
+                try log.print("Freetype glyph: {u}\n", .{@as(u21, @intCast(codepoint.i))});
                 try log.print("\twidth:  {d} (1/64 px), {d} px\n", .{ metrics.width, @divFloor(metrics.width, 64) });
                 try log.print("\theight: {d} (1/64 px), {d} px\n", .{ metrics.height, @divFloor(metrics.height, 64) });
                 try log.print("\tbearingX: {d} (1/64 px), {d} px\n", .{ metrics.horiBearingX, @divFloor(metrics.horiBearingX, 64) });
@@ -2377,46 +2380,46 @@ pub const Font = struct {
                 //try log.print("\twidth: {d}\n", .{metrics.width});
             }
 
-            const fpad = @intToFloat(f32, padding);
+            const fpad = @as(f32, @floatFromInt(padding));
             var glyph = Glyph{
-                .tr = .{ .x = -1, .y = -1, .w = @intToFloat(f32, bitmap.width) + fpad, .h = @intToFloat(f32, bitmap.rows) + fpad },
-                .offset_x = @intToFloat(f32, metrics.horiBearingX) / 64,
-                .offset_y = @intToFloat(f32, metrics.horiBearingY) / 64,
-                .advance_x = @intToFloat(f32, metrics.horiAdvance) / 64,
-                .width = @intToFloat(f32, metrics.width) / 64,
-                .height = @intToFloat(f32, metrics.height) / 64,
+                .tr = .{ .x = -1, .y = -1, .w = @as(f32, @floatFromInt(bitmap.width)) + fpad, .h = @as(f32, @floatFromInt(bitmap.rows)) + fpad },
+                .offset_x = @as(f32, @floatFromInt(metrics.horiBearingX)) / 64,
+                .offset_y = @as(f32, @floatFromInt(metrics.horiBearingY)) / 64,
+                .advance_x = @as(f32, @floatFromInt(metrics.horiAdvance)) / 64,
+                .width = @as(f32, @floatFromInt(metrics.width)) / 64,
+                .height = @as(f32, @floatFromInt(metrics.height)) / 64,
                 .i = codepoint.i,
             };
             codepoint.* = glyph;
         }
 
         const elapsed = timer.read();
-        try log.print("Rendered {d} glyphs in {d} ms, {d} ms avg\n", .{ result.glyph_set.dense.items.len, @intToFloat(f32, elapsed) / std.time.ns_per_ms, @intToFloat(f32, elapsed) / std.time.ns_per_ms / @intToFloat(f32, result.glyph_set.dense.items.len) });
+        try log.print("Rendered {d} glyphs in {d} ms, {d} ms avg\n", .{ result.glyph_set.dense.items.len, @as(f32, @floatFromInt(elapsed)) / std.time.ns_per_ms, @as(f32, @floatFromInt(elapsed)) / std.time.ns_per_ms / @as(f32, @floatFromInt(result.glyph_set.dense.items.len)) });
         {
             var num_pixels: usize = 0;
             for (packing_rects.items) |r| {
-                num_pixels += (@intCast(usize, r.w) * @intCast(usize, r.h));
+                num_pixels += (@as(usize, @intCast(r.w)) * @as(usize, @intCast(r.h)));
             }
-            result.texture.w = @floatToInt(i32, @sqrt(@intToFloat(f32, num_pixels) * pack_factor));
-            result.texture.h = @floatToInt(i32, @sqrt(@intToFloat(f32, num_pixels) * pack_factor));
+            result.texture.w = @as(i32, @intFromFloat(@sqrt(@as(f32, @floatFromInt(num_pixels)) * pack_factor)));
+            result.texture.h = @as(i32, @intFromFloat(@sqrt(@as(f32, @floatFromInt(num_pixels)) * pack_factor)));
             try log.print("Texture size: {d} x {d}\n", .{ result.texture.w, result.texture.h });
 
             var nodes = std.ArrayList(c.stbrp_node).init(alloc);
             defer nodes.deinit();
-            try nodes.appendNTimes(undefined, @intCast(u32, result.texture.w) + 200); //TODO MAGICNUM
+            try nodes.appendNTimes(undefined, @as(u32, @intCast(result.texture.w)) + 200); //TODO MAGICNUM
             var rect_context: c.stbrp_context = undefined;
             c.stbrp_init_target(
                 &rect_context,
-                @intCast(c_int, result.texture.w),
-                @intCast(c_int, result.texture.h),
-                @ptrCast([*c]c.stbrp_node, nodes.items[0..nodes.items.len]),
-                @intCast(c_int, nodes.items.len),
+                @as(c_int, @intCast(result.texture.w)),
+                @as(c_int, @intCast(result.texture.h)),
+                @as([*c]c.stbrp_node, @ptrCast(nodes.items[0..nodes.items.len])),
+                @as(c_int, @intCast(nodes.items.len)),
             );
 
             const pack_err = c.stbrp_pack_rects(
                 &rect_context,
-                @ptrCast([*c]c.stbrp_rect, packing_rects.items[0 .. packing_rects.items.len - 1]),
-                @intCast(c_int, packing_rects.items.len),
+                @as([*c]c.stbrp_rect, @ptrCast(packing_rects.items[0 .. packing_rects.items.len - 1])),
+                @as(c_int, @intCast(packing_rects.items.len)),
             );
             if (pack_err != 1)
                 return error.needLargerPackingFactor;
@@ -2424,12 +2427,12 @@ pub const Font = struct {
             {
                 var texture_bitmap = std.ArrayList(u8).init(alloc);
                 defer texture_bitmap.deinit();
-                try texture_bitmap.appendNTimes(0, @intCast(usize, result.texture.w * result.texture.h));
+                try texture_bitmap.appendNTimes(0, @as(usize, @intCast(result.texture.w * result.texture.h)));
 
-                for (packing_rects.items) |rect, i| {
-                    const g = try result.glyph_set.getPtr(@intCast(u21, rect.id));
-                    g.tr.x = @intToFloat(f32, @intCast(u32, rect.x) + padding) - @intToFloat(f32, padding) / 2;
-                    g.tr.y = @intToFloat(f32, @intCast(u32, rect.y) + padding) - @intToFloat(f32, padding) / 2;
+                for (packing_rects.items, 0..) |rect, i| {
+                    const g = try result.glyph_set.getPtr(@as(u21, @intCast(rect.id)));
+                    g.tr.x = @as(f32, @floatFromInt(@as(u32, @intCast(rect.x)) + padding)) - @as(f32, @floatFromInt(padding)) / 2;
+                    g.tr.y = @as(f32, @floatFromInt(@as(u32, @intCast(rect.y)) + padding)) - @as(f32, @floatFromInt(padding)) / 2;
                     const bitmap = &bitmaps.items[i];
                     if (bitmap.buffer.items.len > 0) {
                         var row: usize = 0;
@@ -2438,9 +2441,9 @@ pub const Font = struct {
                             while (col < rect.w) : (col += 1) {
                                 if (row < bitmap.h + padding and col < bitmap.w + padding and row >= padding and col >= padding) {
                                     const dat = bitmap.buffer.items[((row - padding) * bitmap.w) + col - padding];
-                                    texture_bitmap.items[(@intCast(u32, result.texture.w) * (row + @intCast(usize, rect.y))) + col + @intCast(usize, rect.x)] = dat;
+                                    texture_bitmap.items[(@as(u32, @intCast(result.texture.w)) * (row + @as(usize, @intCast(rect.y)))) + col + @as(usize, @intCast(rect.x))] = dat;
                                 } else {
-                                    texture_bitmap.items[(@intCast(u32, result.texture.h) * (row + @intCast(usize, rect.y))) + col + @intCast(usize, rect.x)] = 0;
+                                    texture_bitmap.items[(@as(u32, @intCast(result.texture.h)) * (row + @as(usize, @intCast(rect.y)))) + col + @as(usize, @intCast(rect.x))] = 0;
                                 }
                             }
                             col = 0;
@@ -2449,7 +2452,7 @@ pub const Font = struct {
                 }
 
                 if (dump_bitmaps)
-                    writeBmp("debug/freetype.bmp", @intCast(c_int, result.texture.w), @intCast(c_int, result.texture.h), 1, texture_bitmap.items);
+                    writeBmp("debug/freetype.bmp", @as(c_int, @intCast(result.texture.w)), @as(c_int, @intCast(result.texture.h)), 1, texture_bitmap.items);
                 result.texture = Texture.fromArray(texture_bitmap.items, result.texture.w, result.texture.h, .{
                     .pixel_store_alignment = 1,
                     .internal_format = c.GL_RED,
@@ -2548,7 +2551,7 @@ pub const Font = struct {
     }
 
     pub fn normalizeUV(self: *Self, coord: u32) f32 {
-        return @intToFloat(f32, coord) / @intToFloat(f32, self.texture_size);
+        return @as(f32, @floatFromInt(coord)) / @as(f32, @floatFromInt(self.texture_size));
     }
 };
 
@@ -2561,7 +2564,7 @@ const AvgBuf = struct {
 
     fn insert(self: *Self, val: f32) void {
         self.buf[self.pos] = val;
-        self.pos = (self.pos + 1) % @intCast(u32, self.buf.len);
+        self.pos = (self.pos + 1) % @as(u32, @intCast(self.buf.len));
     }
 
     fn avg(self: *Self) f32 {
@@ -2569,7 +2572,7 @@ const AvgBuf = struct {
         for (self.buf) |it| {
             res += it;
         }
-        return res / @intToFloat(f32, self.buf.len);
+        return res / @as(f32, @floatFromInt(self.buf.len));
     }
 };
 
@@ -2684,12 +2687,12 @@ pub const GraphicsContext = struct {
         self.screen_bounds = IRect.new(0, 0, screen_w, screen_h);
         self.call_count = 0;
         self.fps_time = self.fps_timer.read();
-        self.fpsavg.insert(std.time.ns_per_s / @intToFloat(f32, self.fps_time));
+        self.fpsavg.insert(std.time.ns_per_s / @as(f32, @floatFromInt(self.fps_time)));
         self.fps_timer.reset();
         //self.last_memcpy_time = self.memcpy_time;
         self.memcpy_time = 1; //prevent divide by zero with 1ns
 
-        const desired_frametime = @floatToInt(u64, (1.0 / 63.0) * @intToFloat(f32, std.time.ns_per_s));
+        const desired_frametime = @as(u64, @intFromFloat((1.0 / 63.0) * @as(f32, @floatFromInt(std.time.ns_per_s))));
         if (self.last_frame_time < desired_frametime) {
             std.time.sleep(desired_frametime - self.last_frame_time);
         }
@@ -2711,10 +2714,10 @@ pub const GraphicsContext = struct {
     pub fn setViewport(self: *Self, v: Rect) void {
         _ = self;
         c.glViewport(
-            @floatToInt(i32, v.x),
-            @floatToInt(i32, v.y),
-            @floatToInt(i32, v.w),
-            @floatToInt(i32, v.h),
+            @as(i32, @intFromFloat(v.x)),
+            @as(i32, @intFromFloat(v.y)),
+            @as(i32, @intFromFloat(v.w)),
+            @as(i32, @intFromFloat(v.h)),
         );
     }
 
@@ -2765,7 +2768,7 @@ pub const GraphicsContext = struct {
             self.draw_time = dt.read();
 
         self.last_frame_time = self.frame_timer.read();
-        self.lftavg.insert(1.0 / (std.time.ns_per_us / @intToFloat(f32, self.last_frame_time)));
+        self.lftavg.insert(1.0 / (std.time.ns_per_us / @as(f32, @floatFromInt(self.last_frame_time))));
         self.last_memcpy_time = self.memcpy_time;
     }
 
@@ -2775,12 +2778,12 @@ pub const GraphicsContext = struct {
             var fbs = std.io.FixedBufferStream([]u8){ .buffer = buf[0..], .pos = 0 };
             fbs.writer().print("FPS: {d}\nFT: {d}us\nDT: {d}us\nMPT: {d}", .{
                 //fbs.writer().print("FPS: {d}\nFT: {d}us", .{
-                @floatToInt(i32, std.time.ns_per_s / @intToFloat(f32, self.fps_time) / 10) * 10,
+                @as(i32, @intFromFloat(std.time.ns_per_s / @as(f32, @floatFromInt(self.fps_time)) / 10)) * 10,
                 //@floatToInt(i32, self.fpsavg.avg() / 10) * 10,
-                @floatToInt(i32, 1.0 / (std.time.ns_per_us / @intToFloat(f32, self.last_frame_time)) / 100) * 100,
+                @as(i32, @intFromFloat(1.0 / (std.time.ns_per_us / @as(f32, @floatFromInt(self.last_frame_time))) / 100)) * 100,
                 //@floatToInt(i32, self.lftavg.avg()),
-                @floatToInt(i32, 1.0 / (std.time.ns_per_us / @intToFloat(f32, self.draw_time))),
-                @floatToInt(i32, 1.0 / (std.time.ns_per_us / @intToFloat(f64, self.last_memcpy_time))),
+                @as(i32, @intFromFloat(1.0 / (std.time.ns_per_us / @as(f32, @floatFromInt(self.draw_time))))),
+                @as(i32, @intFromFloat(1.0 / (std.time.ns_per_us / @as(f64, @floatFromInt(self.last_memcpy_time))))),
             }) catch return;
             self.drawText(x, y, buf[0..fbs.pos], font, 16, intToColor(0xffffffff));
         }
@@ -2808,7 +2811,7 @@ pub const GraphicsContext = struct {
         };
 
         for (rects) |rl| {
-            try b.indicies.appendSlice(&genQuadIndices(@intCast(u32, b.vertices.items.len)));
+            try b.indicies.appendSlice(&genQuadIndices(@as(u32, @intCast(b.vertices.items.len))));
             try b.vertices.appendSlice(&createQuad(rl, self.z_st, charColorToFloat(col)));
         }
 
@@ -2828,7 +2831,7 @@ pub const GraphicsContext = struct {
             logErr("vert");
             return;
         };
-        b.indicies.appendSlice(&genQuadIndices(@intCast(u32, index))) catch {
+        b.indicies.appendSlice(&genQuadIndices(@as(u32, @intCast(index)))) catch {
             logErr("indicies");
             return;
         };
@@ -2848,7 +2851,7 @@ pub const GraphicsContext = struct {
             logErr("vert");
             return;
         };
-        b.indicies.appendSlice(&genQuadIndices(@intCast(u32, index))) catch {
+        b.indicies.appendSlice(&genQuadIndices(@as(u32, @intCast(index)))) catch {
             logErr("indicies");
             return;
         };
@@ -2870,7 +2873,7 @@ pub const GraphicsContext = struct {
         var timer = try std.time.Timer.start();
 
         try b.vertices.appendSlice(&createQuadTextured(r, self.z_st, tr, texture.w, texture.h, charColorToFloat(col)));
-        try b.indicies.appendSlice(&genQuadIndices(@intCast(u32, index)));
+        try b.indicies.appendSlice(&genQuadIndices(@as(u32, @intCast(index))));
         self.z_st += 0.1;
 
         self.memcpy_time += timer.read();
@@ -2888,8 +2891,8 @@ pub const GraphicsContext = struct {
             }
 
             const ind = font.translation_table[std.ascii.toUpper(char)];
-            const fi = @intToFloat(f32, i);
-            try b.indicies.appendSlice(&genQuadIndices(@intCast(u32, b.vertices.items.len)));
+            const fi = @as(f32, @floatFromInt(i));
+            try b.indicies.appendSlice(&genQuadIndices(@as(u32, @intCast(b.vertices.items.len))));
             try b.vertices.appendSlice(&createQuadTextured(Rec(
                 x + fi * h,
                 y,
@@ -2953,8 +2956,8 @@ pub const GraphicsContext = struct {
             //    vx += g.advance_x * SF;
             //    continue;
             //}
-            const fpad = @intToFloat(f32, Font.padding) / 2;
-            const pad = @intToFloat(f32, Font.padding);
+            const fpad = @as(f32, @floatFromInt(Font.padding)) / 2;
+            const pad = @as(f32, @floatFromInt(Font.padding));
 
             const r = Rect{
                 .x = vx + (g.offset_x - fpad) * SF,
@@ -2966,7 +2969,7 @@ pub const GraphicsContext = struct {
             var timer = std.time.Timer.start() catch unreachable;
             const index = b.vertices.items.len;
             b.vertices.appendSlice(&createQuadTextured(r, self.z_st, g.tr, font.texture.w, font.texture.h, charColorToFloat(col))) catch unreachable;
-            b.indicies.appendSlice(&genQuadIndices(@intCast(u32, index))) catch unreachable;
+            b.indicies.appendSlice(&genQuadIndices(@as(u32, @intCast(index)))) catch unreachable;
             self.memcpy_time += timer.read();
 
             vx += (g.advance_x) * SF;
@@ -2996,13 +2999,13 @@ pub const GraphicsContext = struct {
 
         {
             const steps = 14;
-            const ratio_inc: f32 = 1.0 / @intToFloat(f32, steps);
+            const ratio_inc: f32 = 1.0 / @as(f32, @floatFromInt(steps));
 
             var last_point = a;
 
             var i: u32 = 1;
             while (i <= steps) : (i += 1) {
-                const rat = ratio_inc * @intToFloat(f32, i);
+                const rat = ratio_inc * @as(f32, @floatFromInt(i));
                 const pa = lerpVec(a, control, rat);
                 const pb = lerpVec(control, b, rat);
                 const bez = lerpVec(pa, pb, rat);
@@ -3056,8 +3059,8 @@ pub const GraphicsContext = struct {
         {
             var i: usize = 0;
             while (i < steps) : (i += 1) {
-                const vx = r * @cos(@intToFloat(f32, i) / @intToFloat(f32, steps) * std.math.tau);
-                const vy = r * @sin(@intToFloat(f32, i) / @intToFloat(f32, steps) * std.math.tau);
+                const vx = r * @cos(@as(f32, @floatFromInt(i)) / @as(f32, @floatFromInt(steps)) * std.math.tau);
+                const vy = r * @sin(@as(f32, @floatFromInt(i)) / @as(f32, @floatFromInt(steps)) * std.math.tau);
                 verts[i] = vertex(x + vx, y + vy, self.z_st, cc);
                 if (i != 0 and i != steps - 1) {
                     verts[i + 1] = verts[i];
@@ -3139,7 +3142,7 @@ pub const NewTri = struct {
 
     pub fn quad(self: *Self, r: Rect, z: u16) !void {
         const color = 0xffffffff;
-        try self.indicies.appendSlice(&genQuadIndices(@intCast(u32, self.vertices.items.len)));
+        try self.indicies.appendSlice(&genQuadIndices(@as(u32, @intCast(self.vertices.items.len))));
         try self.vertices.appendSlice(&.{
             Vert{ .pos = .{ .x = r.x + r.w, .y = r.y + r.h }, .z = z, .color = color },
             Vert{ .pos = .{ .x = r.x + r.w, .y = r.y }, .z = z, .color = color },
@@ -3149,7 +3152,7 @@ pub const NewTri = struct {
     }
 
     pub fn draw(b: *Self, screenw: i32, screenh: i32) void {
-        const view = za.orthographic(0, @intToFloat(f32, screenw), @intToFloat(f32, screenh), 0, -100000, 1);
+        const view = za.orthographic(0, @as(f32, @floatFromInt(screenw)), @as(f32, @floatFromInt(screenh)), 0, -100000, 1);
 
         //c.glViewport(0, 0, screenw, screenh);
         const model = za.Mat4.identity();
@@ -3161,7 +3164,7 @@ pub const NewTri = struct {
         GL.passUniform(b.shader, "view", view);
         GL.passUniform(b.shader, "model", model);
 
-        c.glDrawElements(c.GL_TRIANGLES, @intCast(c_int, b.indicies.items.len), c.GL_UNSIGNED_INT, null);
+        c.glDrawElements(c.GL_TRIANGLES, @as(c_int, @intCast(b.indicies.items.len)), c.GL_UNSIGNED_INT, null);
         c.glBindVertexArray(0);
     }
 };
@@ -3196,7 +3199,7 @@ pub const Cubes = struct {
         GL.passUniform(b.shader, "view", view);
         GL.passUniform(b.shader, "model", model);
 
-        c.glDrawElements(c.GL_TRIANGLES, @intCast(c_int, b.indicies.items.len), c.GL_UNSIGNED_INT, null);
+        c.glDrawElements(c.GL_TRIANGLES, @as(c_int, @intCast(b.indicies.items.len)), c.GL_UNSIGNED_INT, null);
     }
 
     pub fn init(alloc: std.mem.Allocator, texture: glID, shader: glID) @This() {
@@ -3399,7 +3402,7 @@ const Batch = union(enum) {
                 GL.passUniform(texture_shader, "view", view);
                 GL.passUniform(texture_shader, "model", model);
 
-                c.glDrawElements(c.GL_TRIANGLES, @intCast(c_int, b.indicies.items.len), c.GL_UNSIGNED_INT, null);
+                c.glDrawElements(c.GL_TRIANGLES, @as(c_int, @intCast(b.indicies.items.len)), c.GL_UNSIGNED_INT, null);
             },
             .Line => |*b| {
                 c.glUseProgram(shader_program);
@@ -3409,7 +3412,7 @@ const Batch = union(enum) {
                 GL.passUniform(texture_shader, "view", view);
 
                 //c.glDrawElements(c.GL_TRIANGLES, @intCast(c_int, b.indicies.items.len), c.GL_UNSIGNED_INT, null);
-                c.glDrawArrays(c.GL_LINES, 0, @intCast(c_int, b.vertices.items.len));
+                c.glDrawArrays(c.GL_LINES, 0, @as(c_int, @intCast(b.vertices.items.len)));
             },
             //else => {
             //    std.debug.print("Batch draw not implemented!\n", .{});
@@ -3417,21 +3420,6 @@ const Batch = union(enum) {
         }
     }
 };
-
-pub fn parseJson(comptime T: type, slice: []const u8, parseOptions: std.json.ParseOptions) !struct {
-    data: T,
-    opts: std.json.ParseOptions,
-
-    pub fn parseFree(self: @This()) void {
-        std.json.parseFree(T, self.data, self.opts);
-    }
-} {
-    var ts = std.json.TokenStream.init(slice);
-    return .{
-        .data = try std.json.parse(T, &ts, parseOptions),
-        .opts = parseOptions,
-    };
-}
 
 pub const BindType = [2][]const u8;
 pub const BindList = []const BindType;
@@ -3443,7 +3431,7 @@ pub fn GenerateBindingEnum(comptime map: BindList) type {
     const TypeInfo = std.builtin.Type;
     var fields: [map.len + 1]TypeInfo.EnumField = undefined;
 
-    inline for (map) |bind, b_i| {
+    inline for (map, 0..) |bind, b_i| {
         fields[b_i] = .{ .name = bind[0], .value = b_i };
     }
     fields[map.len] = .{ .name = "no_action", .value = map.len };
@@ -3461,7 +3449,7 @@ pub fn Bind(comptime map: BindList) type {
     return struct {
         const bind_enum = GenerateBindingEnum(map);
 
-        scancode_table: [@enumToInt(keycodes.Scancode.ODES)]bind_enum,
+        scancode_table: [@intFromEnum(keycodes.Scancode.ODES)]bind_enum,
         bind_table: [map.len]keycodes.Scancode,
 
         pub fn init() @This() {
@@ -3470,7 +3458,7 @@ pub fn Bind(comptime map: BindList) type {
             for (ret.scancode_table) |*item|
                 item.* = .no_action;
 
-            for (map) |bind, i| {
+            for (map, 0..) |bind, i| {
                 var buffer: [256]u8 = undefined;
                 //if (bind.len >= buffer.len)
                 //    @compileError("Keybinding name to long");
@@ -3480,15 +3468,15 @@ pub fn Bind(comptime map: BindList) type {
 
                 const sc = c.SDL_GetScancodeFromName(&buffer[0]);
                 //if (sc == c.SDL_SCANCODE_UNKNOWN) @compileError("Unknown scancode");
-                ret.scancode_table[sc] = @intToEnum(bind_enum, i);
-                ret.bind_table[i] = @intToEnum(keycodes.Scancode, sc);
+                ret.scancode_table[sc] = @as(bind_enum, @enumFromInt(i));
+                ret.bind_table[i] = @as(keycodes.Scancode, @enumFromInt(sc));
             }
 
             return ret;
         }
 
         pub fn getScancode(self: *const @This(), key: bind_enum) keycodes.Scancode {
-            return self.bind_table[@enumToInt(key)];
+            return self.bind_table[@intFromEnum(key)];
         }
 
         pub fn get(self: *const @This(), scancode: usize) bind_enum {

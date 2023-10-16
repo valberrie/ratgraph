@@ -47,14 +47,14 @@ pub fn SparseSet(comptime child_type: type, comptime index_type: type) type {
             ret.dense = (std.ArrayList(child_type)).fromOwnedSlice(alloc, slice);
             ret.sparse = std.ArrayList(index_type).init(alloc);
 
-            for (ret.dense.items) |item, i| {
+            for (ret.dense.items, 0..) |item, i| {
                 if (item.i == null_marker)
                     return error.invalidIndex;
 
                 if (item.i >= ret.sparse.items.len)
                     try ret.sparse.appendNTimes(null_marker, item.i - ret.sparse.items.len + 1);
 
-                ret.sparse.items[item.i] = @intCast(index_type, i);
+                ret.sparse.items[item.i] = @as(index_type, @intCast(i));
             }
 
             return ret;
@@ -72,9 +72,9 @@ pub fn SparseSet(comptime child_type: type, comptime index_type: type) type {
             if (index >= self.sparse.items.len)
                 try self.sparse.appendNTimes(null_marker, index - self.sparse.items.len + 1);
 
-            self.sparse.items[index] = @intCast(index_type, self.dense.items.len);
+            self.sparse.items[index] = @as(index_type, @intCast(self.dense.items.len));
             var new_item = item;
-            new_item.i = @intCast(index_type, index);
+            new_item.i = @as(index_type, @intCast(index));
             try self.dense.append(new_item);
             //TODO use errdefer to prevent garbage in sparse
         }
@@ -82,21 +82,21 @@ pub fn SparseSet(comptime child_type: type, comptime index_type: type) type {
         pub fn add(self: *Self, item: child_type) !index_type {
             //TODO more effecient lookup of empty indicies
             var empty_index: ?index_type = null;
-            for (self.sparse.items) |item_index, sp_i| {
+            for (self.sparse.items, 0..) |item_index, sp_i| {
                 if (item_index == null_marker and sp_i != null_marker) {
-                    empty_index = @intCast(index_type, sp_i);
+                    empty_index = @as(index_type, @intCast(sp_i));
                     break;
                 }
             }
 
             if (empty_index == null) {
-                empty_index = @intCast(index_type, self.sparse.items.len);
+                empty_index = @as(index_type, @intCast(self.sparse.items.len));
                 try self.sparse.append(null_marker);
             }
 
-            self.sparse.items[empty_index.?] = @intCast(index_type, self.dense.items.len);
+            self.sparse.items[empty_index.?] = @as(index_type, @intCast(self.dense.items.len));
             var new_item = item;
-            new_item.i = @intCast(index_type, empty_index.?);
+            new_item.i = @as(index_type, @intCast(empty_index.?));
             try self.dense.append(new_item);
             return empty_index.?;
         }

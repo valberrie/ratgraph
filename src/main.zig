@@ -37,7 +37,7 @@ fn intVel(accel: f32, dt: f32, v0: f32) f32 {
 
 pub fn printSlice(slice: anytype, comptime fmt: ?[]const u8) void {
     const fmt_str = if (fmt) |f| "i: {d} " ++ f else "i: {d} {any}\n";
-    for (slice) |item, i| {
+    for (slice, 0..) |item, i| {
         std.debug.print(fmt_str, .{ i, item });
     }
 }
@@ -58,7 +58,7 @@ pub const MarioMap = struct {
             options: std.json.StringifyOptions,
             out_stream: anytype,
         ) !void {
-            try std.json.stringify(@enumToInt(value), options, out_stream);
+            try std.json.stringify(@intFromEnum(value), options, out_stream);
         }
     };
 
@@ -349,31 +349,6 @@ const unique_colors = [_]Color{
     intToColor(0xE85EBE88),
 };
 
-pub fn deSerializeJson(file_name: []const u8, comptime schema: type, alloc: std.mem.Allocator) !schema {
-    @setEvalBranchQuota(10000);
-    const cwd = std.fs.cwd();
-    const saved = cwd.openFile(file_name, .{}) catch null;
-    if (saved) |file| {
-        var buf: []const u8 = try file.readToEndAlloc(alloc, 1024 * 1024);
-        defer alloc.free(buf);
-
-        var token_stream = std.json.TokenStream.init(buf);
-        var ret = try std.json.parse(schema, &token_stream, .{ .allocator = alloc });
-        defer std.json.parseFree(schema, ret, .{ .allocator = alloc });
-        return ret;
-    }
-    const ret: schema = undefined;
-    return ret;
-}
-
-pub fn serialJson(file_name: []const u8, data: anytype) void {
-    const cwd = std.fs.cwd();
-    const file = cwd.createFile(file_name, .{}) catch unreachable;
-    std.json.stringify(data, .{}, file.writer()) catch unreachable;
-    file.writer().writeByte('\n') catch unreachable;
-    file.close();
-}
-
 const Goomba = struct {
     const Self = @This();
 
@@ -540,12 +515,12 @@ fn testHsvImage(alloc: std.mem.Allocator, h: f32) !graph.Texture {
     while (vy < bmp.h) : (vy += 1) {
         var sx: u32 = 0;
         while (sx < bmp.w) : (sx += 1) {
-            const V = @intToFloat(f32, vy) / @intToFloat(f32, bmp.h);
-            const S = @intToFloat(f32, sx) / @intToFloat(f32, bmp.w);
+            const V = @as(f32, @floatFromInt(vy)) / @as(f32, @floatFromInt(bmp.h));
+            const S = @as(f32, @floatFromInt(sx)) / @as(f32, @floatFromInt(bmp.w));
             const C = V * S;
             const hp = h / 60.0;
             const X = C * (1 - @fabs(@mod(hp, 2) - 1));
-            const rgb1 = switch (@floatToInt(u32, hp)) {
+            const rgb1 = switch (@as(u32, @intFromFloat(hp))) {
                 0 => graph.za.Vec3.new(C, X, 0),
                 1 => graph.za.Vec3.new(X, C, 0),
                 2 => graph.za.Vec3.new(0, C, X),
@@ -557,12 +532,12 @@ fn testHsvImage(alloc: std.mem.Allocator, h: f32) !graph.Texture {
             const M = V - C;
             const index = ((bmp.h - vy - 1) * bmp.w + sx) * 4;
             const d = bmp.data.items[index .. index + 4];
-            for (d) |*dd, i| {
+            for (d, 0..) |*dd, i| {
                 if (i == 3) {
                     dd.* = 0xff;
                     break;
                 }
-                dd.* = @floatToInt(u8, (M + rgb1.data[i]) * 256);
+                dd.* = @as(u8, @intFromFloat((M + rgb1.data[i]) * 256));
             }
         }
     }
@@ -586,8 +561,8 @@ pub fn main() !void {
     var ctx = try graph.GraphicsContext.init(alloc, 163);
     defer ctx.deinit();
 
-    const mc_atlas = try mcBlockAtlas.buildAtlas(alloc);
-    defer mc_atlas.deinit(alloc);
+    //const mc_atlas = try mcBlockAtlas.buildAtlas(alloc);
+    //defer mc_atlas.deinit(alloc);
 
     var timer = try std.time.Timer.start();
     var mario_atlas = try graph.Atlas.initFromJsonFile("mario_assets/tileset_manifest.json", alloc, null);
@@ -608,38 +583,31 @@ pub fn main() !void {
         show_tilesets: bool = false,
         draw_map: bool = true,
     };
-    var sd: SaveData = .{};
+    _ = SaveData;
 
-    sd = try deSerializeJson("debug/save.json", SaveData, alloc);
-
-    defer serialJson("debug/save.json", sd);
-
-    var dpix: u32 = @floatToInt(u32, win.getDpi());
+    var dpix: u32 = @as(u32, @intFromFloat(win.getDpi()));
     std.debug.print("DPI: {d}\n", .{dpix});
     const init_size = 72;
     var font = try graph.Font.init("fonts/sfmono.otf", alloc, init_size, dpix, &(graph.Font.CharMaps.AsciiBasic ++ graph.Font.CharMaps.Apple), null);
     defer font.deinit();
-
-    var sdat = gui.SaveData{ .x = 200, .y = 0 };
-    sdat = try deSerializeJson("debug/gui.json", gui.SaveData, alloc);
 
     var prng = std.rand.DefaultPrng.init(0);
     const rand = prng.random();
     _ = rand;
 
     win.grabMouse(true);
-    var cubes = graph.Cubes.init(alloc, mc_atlas.texture.id, ctx.tex_shad);
-    defer cubes.deinit();
-    {
-        const index = cubes.vertices.items.len;
-        try cubes.vertices.appendSlice(&graph.cube(0, 0, 0, 1, 1, 1, mc_atlas.getTextureRec(1), @intCast(u32, mc_atlas.texture.w), @intCast(u32, mc_atlas.texture.h), null));
-        try cubes.indicies.appendSlice(&graph.genCubeIndicies(@intCast(u32, index)));
-        cubes.vertices.items[0].g = 0;
-        cubes.vertices.items[0].b = 0;
-        cubes.vertices.items[1].r = 0;
-        cubes.vertices.items[1].b = 0;
-        cubes.setData();
-    }
+    //var cubes = graph.Cubes.init(alloc, mc_atlas.texture.id, ctx.tex_shad);
+    //defer cubes.deinit();
+    //{
+    //    const index = cubes.vertices.items.len;
+    //    try cubes.vertices.appendSlice(&graph.cube(0, 0, 0, 1, 1, 1, mc_atlas.getTextureRec(1), @as(u32, @intCast(mc_atlas.texture.w)), @as(u32, @intCast(mc_atlas.texture.h)), null));
+    //    try cubes.indicies.appendSlice(&graph.genCubeIndicies(@as(u32, @intCast(index))));
+    //    cubes.vertices.items[0].g = 0;
+    //    cubes.vertices.items[0].b = 0;
+    //    cubes.vertices.items[1].r = 0;
+    //    cubes.vertices.items[1].b = 0;
+    //    cubes.setData();
+    //}
 
     var newtri = graph.NewTri.init(alloc);
     defer newtri.deinit();

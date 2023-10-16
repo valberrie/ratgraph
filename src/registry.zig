@@ -22,7 +22,7 @@ pub fn GenRegistryStructs(comptime fields: FieldList) struct {
 
     var queued_fields: [fields.len]TypeInfo.StructField = undefined;
 
-    inline for (fields) |f, lt_i| {
+    inline for (fields, 0..) |f, lt_i| {
         const inner_struct = struct { item: f.ftype, i: ID_TYPE };
         reg_fields[lt_i] = .{
             .name = f.name,
@@ -102,10 +102,10 @@ pub fn Registry(comptime field_names_l: FieldList) type {
 
         pub fn createSystemSet(comptime components: []const Types.component_enum) type {
             var fields: [components.len]std.builtin.Type.StructField = undefined;
-            inline for (components) |comp, f_i| {
+            inline for (components, 0..) |comp, f_i| {
                 fields[f_i] = .{
-                    .name = field_names_l[@enumToInt(comp)].name,
-                    .field_type = *field_names_l[@enumToInt(comp)].ftype,
+                    .name = field_names_l[@intFromEnum(comp)].name,
+                    .field_type = *field_names_l[@intFromEnum(comp)].ftype,
                     .default_value = null,
                     .is_comptime = false,
                     .alignment = 0,
@@ -124,7 +124,7 @@ pub fn Registry(comptime field_names_l: FieldList) type {
             //TODO check if index exisits
             //const entity_mask = self.entities.items[index];
             var valid_component_type = false;
-            inline for (field_names_l) |field, i| {
+            inline for (field_names_l, 0..) |field, i| {
                 if (field.ftype == component_type) {
                     valid_component_type = true;
 
@@ -139,10 +139,10 @@ pub fn Registry(comptime field_names_l: FieldList) type {
         }
 
         pub fn removeComponent(self: *Self, index: ID_TYPE, component: Types.component_enum) !void {
-            if (self.entities.items[index].isSet(@enumToInt(component))) {
-                self.entities.items[index].unset(@enumToInt(component));
-                inline for (field_names_l) |field, i| {
-                    if (@enumToInt(component) == i) {
+            if (self.entities.items[index].isSet(@intFromEnum(component))) {
+                self.entities.items[index].unset(@intFromEnum(component));
+                inline for (field_names_l, 0..) |field, i| {
+                    if (@intFromEnum(component) == i) {
                         _ = try @field(self.data, field.name).remove(index);
                     }
                 }
@@ -150,12 +150,12 @@ pub fn Registry(comptime field_names_l: FieldList) type {
         }
 
         pub fn hasComponent(self: *Self, index: ID_TYPE, comptime component: Types.component_enum) bool {
-            return self.entities.items[index].isSet(@enumToInt(component));
+            return self.entities.items[index].isSet(@intFromEnum(component));
         }
 
-        pub fn getComponentPtr(self: *Self, index: ID_TYPE, comptime component: Types.component_enum) ?*field_names_l[@enumToInt(component)].ftype {
-            if (self.entities.items[index].isSet(@enumToInt(component))) {
-                return &((@field(self.data, field_names_l[@enumToInt(component)].name).getPtr(index) catch unreachable).item);
+        pub fn getComponentPtr(self: *Self, index: ID_TYPE, comptime component: Types.component_enum) ?*field_names_l[@intFromEnum(component)].ftype {
+            if (self.entities.items[index].isSet(@intFromEnum(component))) {
+                return &((@field(self.data, field_names_l[@intFromEnum(component)].name).getPtr(index) catch unreachable).item);
             } else {
                 return null;
             }
@@ -165,7 +165,7 @@ pub fn Registry(comptime field_names_l: FieldList) type {
         //pub fn getComponent(self: *Self, index:ID_TYPE, componont: Types.component_enum)?
 
         pub fn createEntity(self: *Self) !ID_TYPE {
-            const index = @intCast(ID_TYPE, self.entities.items.len);
+            const index = @as(ID_TYPE, @intCast(self.entities.items.len));
             try self.entities.append(Types.component_bit_set.initEmpty());
             return index;
         }
@@ -176,7 +176,7 @@ pub fn Registry(comptime field_names_l: FieldList) type {
             //remove entity from entity_set
             const mask = self.entities.items[index];
             //TODO deal with deletion from entity_set
-            inline for (field_names_l) |field, i| {
+            inline for (field_names_l, 0..) |field, i| {
                 if (mask.isSet(i))
                     _ = try @field(self.data, field.name).remove(index);
             }
@@ -234,7 +234,7 @@ pub fn Registry(comptime field_names_l: FieldList) type {
         pub fn initFromJson(self: *Self, json_map: *Types.json, alloc: *const std.mem.Allocator) !void {
             self.entities = std.ArrayList(Types.component_bit_set).init(alloc.*);
 
-            inline for (field_names_l) |field, comp_i| {
+            inline for (field_names_l, 0..) |field, comp_i| {
                 const fname = field.name;
 
                 @field(self.data, fname) = try @TypeOf(@field(self.data, fname)).fromOwnedDenseSlice(alloc.*, @field(json_map, fname));

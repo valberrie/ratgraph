@@ -189,7 +189,7 @@ pub const Layout = union(enum) {
                 var co = section_cursor;
                 co.co = graph.Rec(
                     co.co.x,
-                    co.co.y + (@intToFloat(f32, col.index) * col.item_height),
+                    co.co.y + (@as(f32, @floatFromInt(col.index)) * col.item_height),
                     co.co.w,
                     col.item_height,
                 );
@@ -271,10 +271,10 @@ pub const FatCursor = struct {
 };
 
 pub fn nColumns(cr: FatCursor, index: u32, n: u32) FatCursor {
-    const w = cr.co.w / @intToFloat(f32, n);
+    const w = cr.co.w / @as(f32, @floatFromInt(n));
     var co = cr;
     co.co.w = w;
-    co.co.x += @intToFloat(f32, index) * w;
+    co.co.x += @as(f32, @floatFromInt(index)) * w;
 
     return co;
 }
