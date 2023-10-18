@@ -58,6 +58,14 @@ pub const Vec2f = packed struct {
         return @This(){ .x = x, .y = y };
     }
 
+    pub fn mul(s: @This(), b: @This()) @This() {
+        return .{ .x = s.x * b.x, .y = s.y * b.y };
+    }
+
+    pub fn inv(s: @This()) @This() {
+        return .{ .x = 1 / s.x, .y = 1 / s.y };
+    }
+
     pub fn smul(s: @This(), scalar: f32) @This() {
         return .{ .x = s.x * scalar, .y = s.y * scalar };
     }
@@ -105,7 +113,15 @@ pub inline fn pxToPt(dpi: f32, px: f32) f32 {
     return px * 72 / dpi;
 }
 
-pub const Vec2i = struct { x: i32, y: i32 };
+pub const Vec2i = struct {
+    const Self = @This();
+    x: i32,
+    y: i32,
+
+    pub fn toF(self: Self) Vec2f {
+        return .{ .x = @floatFromInt(self.x), .y = @floatFromInt(self.y) };
+    }
+};
 
 pub fn RecV(pos: Vec2f, w: f32, h: f32) Rect {
     return .{ .x = pos.x, .y = pos.y, .w = w, .h = h };
@@ -168,9 +184,63 @@ pub fn quadTex(pos: V3, w: f32, h: f32, plane: Plane, neg: bool, tr: Rect, tx_w:
     }
 }
 
-pub const Camera2D = struct {
+pub const Camera2d = struct {
+    const Self = @This();
+
+    cam_area: Rect,
     screen_area: Rect,
-    canvas_area:Rect,
+
+    pub fn factor(self: Self) Vec2f {
+        const fx = (self.cam_area.w / self.screen_area.w);
+        const fy = (self.cam_area.h / self.screen_area.h);
+        return .{ .x = fx, .y = fy };
+    }
+
+    pub fn toWorld(self: *Self, local: Rect) Rect {
+        const f = self.factor().inv();
+        const cam_area = self.cam_area.pos();
+        //return local.addVec(self.offset).subVec(cam_area).vmul(f).addVec(self.screen_area.pos());
+        return local.subVec(cam_area).vmul(f).addVec(self.screen_area.pos());
+    }
+
+    pub fn toWorldV(self: *Self, local: Vec2f) Vec2f {
+        const f = self.factor().inv();
+        const cam_area = self.cam_area.pos();
+        return local.sub(cam_area).mul(f).add(self.screen_area.pos());
+    }
+
+    pub fn toCamV(self: *Self, world: Vec2f) Vec2f {
+        const f = self.factor();
+        const cam_area = self.cam_area.pos();
+        const v = world.sub(self.screen_area.pos()).mul(f).add(cam_area);
+        return v;
+    }
+
+    pub fn toCam(self: *Self, world: Rect) Rect {
+        const f = self.factor();
+        const cam_area = self.cam_area.pos();
+        const v = world.subVec(self.screen_area.pos()).vmul(f).addVec(cam_area);
+        return v;
+    }
+
+    pub fn zoom(self: *Self, dist: f32, zoom_target: Vec2f) void {
+        if (@fabs(dist) > 0.00001) {
+            const m_init = self.toCamV(zoom_target);
+            const h = self.cam_area.w * dist;
+            const v = self.cam_area.h * dist;
+            self.cam_area.x += h;
+            self.cam_area.w -= h * 2;
+
+            self.cam_area.y += v;
+            self.cam_area.h -= v * 2;
+            const m_final = self.toCamV(zoom_target);
+            self.cam_area = self.cam_area.subVec(m_final.sub(m_init));
+        }
+    }
+
+    pub fn pan(self: *Self, mouse_delta: Vec2f) void {
+        self.cam_area = self.cam_area.subVec(mouse_delta.mul(self.factor()));
+    }
 };
 
 pub const Camera3D = struct {
@@ -558,143 +628,174 @@ pub const SDL = struct {
 };
 
 pub const Atlas = struct {
+    const Self = @This();
     pub const AtlasJson = struct {
         pub const SetJson = struct {
-            filename: []const u8,
-            tilesets: []const SubTileset,
+            filename: []u8,
+            tilesets: []SubTileset,
         };
 
-        img_dir_path:[]const u8,
-        sets: []const SetJson,
+        img_dir_path: []u8,
+        sets: []SetJson,
     };
 
-    texture: Texture,
 
-    sets: std.ArrayList(SubTileset),
+    atlas_data:AtlasJson,
+
+    textures: std.ArrayList(Texture),
+
+    alloc: std.mem.Allocator,
+
+    //pub fn buildAtlas(self: *Self)!void{
+    //    var packing_rects = std.ArrayList(c.stbrp_rect).init(self.alloc);
+    //    defer packing_rects.deinit();
+
+    //    var running_area:i32 = 0;
+    //    var id_len: usize = 0;
+    //    for (sets_to_load) |item| {
+    //        for (item.tilesets,0..) |ts, j| {
+    //            running_area += ts.tw * ts.num.x * ts.th * ts.num.y;
+    //            try sets.append(SubTileset{
+    //                .start = ts.start,
+    //                .tw = ts.tw,
+    //                .th = ts.th,
+    //                .pad = .{ .x = 0, .y = 0 }, //Reset padding because it is removed when copying
+    //                .num = ts.num,
+    //                .count = ts.count,
+    //            });
+    //            try packing_rects.append(.{
+    //                .id = @intCast(id_len + j),
+    //                .w = @intCast(ts.num.x * ts.tw),
+    //                .h = @intCast(ts.num.y * ts.th),
+    //                .x = 50,
+    //                .y = 50,
+    //                .was_packed = 1,
+    //            });
+    //        }
+    //        id_len += item.tilesets.len;
+    //    }
+    //    const atlas_size:u32 = blk: {
+    //        if(texture_size)|ts|{
+    //            break :blk ts;
+    //        }
+    //        else{
+    //            break :blk @intFromFloat(@sqrt(@as(f32,@floatFromInt(running_area)) * 2));
+    //            
+    //        }
+    //    };
+
+    //    var nodes = std.ArrayList(c.stbrp_node).init(alloc);
+    //    defer nodes.deinit();
+    //    try nodes.appendNTimes(undefined, atlas_size + 200); //TODO MAGICNUM
+    //    var rect_context: c.stbrp_context = undefined;
+
+    //    c.stbrp_init_target(
+    //        &rect_context,
+    //        @intCast(atlas_size),
+    //        @intCast(atlas_size),
+    //        @ptrCast(nodes.items[0..nodes.items.len]),
+    //        @intCast(nodes.items.len),
+    //    );
+
+    //    const pack_err = c.stbrp_pack_rects(
+    //        &rect_context,
+    //        @ptrCast( packing_rects.items[0 .. packing_rects.items.len - 1]),
+    //        @intCast( packing_rects.items.len),
+    //    );
+    //    if (pack_err != 1)
+    //        std.debug.print("RECT PACK UNSUCC\n", .{});
+
+    //    var bitmap = std.ArrayList(u8).init(alloc);
+    //    defer bitmap.deinit();
+    //    try bitmap.appendNTimes(0, 4 * atlas_size * atlas_size);
+
+    //    var bit = Bitmap{ .data = bitmap, .w = atlas_size, .h = atlas_size };
+
+    //    var full_filename = std.ArrayList(u8).init(alloc);
+    //    defer full_filename.deinit();
+    //    try full_filename.appendSlice(img_path);
+    //    for (packing_rects.items) |rect| {
+    //        var in: usize = 0;
+    //        var j: usize = @intCast(rect.id);
+    //        while (j >= sets_to_load[in].tilesets.len) : (in += 1) {
+    //            j -= sets_to_load[in].tilesets.len;
+    //        }
+
+    //        const set = sets_to_load[in].tilesets[j];
+
+    //        try full_filename.appendSlice(sets_to_load[in].filename);
+    //        var ts_bmp = try loadPng(full_filename.items, alloc);
+    //        try full_filename.resize(img_path.len);
+    //        defer ts_bmp.data.deinit();
+
+    //        sets.items[@intCast( rect.id)].start = .{ .x = rect.x, .y = rect.y };
+
+    //        var i: i32 = 0;
+    //        while (i < set.count) : (i += 1) {
+    //            Bitmap.copySub(
+    //                &ts_bmp,
+    //                @intCast( set.start.x + @mod(i, set.num.x) * (set.tw + set.pad.x)),
+    //                @intCast( set.start.y + @divFloor(i, set.num.x) * (set.th + set.pad.y)),
+    //                @intCast( set.tw),
+    //                @intCast( set.th),
+    //                &bit,
+    //                @as(u32, @intCast(rect.x)) + @as(u32, @intCast(@mod(i, set.num.x) * set.tw)),
+    //                @as(u32, @intCast(rect.y)) + @as(u32, @intCast(@divFloor(i, set.num.x) * set.th)),
+    //            );
+    //        }
+    //    }
+    //    writeBmp("debug/atlas.bmp", @intCast( atlas_size), @intCast( atlas_size), 4, bitmap.items);
+
+    //    return Atlas{
+    //        .texture = Texture.fromArray(bitmap.items, @intCast(atlas_size), @intCast(atlas_size), .{}),
+    //        .sets = sets,
+    //    };
+    //    }
+
+    //}
 
     //TODO determine optimal texture_size
-    pub fn initFromJsonFile(json_filename: []const u8, alloc: std.mem.Allocator, texture_size: ?u32) !Atlas {
-        const cwd = std.fs.cwd();
-        const json_slice = try cwd.readFileAlloc(alloc,json_filename,  std.math.maxInt(usize));
+    pub fn initFromJsonFile(dir:std.fs.Dir,  json_filename: []const u8, alloc: std.mem.Allocator) !Atlas {
+        const json_slice = try dir.readFileAlloc(alloc,json_filename,  std.math.maxInt(usize));
         defer alloc.free(json_slice);
 
-        {
-            const json_p = try std.json.parseFromSlice(AtlasJson, alloc,json_slice, .{});
-            defer json_p.deinit();
-            const json = json_p.value;
-        //const json = try parseJson(AtlasJson, json_slice, .{.allocator = alloc,});
-        //defer json.parseFree();
-        const img_path = json.img_dir_path;
+        const json_p = try std.json.parseFromSlice(AtlasJson, alloc,json_slice, .{.allocate = .alloc_always});
+        const json = json_p.value;
+        defer json_p.deinit();
         const sets_to_load = json.sets;
+
+        const cpy = std.mem.copy;
+        var ret_j:AtlasJson = AtlasJson{.img_dir_path = try alloc.alloc(u8, json.img_dir_path.len), .sets = try alloc.alloc(AtlasJson.SetJson, json.sets.len)};
+        cpy(u8,ret_j.img_dir_path, json.img_dir_path);
 
         if(sets_to_load.len == 0) return error.noSets;
 
+        var img_dir = try dir.openDir(json.img_dir_path, .{});
+        defer img_dir.close();
 
-        var packing_rects = std.ArrayList(c.stbrp_rect).init(alloc);
-        defer packing_rects.deinit();
+        var textures = std.ArrayList(Texture).init(alloc);
 
-        var running_area:i32 = 0;
-        var sets = std.ArrayList(SubTileset).init(alloc);
-        var id_len: usize = 0;
-        for (sets_to_load) |item| {
-            for (item.tilesets,0..) |ts, j| {
-                running_area += ts.tw * ts.num.x * ts.th * ts.num.y;
-                try sets.append(SubTileset{
-                    .start = ts.start,
-                    .tw = ts.tw,
-                    .th = ts.th,
-                    .pad = .{ .x = 0, .y = 0 }, //Reset padding because it is removed when copying
-                    .num = ts.num,
-                    .count = ts.count,
-                });
-                try packing_rects.append(.{
-                    .id = @intCast(id_len + j),
-                    .w = @intCast(ts.num.x * ts.tw),
-                    .h = @intCast(ts.num.y * ts.th),
-                    .x = 50,
-                    .y = 50,
-                    .was_packed = 1,
-                });
+        for (sets_to_load,0..) |item,i| {
+            var pngfile = try img_dir.openFile(item.filename, .{});
+            defer pngfile.close();
+            const bmp = try loadPngBitmapFile(pngfile, alloc);
+            defer bmp.data.deinit();
+            try textures.append(Texture.fromArray(bmp.data.items, @intCast(bmp.w), @intCast(bmp.h), .{ .mag_filter = c.GL_NEAREST, .min_filter = c.GL_NEAREST }));
+
+            ret_j.sets[i] = .{.filename = try alloc.alloc(u8, item.filename.len), .tilesets = try alloc.alloc(SubTileset, item.tilesets.len)};
+            cpy(u8, ret_j.sets[i].filename, item.filename);
+            for(item.tilesets,0..)|ts,j|{
+
+
+                ret_j.sets[i].tilesets[j] = ts;
+                ret_j.sets[i].tilesets[j].description = try alloc.alloc(u8, ts.description.len);
+                cpy(u8, ret_j.sets[i].tilesets[j].description,ts.description);
+
             }
-            id_len += item.tilesets.len;
+
         }
-        const atlas_size:u32 = blk: {
-            if(texture_size)|ts|{
-                break :blk ts;
-            }
-            else{
-                break :blk @intFromFloat(@sqrt(@as(f32,@floatFromInt(running_area)) * 2));
-                
-            }
-        };
 
-        var nodes = std.ArrayList(c.stbrp_node).init(alloc);
-        defer nodes.deinit();
-        try nodes.appendNTimes(undefined, atlas_size + 200); //TODO MAGICNUM
-        var rect_context: c.stbrp_context = undefined;
-
-        c.stbrp_init_target(
-            &rect_context,
-            @intCast(atlas_size),
-            @intCast(atlas_size),
-            @ptrCast(nodes.items[0..nodes.items.len]),
-            @intCast(nodes.items.len),
-        );
-
-        const pack_err = c.stbrp_pack_rects(
-            &rect_context,
-            @ptrCast( packing_rects.items[0 .. packing_rects.items.len - 1]),
-            @intCast( packing_rects.items.len),
-        );
-        if (pack_err != 1)
-            std.debug.print("RECT PACK UNSUCC\n", .{});
-
-        var bitmap = std.ArrayList(u8).init(alloc);
-        defer bitmap.deinit();
-        try bitmap.appendNTimes(0, 4 * atlas_size * atlas_size);
-
-        var bit = Bitmap{ .data = bitmap, .w = atlas_size, .h = atlas_size };
-
-        var full_filename = std.ArrayList(u8).init(alloc);
-        defer full_filename.deinit();
-        try full_filename.appendSlice(img_path);
-        for (packing_rects.items) |rect| {
-            var in: usize = 0;
-            var j: usize = @intCast(rect.id);
-            while (j >= sets_to_load[in].tilesets.len) : (in += 1) {
-                j -= sets_to_load[in].tilesets.len;
-            }
-
-            const set = sets_to_load[in].tilesets[j];
-
-            try full_filename.appendSlice(sets_to_load[in].filename);
-            var ts_bmp = try loadPng(full_filename.items, alloc);
-            try full_filename.resize(img_path.len);
-            defer ts_bmp.data.deinit();
-
-            sets.items[@intCast( rect.id)].start = .{ .x = rect.x, .y = rect.y };
-
-            var i: i32 = 0;
-            while (i < set.count) : (i += 1) {
-                Bitmap.copySub(
-                    &ts_bmp,
-                    @intCast( set.start.x + @mod(i, set.num.x) * (set.tw + set.pad.x)),
-                    @intCast( set.start.y + @divFloor(i, set.num.x) * (set.th + set.pad.y)),
-                    @intCast( set.tw),
-                    @intCast( set.th),
-                    &bit,
-                    @as(u32, @intCast(rect.x)) + @as(u32, @intCast(@mod(i, set.num.x) * set.tw)),
-                    @as(u32, @intCast(rect.y)) + @as(u32, @intCast(@divFloor(i, set.num.x) * set.th)),
-                );
-            }
-        }
-        writeBmp("debug/atlas.bmp", @intCast( atlas_size), @intCast( atlas_size), 4, bitmap.items);
-
-        return Atlas{
-            .texture = Texture.fromArray(bitmap.items, @intCast(atlas_size), @intCast(atlas_size), .{}),
-            .sets = sets,
-        };
-        }
+        return .{.alloc = alloc,.textures = textures, .atlas_data = ret_j  };
     }
 
     pub fn getTexRec(m: @This(), si: usize, ti: usize) Rect {
@@ -702,7 +803,16 @@ pub const Atlas = struct {
     }
 
     pub fn deinit(m: Atlas) void {
-        m.sets.deinit();
+        m.alloc.free(m.atlas_data.img_dir_path);
+        for(m.atlas_data.sets)|*s|{
+            m.alloc.free(s.filename);
+            for(s.tilesets)|*ts|{
+                m.alloc.free(ts.description);
+            }
+            m.alloc.free(s.tilesets);
+        }
+        m.alloc.free(m.atlas_data.sets);
+        m.textures.deinit();
     }
 };
 
@@ -711,7 +821,7 @@ pub const Atlas = struct {
 pub const SubTileset = struct {
     const Self = @This();
 
-    description: []const u8 = "", 
+    description: []u8 = "", 
     start: Vec2i, //xy of first tile
     tw: i32,      //width of tile
     th: i32,
@@ -722,10 +832,10 @@ pub const SubTileset = struct {
     pub fn getTexRec(self: Self, index: usize) Rect {
         const i:i32 = @intCast( index % self.count);
         return Rec(
-            @floatFromInt(self.start.x + @mod(i, self.num.x) * (self.tw + self.pad.x)),
-            @floatFromInt(self.start.y + @divFloor(i, self.num.x) * (self.th + self.pad.y)),
-            @floatFromInt(self.tw),
-            @floatFromInt(self.th),
+            self.start.x + @mod(i, self.num.x) * (self.tw + self.pad.x),
+            self.start.y + @divFloor(i, self.num.x) * (self.th + self.pad.y),
+            self.tw,
+            self.th,
         );
     }
 };
@@ -802,89 +912,35 @@ pub const Bitmap = struct {
     }
 };
 
+pub fn loadPngBitmapFile(file: std.fs.File, alloc: std.mem.Allocator) !Bitmap {
+    var buf = std.ArrayList(u8).init(alloc);
+    defer buf.deinit();
+
+    try file.reader().readAllArrayList(&buf, std.math.maxInt(usize));
+
+    var pngctx = c.spng_ctx_new(0);
+    defer c.spng_ctx_free(pngctx);
+
+    _ = c.spng_set_png_buffer(pngctx, &buf.items[0], buf.items.len);
+
+    var ihdr: c.spng_ihdr = undefined;
+    _ = c.spng_get_ihdr(pngctx, &ihdr);
+
+    var out_size: usize = 0;
+    _ = c.spng_decoded_image_size(pngctx, c.SPNG_FMT_RGBA8, &out_size);
+
+    const decoded_data = try alloc.alloc(u8, out_size);
+
+    _ = c.spng_decode_image(pngctx, &decoded_data[0], out_size, c.SPNG_FMT_RGBA8, 0);
+
+    return Bitmap{ .w = ihdr.width, .h = ihdr.height, .data = std.ArrayList(u8).fromOwnedSlice(alloc, decoded_data) };
+}
+
 pub fn loadPngBitmap(relative_path: []const u8, alloc: std.mem.Allocator) !Bitmap {
     const cwd = std.fs.cwd();
     const png_file = try cwd.openFile(relative_path, .{});
     defer png_file.close();
-
-    var buf = std.ArrayList(u8).init(alloc);
-    defer buf.deinit();
-
-    try png_file.reader().readAllArrayList(&buf, 1024 * 1024 * 1024);
-
-    var pngctx = c.spng_ctx_new(0);
-    defer c.spng_ctx_free(pngctx);
-
-    _ = c.spng_set_png_buffer(pngctx, &buf.items[0], buf.items.len);
-
-    var ihdr: c.spng_ihdr = undefined;
-    _ = c.spng_get_ihdr(pngctx, &ihdr);
-
-    //std.debug.print("width: {d} height: {d}\n bit depth: {d}\n color type: {d}\n \n", .{
-    //    ihdr.width, ihdr.height, ihdr.bit_depth, ihdr.color_type,
-    //});
-
-    var out_size: usize = 0;
-    _ = c.spng_decoded_image_size(pngctx, c.SPNG_FMT_RGBA8, &out_size);
-
-    const decoded_data = try alloc.alloc(u8, out_size);
-
-    _ = c.spng_decode_image(pngctx, &decoded_data[0], out_size, c.SPNG_FMT_RGBA8, 0);
-
-    return Bitmap{ .w = ihdr.width, .h = ihdr.height, .data = std.ArrayList(u8).fromOwnedSlice(alloc, decoded_data) };
-
-    //#9494ff background color
-
-}
-
-pub fn loadPng(relative_path: []const u8, alloc: std.mem.Allocator) !Bitmap {
-    const cwd = std.fs.cwd();
-    const png_file = try cwd.openFile(relative_path, .{});
-    defer png_file.close();
-
-    var buf = std.ArrayList(u8).init(alloc);
-    defer buf.deinit();
-
-    try png_file.reader().readAllArrayList(&buf, 1024 * 1024 * 1024);
-
-    var pngctx = c.spng_ctx_new(0);
-    defer c.spng_ctx_free(pngctx);
-
-    _ = c.spng_set_png_buffer(pngctx, &buf.items[0], buf.items.len);
-
-    var ihdr: c.spng_ihdr = undefined;
-    _ = c.spng_get_ihdr(pngctx, &ihdr);
-
-    //std.debug.print("width: {d} height: {d}\n bit depth: {d}\n color type: {d}\n \n", .{
-    //    ihdr.width, ihdr.height, ihdr.bit_depth, ihdr.color_type,
-    //});
-
-    var out_size: usize = 0;
-    _ = c.spng_decoded_image_size(pngctx, c.SPNG_FMT_RGBA8, &out_size);
-
-    const decoded_data = try alloc.alloc(u8, out_size);
-
-    _ = c.spng_decode_image(pngctx, &decoded_data[0], out_size, c.SPNG_FMT_RGBA8, 0);
-
-    {
-        var i: usize = 0;
-        while (i < decoded_data.len) : (i += 4) {
-            if (decoded_data[i] == 0x94 and
-                decoded_data[i + 1] == 0x94 and
-                decoded_data[i + 2] == 0xff)
-            {
-                decoded_data[i + 3] = 0x00;
-            }
-
-            if (decoded_data[i] == 0x92 and decoded_data[i + 1] == 0x90 and decoded_data[i + 2] == 0xff)
-                decoded_data[i + 3] = 0x00;
-        }
-    }
-
-    return Bitmap{ .w = ihdr.width, .h = ihdr.height, .data = std.ArrayList(u8).fromOwnedSlice(alloc, decoded_data) };
-
-    //#9494ff background color
-
+    return try loadPngBitmapFile(png_file, alloc);
 }
 
 pub const GL = struct {
@@ -1701,12 +1757,20 @@ pub const Rect = struct {
         return .{ .x = self.x + x, .y = self.y + y, .w = self.w, .h = self.h };
     }
 
+    pub fn subVec(self: Self, s: Vec2f) Self {
+        return .{ .x = self.x - s.x, .y = self.y - s.y, .w = self.w, .h = self.h };
+    }
+
     pub fn addVec(self: @This(), v: Vec2f) @This() {
         return .{ .x = self.x + v.x, .y = self.y + v.y, .w = self.w, .h = self.h };
     }
 
     pub fn mul(self: Self, scalar: f32) Self {
         return .{ .x = self.x * scalar, .y = self.y * scalar, .w = self.w * scalar, .h = self.h * scalar };
+    }
+
+    pub fn vmul(self: Self, v: Vec2f) @This() {
+        return .{ .x = self.x * v.x, .y = self.y * v.y, .w = self.w * v.x, .h = self.h * v.y };
     }
 
     pub fn inset(self: Self, amount: f32) Self {
@@ -1742,7 +1806,7 @@ pub const Rect = struct {
         return self.x + self.w;
     }
 
-    pub fn toAbsRect(self: Self) Rect {
+    pub fn toAbsoluteRect(self: Self) Rect {
         return Rec(self.x, self.y, self.x + self.w, self.y + self.h);
     }
 
@@ -2035,6 +2099,10 @@ pub const Texture = struct {
 
         c.glBindTexture(c.GL_TEXTURE_2D, 0);
         return Texture{ .w = w, .h = h, .id = tex_id };
+    }
+
+    pub fn empty()Texture{
+        return .{.w = 0, .h = 0, .id = 0};
     }
 
     pub fn fromImage(relative_file_name:[]const u8, alloc: std.mem.Allocator,opts:Options  )!Texture{
@@ -2685,6 +2753,7 @@ pub const GraphicsContext = struct {
 
     pub fn beginDraw(self: *Self, screen_w: i32, screen_h: i32, bg: CharColor, clear_color: bool) !void {
         self.screen_bounds = IRect.new(0, 0, screen_w, screen_h);
+        c.glViewport(0, 0, screen_w, screen_h);
         self.call_count = 0;
         self.fps_time = self.fps_timer.read();
         self.fpsavg.insert(std.time.ns_per_s / @as(f32, @floatFromInt(self.fps_time)));
@@ -2711,14 +2780,18 @@ pub const GraphicsContext = struct {
 
     //pub fn beginCamera(self: *Self, )
 
-    pub fn setViewport(self: *Self, v: Rect) void {
-        _ = self;
-        c.glViewport(
-            @as(i32, @intFromFloat(v.x)),
-            @as(i32, @intFromFloat(v.y)),
-            @as(i32, @intFromFloat(v.w)),
-            @as(i32, @intFromFloat(v.h)),
-        );
+    pub fn setViewport(self: *Self, vo: ?Rect) void {
+        const sb = self.screen_bounds.toF32();
+        if (vo) |v| {
+            c.glViewport(
+                @as(i32, @intFromFloat(v.x)),
+                @as(i32, @intFromFloat(sb.h - (v.y + v.h))),
+                @as(i32, @intFromFloat(v.w)),
+                @as(i32, @intFromFloat(v.h)),
+            );
+        } else {
+            self.setViewport(sb);
+        }
     }
 
     pub fn flush(self: *Self, offset: Vec2f, custom_camera: ?Rect) !void {
@@ -2747,20 +2820,20 @@ pub const GraphicsContext = struct {
     pub fn endDraw(self: *Self, custom_camera: ?Rect) void {
         var draw_time = std.time.Timer.start() catch null;
         //const camera_bounds = self.screen_bounds.toF32();
-        const camera_bounds = if (custom_camera) |cc| cc else self.screen_bounds.toF32();
 
-        for (self.batches.items) |*batch| {
-            switch (batch.*) {
-                .TriTex => {},
-                else => batch.draw(camera_bounds, .{ .x = 0, .y = 0 }, self.colored_tri_shader, self.tex_shad),
-            }
-        }
-        for (self.batches.items) |*batch| {
-            switch (batch.*) {
-                .TriTex => batch.draw(camera_bounds, .{ .x = 0, .y = 0 }, self.colored_tri_shader, self.tex_shad),
-                else => {},
-            }
-        }
+        self.flush(.{ .x = 0, .y = 0 }, custom_camera) catch unreachable;
+        //for (self.batches.items) |*batch| {
+        //    switch (batch.*) {
+        //        .TriTex => {},
+        //        else => batch.draw(camera_bounds, .{ .x = 0, .y = 0 }, self.colored_tri_shader, self.tex_shad),
+        //    }
+        //}
+        //for (self.batches.items) |*batch| {
+        //    switch (batch.*) {
+        //        .TriTex => batch.draw(camera_bounds, .{ .x = 0, .y = 0 }, self.colored_tri_shader, self.tex_shad),
+        //        else => {},
+        //    }
+        //}
         //self.call_count += self.batches.items.len;
         self.call_count += 1;
 
@@ -2937,11 +3010,18 @@ pub const GraphicsContext = struct {
         while (cho != null) : (cho = it.nextCodepoint()) {
             const ch = cho orelse unreachable;
             //for (str) |ch| {
-            if (ch == '\n') {
-                //vy += (font.ascent - font.descent + font.line_gap) * SF * font.scale_factor;
-                vy += font.line_gap * SF;
-                vx = x * fac;
-                continue;
+            switch (ch) {
+                '\t' => {
+                    vx += 4 * font.max_advance * SF;
+                    continue;
+                },
+                '\n' => {
+                    //vy += (font.ascent - font.descent + font.line_gap) * SF * font.scale_factor;
+                    vy += font.line_gap * SF;
+                    vx = x * fac;
+                    continue;
+                },
+                else => {},
             }
 
             //if (ch < Font.START_CHAR)
@@ -3370,14 +3450,16 @@ const Batch = union(enum) {
             .Line => |*b| b.vertices.items.len,
         };
         if (count == 0) return;
-        const view = za.orthographic(
-            view_bounds.x,
-            view_bounds.w,
-            view_bounds.h,
-            view_bounds.y,
-            -100000,
-            1,
-        );
+        const vb = view_bounds;
+        const view = za.orthographic(vb.x, vb.x + vb.w, vb.h + vb.y, vb.y, -10000, 1);
+        //const view = za.orthographic(
+        //    view_bounds.x,
+        //    view_bounds.w,
+        //    view_bounds.h,
+        //    view_bounds.y,
+        //    -100000,
+        //    1,
+        //);
         const model = za.Mat4.identity().translate(za.Vec3.new(translate.x, translate.y, 0));
 
         switch (self.*) {
@@ -3409,7 +3491,8 @@ const Batch = union(enum) {
                 c.glBindVertexArray(b.vao);
                 GL.bufferData(c.GL_ARRAY_BUFFER, b.vbo, Vertex, b.vertices.items);
 
-                GL.passUniform(texture_shader, "view", view);
+                GL.passUniform(b.shader, "view", view);
+                GL.passUniform(b.shader, "model", model);
 
                 //c.glDrawElements(c.GL_TRIANGLES, @intCast(c_int, b.indicies.items.len), c.GL_UNSIGNED_INT, null);
                 c.glDrawArrays(c.GL_LINES, 0, @as(c_int, @intCast(b.vertices.items.len)));
@@ -3436,7 +3519,6 @@ pub fn GenerateBindingEnum(comptime map: BindList) type {
     }
     fields[map.len] = .{ .name = "no_action", .value = map.len };
     return @Type(TypeInfo{ .Enum = .{
-        .layout = .Auto,
         .fields = fields[0..],
         .tag_type = std.math.IntFittingRange(0, map.len),
         .decls = &.{},
@@ -3455,7 +3537,7 @@ pub fn Bind(comptime map: BindList) type {
         pub fn init() @This() {
             var ret: @This() = undefined;
 
-            for (ret.scancode_table) |*item|
+            for (&ret.scancode_table) |*item|
                 item.* = .no_action;
 
             for (map, 0..) |bind, i| {

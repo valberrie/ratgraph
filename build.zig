@@ -33,26 +33,30 @@ pub fn linkLibrary(exe: *std.build.LibExeObjStep) void {
     exe.linkSystemLibrary("epoxy");
     exe.linkSystemLibrary("freetype2");
     exe.linkSystemLibrary("zlib");
-
-    //const zalgebra = b.createModule(.{ .source_file = .{ .path = srcdir ++ "zig_libs/zalgebra/src/main.zig" }, .dependencies = &.{} });
-    //exe.addModule("zalgebra", zalgebra);
-    //const zalgebra_dep = b.dependency("zalgebra", .{ .target = b.standardTargetOptions(.{}), .optimize = b.standardOptimizeOption(.{}) });
-    //const zalgebra_module = zalgebra_dep.module("zalgebra");
-
-    //exe.addModule("zalgebra", zalgebra_module);
-    //exe.addPackage(.{
-    //    .name = "zalgebra",
-    //    .source = std.build.FileSource.relative(srcdir ++ "zig_libs/zalgebra/src/main.zig"),
-    //});
 }
 
-pub fn addPackage(exe: *std.build.LibExeObjStep, name: []const u8) void {
-    exe.addPackage(.{
-        .name = name,
-        .source = .{ .path = srcdir ++ "/src/graphics.zig" },
-        .dependencies = &[_]std.build.Pkg{.{ .name = "zalgebra", .source = .{ .path = srcdir ++ "/zig_libs/zalgebra/src/main.zig" } }},
+//pub fn addPackage(exe: *std.build.LibExeObjStep, name: []const u8) void {
+//    exe.addPackage(.{
+//        .name = name,
+//        .source = .{ .path = srcdir ++ "/src/graphics.zig" },
+//        .dependencies = &[_]std.build.Pkg{.{ .name = "zalgebra", .source = .{ .path = srcdir ++ "/zig_libs/zalgebra/src/main.zig" } }},
+//    });
+//    //exe.addPackagePath(name, srcdir ++ "/src/graphics.zig");
+//}
+
+pub fn module(b: *std.Build, compile: *std.Build.Step.Compile) *std.Build.Module {
+    linkLibrary(compile);
+    return b.createModule(.{ .source_file = .{ .path = srcdir ++ "/src/graphics.zig" }, .dependencies = &[_]std.Build.ModuleDependency{.{ .name = "zalgebra", .module = zalgebra(b, compile) }} });
+}
+
+pub fn zalgebra(b: *std.Build, compile: *std.Build.Step.Compile) *std.Build.Module {
+    const zalgebra_dep = b.dependency("zalgebra", .{
+        .target = compile.target,
+        .optimize = compile.optimize,
     });
-    //exe.addPackagePath(name, srcdir ++ "/src/graphics.zig");
+
+    const zalgebra_module = zalgebra_dep.module("zalgebra");
+    return zalgebra_module;
 }
 
 pub fn build(b: *std.Build) void {
