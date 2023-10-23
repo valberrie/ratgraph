@@ -431,8 +431,8 @@ pub const SDL = struct {
             try setAttr(c.SDL_GL_CONTEXT_MINOR_VERSION, 6);
             try setAttr(c.SDL_GL_CONTEXT_FLAGS, c.SDL_GL_CONTEXT_DEBUG_FLAG);
             try setAttr(c.SDL_GL_STENCIL_SIZE, 8);
-            try setAttr(c.SDL_GL_MULTISAMPLEBUFFERS, 1);
-            try setAttr(c.SDL_GL_MULTISAMPLESAMPLES, 16);
+            //try setAttr(c.SDL_GL_MULTISAMPLEBUFFERS, 1);
+            //try setAttr(c.SDL_GL_MULTISAMPLESAMPLES, 16);
 
             const win = c.SDL_CreateWindow(
                 title,
