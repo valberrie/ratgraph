@@ -1,6 +1,15 @@
 # What:
 This is a big engine of different things written in zig
 
+## Tileset
+This will be overenginered.
+We already have a "atlas.json" filetype and structure.
+description will act as a unique identifier of said sub tileset regardless of the image file it comes from
+
+Storing a tile in a world will then store a description hash and index into tileset
+Hash collisions?
+when loading atlas.json if a hash collision is encountered notify user of names that collide.
+
 ## Mario Game:
 * Head Bangers
     * mystery boxes

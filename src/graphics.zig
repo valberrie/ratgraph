@@ -163,25 +163,23 @@ pub fn quadTex(pos: V3, w: f32, h: f32, plane: Plane, neg: bool, tr: Rect, tx_w:
     const un = normalizeTexRect(tr, tx_w, tx_h);
     const col = charColorToFloat(color);
     const p: struct { x: f32, y: f32, z: f32 } = .{ .x = pos.data[0], .y = pos.data[1], .z = pos.data[2] };
+    // zig fmt: off
     if (neg) {
         return .{
-            // zig fmt: off
             vertexTexturedDir(plane, p.x,     p.y + h, p.z, un.x       , un.y + un.h, col),
             vertexTexturedDir(plane, p.x + w, p.y + h, p.z, un.x       , un.y       , col),
             vertexTexturedDir(plane, p.x + w, p.y,     p.z, un.x + un.w, un.y       , col),
             vertexTexturedDir(plane, p.x,     p.y,     p.z, un.x + un.w, un.y + un.h, col),
-            //zig fmt: on
         };
     } else {
         return .{
-            // zig fmt: off
             vertexTexturedDir(plane, p.x,     p.y,     p.z, un.x + un.w, un.y + un.h, col),
             vertexTexturedDir(plane, p.x + w, p.y,     p.z, un.x + un.w, un.y       , col),
             vertexTexturedDir(plane, p.x + w, p.y + h, p.z, un.x       , un.y       , col),
             vertexTexturedDir(plane, p.x,     p.y + h, p.z, un.x       , un.y + un.h, col),
-            //zig fmt: on
         };
     }
+    // zig fmt: on
 }
 
 pub const Camera2d = struct {
@@ -244,55 +242,54 @@ pub const Camera2d = struct {
 };
 
 pub const Camera3D = struct {
-    const Self = @This(); 
-    pos: za.Vec3 = za.Vec3.new(0,0,0),
-    front: za.Vec3 = za.Vec3.new(0,0,0),
-    yaw:f32 = 0,
-    pitch:f32 = 0,
-    move_speed:f32 = 0.1,
+    const Self = @This();
+    pos: za.Vec3 = za.Vec3.new(0, 0, 0),
+    front: za.Vec3 = za.Vec3.new(0, 0, 0),
+    yaw: f32 = 0,
+    pitch: f32 = 0,
+    move_speed: f32 = 0.1,
 
-    pub fn update(self: *Self, win:*const SDL.Window)void{
-            var move_vec  = za.Vec3.new(0,0,0);
-            if (win.keydown(.LSHIFT))
-                move_vec = move_vec.add(za.Vec3.new(0, -1, 0));
-            if (win.keydown(.SPACE))
-                move_vec = move_vec.add(za.Vec3.new(0, 1, 0));
-            if (win.keydown(.COMMA))
-                move_vec = move_vec.add(self.front);
-            if (win.keydown(.O))
-                move_vec = move_vec.add(self.front.scale(-1));
-            if (win.keydown(.A))
-                move_vec = move_vec.add(self.front.cross(.{ .data = .{ 0, 1, 0 } }).norm().scale(-1));
-            if (win.keydown(.E))
-                move_vec = move_vec.add(self.front.cross(.{ .data = .{ 0, 1, 0 } }).norm());
+    pub fn update(self: *Self, win: *const SDL.Window) void {
+        var move_vec = za.Vec3.new(0, 0, 0);
+        if (win.keydown(.LSHIFT))
+            move_vec = move_vec.add(za.Vec3.new(0, -1, 0));
+        if (win.keydown(.SPACE))
+            move_vec = move_vec.add(za.Vec3.new(0, 1, 0));
+        if (win.keydown(.COMMA))
+            move_vec = move_vec.add(self.front);
+        if (win.keydown(.O))
+            move_vec = move_vec.add(self.front.scale(-1));
+        if (win.keydown(.A))
+            move_vec = move_vec.add(self.front.cross(.{ .data = .{ 0, 1, 0 } }).norm().scale(-1));
+        if (win.keydown(.E))
+            move_vec = move_vec.add(self.front.cross(.{ .data = .{ 0, 1, 0 } }).norm());
 
-            self.pos = self.pos.add(move_vec.norm().scale(self.move_speed));
-            const mdelta = win.mouse.delta.smul(0.1);
-            self.move_speed = std.math.clamp(self.move_speed + win.mouse.wheel_delta * (self.move_speed / 10), 0.01, 10);
+        self.pos = self.pos.add(move_vec.norm().scale(self.move_speed));
+        const mdelta = win.mouse.delta.smul(0.1);
+        self.move_speed = std.math.clamp(self.move_speed + win.mouse.wheel_delta * (self.move_speed / 10), 0.01, 10);
 
-            self.yaw += mdelta.x;
-            self.pitch = std.math.clamp(self.pitch - mdelta.y, -89, 89);
+        self.yaw += mdelta.x;
+        self.pitch = std.math.clamp(self.pitch - mdelta.y, -89, 89);
 
-            const sin = std.math.sin;
-            const rad = std.math.degreesToRadians;
-            const cos = std.math.cos;
-            const dir = za.Vec3.new(
-                cos(rad(f32, self.yaw)) * cos(rad(f32, self.pitch)),
-                sin(rad(f32, self.pitch)),
-                sin(rad(f32, self.yaw)) * cos(rad(f32, self.pitch)),
-            );
-            self.front = dir.norm();
-
+        const sin = std.math.sin;
+        const rad = std.math.degreesToRadians;
+        const cos = std.math.cos;
+        const dir = za.Vec3.new(
+            cos(rad(f32, self.yaw)) * cos(rad(f32, self.pitch)),
+            sin(rad(f32, self.pitch)),
+            sin(rad(f32, self.yaw)) * cos(rad(f32, self.pitch)),
+        );
+        self.front = dir.norm();
     }
 
-    pub fn getMatrix(self:Self, aspect_ratio: f32, fov: f32, near:f32, far:f32)za.Mat4{
+    pub fn getMatrix(self: Self, aspect_ratio: f32, fov: f32, near: f32, far: f32) za.Mat4 {
         const la = za.lookAt(self.pos, self.pos.add(self.front), za.Vec3.new(0, 1, 0));
         const perp = za.perspective(fov, aspect_ratio, near, far);
         return perp.mul(la);
     }
 };
 
-pub fn basicGraphUsage()void{
+pub fn basicGraphUsage() void {
     const graph = @This();
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.detectLeaks();
@@ -320,16 +317,14 @@ pub fn basicGraphUsage()void{
             }
         }
 
-            ctx.drawText(50, 300, "Hello", &font, 16, intToColor(0xffffffff));
+        ctx.drawText(50, 300, "Hello", &font, 16, intToColor(0xffffffff));
         ctx.endDraw(win.screen_width, win.screen_height);
         win.swap();
     }
-
-
 }
 
-pub fn writeBmp(file_name: [*c]const u8, w:i32, h:i32,component_count:i32, data: []const u8)void{
-    _ = c.stbi_write_bmp(file_name, w,h,component_count,&data[0]);
+pub fn writeBmp(file_name: [*c]const u8, w: i32, h: i32, component_count: i32, data: []const u8) void {
+    _ = c.stbi_write_bmp(file_name, w, h, component_count, &data[0]);
 }
 
 //Ideally I don't want to make any c.SDL calls in my application
@@ -390,8 +385,8 @@ pub const SDL = struct {
         keys: KeysT = KeysT.init(0) catch unreachable,
         keyboard_state: KeyboardStateT = KeyboardStateT.initEmpty(),
 
-        text_input_buffer:[32]u8 = undefined,
-        text_input:[]const u8  ,
+        text_input_buffer: [32]u8 = undefined,
+        text_input: []const u8,
 
         fn sdlLogErr() void {
             std.debug.print("SDL ERROR:\n{s}\n", .{c.SDL_GetError()});
@@ -440,7 +435,7 @@ pub const SDL = struct {
                 c.SDL_WINDOWPOS_UNDEFINED,
                 1280,
                 960,
-                c.SDL_WINDOW_OPENGL | c.SDL_WINDOW_RESIZABLE ,
+                c.SDL_WINDOW_OPENGL | c.SDL_WINDOW_RESIZABLE,
             ) orelse {
                 sdlLogErr();
                 return error.SDLInit;
@@ -465,7 +460,11 @@ pub const SDL = struct {
 
             //_ = c.SDL_SetRelativeMouseMode(c.SDL_TRUE);
 
-            return Self{ .win = win, .ctx = context, .text_input = "", };
+            return Self{
+                .win = win,
+                .ctx = context,
+                .text_input = "",
+            };
         }
 
         pub fn destroyWindow(self: Self) void {
@@ -492,10 +491,10 @@ pub const SDL = struct {
             return dpi;
         }
 
-        pub fn enableNativeIme(self: *const Self,enable:bool )bool{
+        pub fn enableNativeIme(self: *const Self, enable: bool) bool {
             _ = self;
             _ = c.SDL_SetHint("SDL_HINT_IME_INTERNAL_EDITING", "1");
-            return (c.SDL_SetHint("SDL_HINT_IME_SHOW_UI", if(enable) "1" else "0") == 1);
+            return (c.SDL_SetHint("SDL_HINT_IME_SHOW_UI", if (enable) "1" else "0") == 1);
         }
 
         pub fn getKeyboardState(self: *Self, len: *usize) []const u8 {
@@ -520,7 +519,7 @@ pub const SDL = struct {
                 self.mouse.right = button & c.SDL_BUTTON_RMASK != 0;
                 self.mouse.middle = button & c.SDL_BUTTON_MMASK != 0;
                 _ = c.SDL_GetRelativeMouseState(&x, &y);
-                self.mouse.delta = .{ .x = @floatFromInt(x), .y = @floatFromInt( y) };
+                self.mouse.delta = .{ .x = @floatFromInt(x), .y = @floatFromInt(y) };
 
                 self.mouse.left_down = !self.mouse.left_down and self.mouse.left and !old_left;
                 self.mouse.wheel_delta = 0;
@@ -532,7 +531,7 @@ pub const SDL = struct {
                 var l: i32 = 0;
                 const ret = c.SDL_GetKeyboardState(&l)[0..@intCast(l)];
                 //ret[0..@intCast(usize, l)];
-                for (ret,0..) |key, i| {
+                for (ret, 0..) |key, i| {
                     if (key == 1) {
                         self.keyboard_state.set(i);
                     }
@@ -554,13 +553,13 @@ pub const SDL = struct {
                     c.SDL_TEXTEDITING => {
                         const ed = event.edit;
                         const slice = std.mem.sliceTo(&ed.text, 0);
-                        std.debug.print("{s} start: {d} length: {d}\n",.{slice, ed.start, ed.length}); 
+                        std.debug.print("{s} start: {d} length: {d}\n", .{ slice, ed.start, ed.length });
                     },
                     c.SDL_TEXTINPUT => {
                         const slice = std.mem.sliceTo(&event.text.text, 0);
                         std.mem.copy(u8, &self.text_input_buffer, slice);
                         self.text_input = self.text_input_buffer[0..slice.len];
-                        //std.debug.print("SLICE {s}\n",.{slice}); 
+                        //std.debug.print("SLICE {s}\n",.{slice});
                     },
                     c.SDL_KEYMAPCHANGED => {},
                     c.SDL_MOUSEWHEEL => {
@@ -599,26 +598,26 @@ pub const SDL = struct {
             }
         }
 
-        pub fn glScissor(self: *Self,x:i32, y:i32,w: i32, h:i32 )void{
+        pub fn glScissor(self: *Self, x: i32, y: i32, w: i32, h: i32) void {
             _ = self;
-            c.glScissor(x,h - y,w, h);
+            c.glScissor(x, h - y, w, h);
         }
 
-        pub fn bindScreenFramebuffer(self: *Self)void{
+        pub fn bindScreenFramebuffer(self: *Self) void {
             c.glBindFramebuffer(c.GL_FRAMEBUFFER, 0);
-            c.glViewport(0,0,self.screen_width, self.screen_height);
+            c.glViewport(0, 0, self.screen_width, self.screen_height);
         }
 
-        pub fn startTextInput(self: *const Self)void{
+        pub fn startTextInput(self: *const Self) void {
             _ = self;
-            const rec = c.SDL_Rect{.x = 50,.y = 500, .w = 300, .h = 72};
+            const rec = c.SDL_Rect{ .x = 50, .y = 500, .w = 300, .h = 72 };
             c.SDL_SetTextInputRect(&rec);
             c.SDL_StartTextInput();
         }
-        
-        pub fn stopTextInput(self: *const Self)void{
+
+        pub fn stopTextInput(self: *const Self) void {
             _ = self;
-                c.SDL_StopTextInput();
+            c.SDL_StopTextInput();
         }
 
         pub fn keydown(self: *const Self, scancode: keycodes.Scancode) bool {
@@ -627,6 +626,191 @@ pub const SDL = struct {
     };
 };
 
+pub const RectPack = struct {
+    const Self = @This();
+    const RectType = c.stbrp_rect;
+    const RectDimType = c_int;
+    const NodeType = c.stbrp_node;
+    const ExtraNodeCount = 200;
+    const InitRectPos = 50;
+
+    rects: std.ArrayList(RectType),
+    nodes: std.ArrayList(NodeType),
+
+    //Steps to take in order:
+    //Initilize rects list with all the rects we are packing
+    //
+    //create a stbrp node list
+    //initilize stbrp_init_target
+    //call pack rects and check error
+    //
+    //Iterate rects and use positions and ids
+
+    pub fn init(alloc: std.mem.Allocator) Self {
+        return Self{
+            .rects = std.ArrayList(RectType).init(alloc),
+            .nodes = std.ArrayList(NodeType).init(alloc),
+        };
+    }
+
+    pub fn appendRect(self: *Self, id: anytype, w: anytype, h: anytype) !void {
+        try self.rects.append(.{
+            .was_packed = 0,
+            .id = @intCast(id),
+            .x = InitRectPos,
+            .y = InitRectPos,
+            .w = std.math.lossyCast(RectDimType, w),
+            .h = std.math.lossyCast(c_int, h),
+        });
+    }
+
+    pub fn pack(self: *Self, parent_area_w: u32, parent_area_h: u32) !void {
+        if (self.rects.items.len == 0)
+            return;
+
+        try self.nodes.resize(parent_area_w + ExtraNodeCount);
+        var rect_ctx: c.stbrp_context = undefined;
+
+        c.stbrp_init_target(
+            &rect_ctx,
+            @intCast(parent_area_w),
+            @intCast(parent_area_h),
+            @ptrCast(self.nodes.items[0..self.nodes.items.len]),
+            @intCast(self.nodes.items.len),
+        );
+
+        const pack_err = c.stbrp_pack_rects(
+            &rect_ctx,
+            @ptrCast(self.rects.items[0 .. self.rects.items.len - 1]),
+            @intCast(self.rects.items.len),
+        );
+        if (pack_err != 1)
+            return error.rectPackFailed;
+    }
+
+    pub fn deinit(self: Self) void {
+        self.rects.deinit();
+        self.nodes.deinit();
+    }
+};
+
+pub fn copyAlloc(comptime T: type, alloc: std.mem.Allocator, items: []T) ![]T {
+    const slice = try alloc.alloc(T, items.len);
+    std.mem.copy(T, slice, items);
+    return slice;
+}
+
+pub const BakedAtlas = struct {
+    const Self = @This();
+    const ImgIdBitShift = 16;
+
+    pub const TilesetEnumEntry = struct {
+        name: []u8,
+    };
+
+    texture: Texture,
+    tilesets: std.ArrayList(SubTileset),
+
+    alloc: std.mem.Allocator,
+
+    fn rectSortFnLessThan(ctx: u8, lhs: RectPack.RectType, rhs: RectPack.RectType) bool {
+        _ = ctx;
+        return (lhs.id >> ImgIdBitShift) < (rhs.id >> ImgIdBitShift);
+    }
+
+    pub fn fromAtlas(dir: std.fs.Dir, data: Atlas.AtlasJson, alloc: std.mem.Allocator) !Self {
+        const texture_size = null;
+
+        var pack_ctx = RectPack.init(alloc);
+        defer pack_ctx.deinit();
+
+        var tilesets = std.ArrayList(SubTileset).init(alloc);
+
+        var running_area: i32 = 0;
+        for (data.sets, 0..) |img_set, img_index| {
+            for (img_set.tilesets, 0..) |ts, ts_index| {
+                running_area += ts.tw * ts.num.x * ts.th * ts.num.y;
+                try tilesets.append(SubTileset{
+                    .description = try copyAlloc(u8, alloc, ts.description),
+                    .start = ts.start,
+                    .tw = ts.tw,
+                    .th = ts.th,
+                    .pad = .{ .x = 0, .y = 0 }, //Reset padding because it is removed when copying
+                    .num = ts.num,
+                    .count = ts.count,
+                });
+                try pack_ctx.appendRect((img_index << ImgIdBitShift) + ts_index, ts.num.x * ts.tw, ts.num.y * ts.th);
+            }
+        }
+        const atlas_size: u32 = blk: {
+            if (texture_size) |ts| {
+                break :blk ts;
+            } else {
+                break :blk @intFromFloat(@sqrt(@as(f32, @floatFromInt(running_area)) * 2));
+            }
+        };
+
+        try pack_ctx.pack(atlas_size, atlas_size);
+        std.sort.insertion(RectPack.RectType, pack_ctx.rects.items, @as(u8, 0), rectSortFnLessThan);
+        var bit = try Bitmap.initBlank(alloc, atlas_size, atlas_size);
+        defer bit.deinit();
+
+        var img_dir = try dir.openDir(data.img_dir_path, .{});
+        defer img_dir.close();
+
+        var loaded_img_index: ?u16 = null;
+        var loaded_img_bitmap: ?Bitmap = null;
+        defer if (loaded_img_bitmap) |bmp| {
+            bmp.deinit();
+        };
+        for (pack_ctx.rects.items) |rect| {
+            const img_index: usize = @intCast(rect.id >> ImgIdBitShift);
+            const set_index: usize = @intCast(rect.id & std.math.maxInt(std.meta.Int(.unsigned, ImgIdBitShift)));
+            if (loaded_img_index == null or img_index != loaded_img_index.?) {
+                loaded_img_index = @intCast(img_index);
+                if (loaded_img_bitmap) |*lbmp|
+                    lbmp.deinit();
+
+                var img_file = try img_dir.openFile(data.sets[img_index].filename, .{});
+                defer img_file.close();
+                loaded_img_bitmap = try loadPngBitmapFile(img_file, alloc);
+            }
+
+            const set = data.sets[img_index].tilesets[set_index];
+
+            tilesets.items[set_index].start = .{ .x = rect.x, .y = rect.y };
+            for (0..set.count) |ui| {
+                const i: i32 = @intCast(ui);
+                Bitmap.copySub(
+                    &loaded_img_bitmap.?,
+                    @intCast(set.start.x + @mod(i, set.num.x) * (set.tw + set.pad.x)),
+                    @intCast(set.start.y + @divFloor(i, set.num.x) * (set.th + set.pad.y)),
+                    @intCast(set.tw),
+                    @intCast(set.th),
+                    &bit,
+                    @as(u32, @intCast(rect.x)) + @as(u32, @intCast(@mod(i, set.num.x) * set.tw)),
+                    @as(u32, @intCast(rect.y)) + @as(u32, @intCast(@divFloor(i, set.num.x) * set.th)),
+                );
+            }
+        }
+
+        return Self{ .alloc = alloc, .tilesets = tilesets, .texture = Texture.fromArray(
+            bit.data.items,
+            atlas_size,
+            atlas_size,
+            .{},
+        ) };
+    }
+
+    pub fn deinit(self: *Self) void {
+        for (self.tilesets.items) |*ts| {
+            self.alloc.free(ts.description);
+        }
+        self.tilesets.deinit();
+    }
+};
+
+//TODO move atlas struct to EditAtlas and AtlasJson out
 pub const Atlas = struct {
     const Self = @This();
     pub const AtlasJson = struct {
@@ -637,165 +821,94 @@ pub const Atlas = struct {
 
         img_dir_path: []u8,
         sets: []SetJson,
+
+        pub fn initFromJsonFile(dir: std.fs.Dir, json_filename: []const u8, alloc: std.mem.Allocator) !AtlasJson {
+            const json_slice = try dir.readFileAlloc(alloc, json_filename, std.math.maxInt(usize));
+            defer alloc.free(json_slice);
+
+            const json_p = try std.json.parseFromSlice(AtlasJson, alloc, json_slice, .{ .allocate = .alloc_always });
+            const json = json_p.value;
+            defer json_p.deinit();
+            const sets_to_load = json.sets;
+
+            const cpy = std.mem.copy;
+            var ret_j: AtlasJson = AtlasJson{ .img_dir_path = try alloc.alloc(u8, json.img_dir_path.len), .sets = try alloc.alloc(AtlasJson.SetJson, json.sets.len) };
+            cpy(u8, ret_j.img_dir_path, json.img_dir_path);
+
+            if (sets_to_load.len == 0) return error.noSets;
+
+            for (sets_to_load, 0..) |item, i| {
+                ret_j.sets[i] = .{ .filename = try alloc.alloc(u8, item.filename.len), .tilesets = try alloc.alloc(SubTileset, item.tilesets.len) };
+                cpy(u8, ret_j.sets[i].filename, item.filename);
+                for (item.tilesets, 0..) |ts, j| {
+                    ret_j.sets[i].tilesets[j] = ts;
+                    ret_j.sets[i].tilesets[j].description = try copyAlloc(u8, alloc, ts.description);
+                    //ret_j.sets[i].tilesets[j].description = try alloc.alloc(u8, ts.description.len);
+                    //cpy(u8, ret_j.sets[i].tilesets[j].description, ts.description);
+                }
+            }
+
+            return ret_j;
+        }
+
+        pub fn deinit(m: AtlasJson, alloc: std.mem.Allocator) void {
+            alloc.free(m.img_dir_path);
+            for (m.sets) |*s| {
+                alloc.free(s.filename);
+                for (s.tilesets) |*ts| {
+                    alloc.free(ts.description);
+                }
+                alloc.free(s.tilesets);
+            }
+            alloc.free(m.sets);
+        }
     };
 
-
-    atlas_data:AtlasJson,
+    atlas_data: AtlasJson,
 
     textures: std.ArrayList(Texture),
 
     alloc: std.mem.Allocator,
 
-    //pub fn buildAtlas(self: *Self)!void{
-    //    var packing_rects = std.ArrayList(c.stbrp_rect).init(self.alloc);
-    //    defer packing_rects.deinit();
-
-    //    var running_area:i32 = 0;
-    //    var id_len: usize = 0;
-    //    for (sets_to_load) |item| {
-    //        for (item.tilesets,0..) |ts, j| {
-    //            running_area += ts.tw * ts.num.x * ts.th * ts.num.y;
-    //            try sets.append(SubTileset{
-    //                .start = ts.start,
-    //                .tw = ts.tw,
-    //                .th = ts.th,
-    //                .pad = .{ .x = 0, .y = 0 }, //Reset padding because it is removed when copying
-    //                .num = ts.num,
-    //                .count = ts.count,
-    //            });
-    //            try packing_rects.append(.{
-    //                .id = @intCast(id_len + j),
-    //                .w = @intCast(ts.num.x * ts.tw),
-    //                .h = @intCast(ts.num.y * ts.th),
-    //                .x = 50,
-    //                .y = 50,
-    //                .was_packed = 1,
-    //            });
-    //        }
-    //        id_len += item.tilesets.len;
-    //    }
-    //    const atlas_size:u32 = blk: {
-    //        if(texture_size)|ts|{
-    //            break :blk ts;
-    //        }
-    //        else{
-    //            break :blk @intFromFloat(@sqrt(@as(f32,@floatFromInt(running_area)) * 2));
-    //            
-    //        }
-    //    };
-
-    //    var nodes = std.ArrayList(c.stbrp_node).init(alloc);
-    //    defer nodes.deinit();
-    //    try nodes.appendNTimes(undefined, atlas_size + 200); //TODO MAGICNUM
-    //    var rect_context: c.stbrp_context = undefined;
-
-    //    c.stbrp_init_target(
-    //        &rect_context,
-    //        @intCast(atlas_size),
-    //        @intCast(atlas_size),
-    //        @ptrCast(nodes.items[0..nodes.items.len]),
-    //        @intCast(nodes.items.len),
-    //    );
-
-    //    const pack_err = c.stbrp_pack_rects(
-    //        &rect_context,
-    //        @ptrCast( packing_rects.items[0 .. packing_rects.items.len - 1]),
-    //        @intCast( packing_rects.items.len),
-    //    );
-    //    if (pack_err != 1)
-    //        std.debug.print("RECT PACK UNSUCC\n", .{});
-
-    //    var bitmap = std.ArrayList(u8).init(alloc);
-    //    defer bitmap.deinit();
-    //    try bitmap.appendNTimes(0, 4 * atlas_size * atlas_size);
-
-    //    var bit = Bitmap{ .data = bitmap, .w = atlas_size, .h = atlas_size };
-
-    //    var full_filename = std.ArrayList(u8).init(alloc);
-    //    defer full_filename.deinit();
-    //    try full_filename.appendSlice(img_path);
-    //    for (packing_rects.items) |rect| {
-    //        var in: usize = 0;
-    //        var j: usize = @intCast(rect.id);
-    //        while (j >= sets_to_load[in].tilesets.len) : (in += 1) {
-    //            j -= sets_to_load[in].tilesets.len;
-    //        }
-
-    //        const set = sets_to_load[in].tilesets[j];
-
-    //        try full_filename.appendSlice(sets_to_load[in].filename);
-    //        var ts_bmp = try loadPng(full_filename.items, alloc);
-    //        try full_filename.resize(img_path.len);
-    //        defer ts_bmp.data.deinit();
-
-    //        sets.items[@intCast( rect.id)].start = .{ .x = rect.x, .y = rect.y };
-
-    //        var i: i32 = 0;
-    //        while (i < set.count) : (i += 1) {
-    //            Bitmap.copySub(
-    //                &ts_bmp,
-    //                @intCast( set.start.x + @mod(i, set.num.x) * (set.tw + set.pad.x)),
-    //                @intCast( set.start.y + @divFloor(i, set.num.x) * (set.th + set.pad.y)),
-    //                @intCast( set.tw),
-    //                @intCast( set.th),
-    //                &bit,
-    //                @as(u32, @intCast(rect.x)) + @as(u32, @intCast(@mod(i, set.num.x) * set.tw)),
-    //                @as(u32, @intCast(rect.y)) + @as(u32, @intCast(@divFloor(i, set.num.x) * set.th)),
-    //            );
-    //        }
-    //    }
-    //    writeBmp("debug/atlas.bmp", @intCast( atlas_size), @intCast( atlas_size), 4, bitmap.items);
-
-    //    return Atlas{
-    //        .texture = Texture.fromArray(bitmap.items, @intCast(atlas_size), @intCast(atlas_size), .{}),
-    //        .sets = sets,
-    //    };
-    //    }
-
-    //}
-
     //TODO determine optimal texture_size
-    pub fn initFromJsonFile(dir:std.fs.Dir,  json_filename: []const u8, alloc: std.mem.Allocator) !Atlas {
-        const json_slice = try dir.readFileAlloc(alloc,json_filename,  std.math.maxInt(usize));
+    //TODO use AtlasJson init function
+    pub fn initFromJsonFile(dir: std.fs.Dir, json_filename: []const u8, alloc: std.mem.Allocator) !Atlas {
+        const json_slice = try dir.readFileAlloc(alloc, json_filename, std.math.maxInt(usize));
         defer alloc.free(json_slice);
 
-        const json_p = try std.json.parseFromSlice(AtlasJson, alloc,json_slice, .{.allocate = .alloc_always});
+        const json_p = try std.json.parseFromSlice(AtlasJson, alloc, json_slice, .{ .allocate = .alloc_always });
         const json = json_p.value;
         defer json_p.deinit();
         const sets_to_load = json.sets;
 
         const cpy = std.mem.copy;
-        var ret_j:AtlasJson = AtlasJson{.img_dir_path = try alloc.alloc(u8, json.img_dir_path.len), .sets = try alloc.alloc(AtlasJson.SetJson, json.sets.len)};
-        cpy(u8,ret_j.img_dir_path, json.img_dir_path);
+        var ret_j: AtlasJson = AtlasJson{ .img_dir_path = try alloc.alloc(u8, json.img_dir_path.len), .sets = try alloc.alloc(AtlasJson.SetJson, json.sets.len) };
+        cpy(u8, ret_j.img_dir_path, json.img_dir_path);
 
-        if(sets_to_load.len == 0) return error.noSets;
+        if (sets_to_load.len == 0) return error.noSets;
 
         var img_dir = try dir.openDir(json.img_dir_path, .{});
         defer img_dir.close();
 
         var textures = std.ArrayList(Texture).init(alloc);
 
-        for (sets_to_load,0..) |item,i| {
+        for (sets_to_load, 0..) |item, i| {
             var pngfile = try img_dir.openFile(item.filename, .{});
             defer pngfile.close();
             const bmp = try loadPngBitmapFile(pngfile, alloc);
             defer bmp.data.deinit();
-            try textures.append(Texture.fromArray(bmp.data.items, @intCast(bmp.w), @intCast(bmp.h), .{ .mag_filter = c.GL_NEAREST, .min_filter = c.GL_NEAREST }));
+            try textures.append(Texture.fromArray(bmp.data.items, bmp.w, bmp.h, .{ .mag_filter = c.GL_NEAREST, .min_filter = c.GL_NEAREST }));
 
-            ret_j.sets[i] = .{.filename = try alloc.alloc(u8, item.filename.len), .tilesets = try alloc.alloc(SubTileset, item.tilesets.len)};
+            ret_j.sets[i] = .{ .filename = try alloc.alloc(u8, item.filename.len), .tilesets = try alloc.alloc(SubTileset, item.tilesets.len) };
             cpy(u8, ret_j.sets[i].filename, item.filename);
-            for(item.tilesets,0..)|ts,j|{
-
-
+            for (item.tilesets, 0..) |ts, j| {
                 ret_j.sets[i].tilesets[j] = ts;
                 ret_j.sets[i].tilesets[j].description = try alloc.alloc(u8, ts.description.len);
-                cpy(u8, ret_j.sets[i].tilesets[j].description,ts.description);
-
+                cpy(u8, ret_j.sets[i].tilesets[j].description, ts.description);
             }
-
         }
 
-        return .{.alloc = alloc,.textures = textures, .atlas_data = ret_j  };
+        return .{ .alloc = alloc, .textures = textures, .atlas_data = ret_j };
     }
 
     pub fn getTexRec(m: @This(), si: usize, ti: usize) Rect {
@@ -804,9 +917,9 @@ pub const Atlas = struct {
 
     pub fn deinit(m: Atlas) void {
         m.alloc.free(m.atlas_data.img_dir_path);
-        for(m.atlas_data.sets)|*s|{
+        for (m.atlas_data.sets) |*s| {
             m.alloc.free(s.filename);
-            for(s.tilesets)|*ts|{
+            for (s.tilesets) |*ts| {
                 m.alloc.free(ts.description);
             }
             m.alloc.free(s.tilesets);
@@ -821,16 +934,16 @@ pub const Atlas = struct {
 pub const SubTileset = struct {
     const Self = @This();
 
-    description: []u8 = "", 
+    description: []u8 = "",
     start: Vec2i, //xy of first tile
-    tw: i32,      //width of tile
+    tw: i32, //width of tile
     th: i32,
-    pad: Vec2i,   //xy spacing between tiles
-    num: Vec2i,   //number of cols, rows
+    pad: Vec2i, //xy spacing between tiles
+    num: Vec2i, //number of cols, rows
     count: usize, //Total number of tiles, useful if last row is short
 
     pub fn getTexRec(self: Self, index: usize) Rect {
-        const i:i32 = @intCast( index % self.count);
+        const i: i32 = @intCast(index % self.count);
         return Rec(
             self.start.x + @mod(i, self.num.x) * (self.tw + self.pad.x),
             self.start.y + @divFloor(i, self.num.x) * (self.th + self.pad.y),
@@ -848,7 +961,6 @@ pub const FixedBitmapFont = struct {
     texture: Texture,
     sts: SubTileset,
 
-    // zig fmt: on
     translation_table: [128]u8 = [_]u8{127} ** 128,
 
     // each index of this decode_string corresponds to the index of the character in subTileSet
@@ -875,8 +987,12 @@ pub const Bitmap = struct {
     //TODO actually initalize the memory
     pub fn initBlank(alloc: std.mem.Allocator, width: u32, height: u32) !m {
         var ret = m{ .data = std.ArrayList(u8).init(alloc), .w = width, .h = height };
-        try ret.data.resize(4 * width * height);
+        try ret.data.appendNTimes(0, 4 * width * height);
         return ret;
+    }
+
+    pub fn deinit(self: m) void {
+        self.data.deinit();
     }
 
     pub fn writeToBmpFile(self: *const m, alloc: std.mem.Allocator, file_name: []const u8) !void {
@@ -961,7 +1077,6 @@ pub const GL = struct {
 
     pub fn checkError() void {
         var err = c.glGetError();
-        // zig fmt: on
         while (err != c.GL_NO_ERROR) : (err = c.glGetError()) {
             const str = switch (err) {
                 c.GL_INVALID_ENUM => "An unacceptable value is specified for an enumerated argument. The offending command is ignored and has no other side effect than to set the error flag.",
@@ -1876,8 +1991,8 @@ pub fn cube(px: f32, py: f32, pz: f32, sx: f32, sy: f32, sz: f32, tr: Rect, tx_w
         itc(0xaaaaaaff),
     };
     const un = normalizeTexRect(tr, @as(i32, @intCast(tx_w)), @as(i32, @intCast(tx_h)));
+    // zig fmt: off
     return [_]VertexTextured{
-        // zig fmt: off
         // front
         vertexTextured(px + sx, py + sy, pz, un.x + un.w, un.y + un.h, charColorToFloat(colors[0])), //0
         vertexTextured(px + sx, py     , pz, un.x + un.w, un.y       , charColorToFloat(colors[0])), //1
@@ -1911,9 +2026,9 @@ pub fn cube(px: f32, py: f32, pz: f32, sx: f32, sy: f32, sz: f32, tr: Rect, tx_w
         vertexTextured(px + sx, py , pz, un.x + un.w,un.y,charColorToFloat(colors[5])),
         vertexTextured(px + sx, py + sy, pz, un.x + un.w,un.y + un.h,charColorToFloat(colors[5])),
 
-        // zig fmt: on
 
     };
+    // zig fmt: on
 
 }
 
@@ -1965,14 +2080,14 @@ pub fn genCubeIndicies(index: u32) [36]u32 {
 
 pub fn createQuadTextured(r: Rect, z: f32, tr: Rect, tx_w: i32, tx_h: i32, color: Color) [4]VertexTextured {
     const un = normalizeTexRect(tr, tx_w, tx_h);
-    return [_]VertexTextured{
-        // zig fmt: off
+    // zig fmt: off
+    return [_]VertexTextured {
         vertexTextured(r.x + r.w, r.y + r.h, z, un.x + un.w, un.y + un.h, color), //0
         vertexTextured(r.x + r.w, r.y      , z, un.x + un.w, un.y       , color), //1
         vertexTextured(r.x      , r.y      , z, un.x       , un.y       , color), //2
         vertexTextured(r.x      , r.y + r.h, z, un.x       , un.y + un.h, color), //3
-        // zig fmt: on
-                                                                              };
+    };
+    // zig fmt: on
 }
 
 pub const RenderTexture = struct {
@@ -1980,8 +2095,8 @@ pub const RenderTexture = struct {
     fb: c_uint,
     depth_rb: c_uint,
     texture: Texture,
-    w:i32,
-    h:i32,
+    w: i32,
+    h: i32,
 
     pub fn init(w: i32, h: i32) !Self {
         var ret = Self{
@@ -1989,7 +2104,7 @@ pub const RenderTexture = struct {
             .h = h,
             .fb = 0,
             .depth_rb = 0,
-            .texture = Texture.fromArray(null, w, h, .{.min_filter = c.GL_LINEAR, .mag_filter = c.GL_LINEAR,.generate_mipmaps = false }),
+            .texture = Texture.fromArray(null, w, h, .{ .min_filter = c.GL_LINEAR, .mag_filter = c.GL_LINEAR, .generate_mipmaps = false }),
         };
         c.glGenFramebuffers(1, &ret.fb);
         c.glBindFramebuffer(c.GL_FRAMEBUFFER, ret.fb);
@@ -2010,23 +2125,23 @@ pub const RenderTexture = struct {
         return ret;
     }
 
-    pub fn setSize(self: *Self, w:i32, h:i32)!void{
-                    if (w != self.w or h != self.h) {
-                        self.deinit();
-                        self.* = try RenderTexture.init(w, h);
-                    }
+    pub fn setSize(self: *Self, w: i32, h: i32) !void {
+        if (w != self.w or h != self.h) {
+            self.deinit();
+            self.* = try RenderTexture.init(w, h);
+        }
     }
 
-    pub fn deinit(self: *Self) void{
+    pub fn deinit(self: *Self) void {
         c.glDeleteFramebuffers(1, &self.fb);
         c.glDeleteRenderbuffers(1, &self.depth_rb);
         c.glDeleteTextures(1, &self.texture.id);
     }
 
-    pub fn bind(self: *Self, clear:bool)void{
-        c.glBindFramebuffer(c.GL_FRAMEBUFFER,self.fb);
-        c.glViewport(0,0,self.w,self.h);
-        if(clear)
+    pub fn bind(self: *Self, clear: bool) void {
+        c.glBindFramebuffer(c.GL_FRAMEBUFFER, self.fb);
+        c.glViewport(0, 0, self.w, self.h);
+        if (clear)
             c.glClear(c.GL_COLOR_BUFFER_BIT);
         c.glClear(c.GL_DEPTH_BUFFER_BIT);
     }
@@ -2037,12 +2152,12 @@ pub const Texture = struct {
     w: i32,
     h: i32,
 
-    pub fn rect(t:Texture)Rect{
-        return Rec(0,0,t.w, t.h);
+    pub fn rect(t: Texture) Rect {
+        return Rec(0, 0, t.w, t.h);
     }
 
-    pub fn aspectRatio(t:Texture)f32{
-        return @as(f32,@floatFromInt(t.w)) / @as(f32,@floatFromInt(t.h));
+    pub fn aspectRatio(t: Texture) f32 {
+        return @as(f32, @floatFromInt(t.w)) / @as(f32, @floatFromInt(t.h));
     }
 
     pub const Options = struct {
@@ -2055,32 +2170,31 @@ pub const Texture = struct {
         wrap_u: c.GLint = c.GL_REPEAT,
         wrap_v: c.GLint = c.GL_REPEAT,
 
-        generate_mipmaps:bool = true,
+        generate_mipmaps: bool = true,
         min_filter: c.GLint = c.GL_LINEAR_MIPMAP_LINEAR,
         mag_filter: c.GLint = c.GL_LINEAR,
-        border_color: [4]f32 = .{0,0,0,1.0},
-
+        border_color: [4]f32 = .{ 0, 0, 0, 1.0 },
     };
     //TODO function for texture destruction
 
     //TODO rename this function to create or new or something
-    pub fn fromArray(bitmap: ?[]const u8, w: i32, h:i32, o: Options) Texture {
+    pub fn fromArray(bitmap: ?[]const u8, w: anytype, h: anytype, o: Options) Texture {
         var tex_id: glID = 0;
         c.glPixelStorei(c.GL_UNPACK_ALIGNMENT, o.pixel_store_alignment);
         c.glGenTextures(1, &tex_id);
         c.glBindTexture(o.target, tex_id);
         c.glTexImage2D(
             o.target,
-            0,//Level of detail number
+            0, //Level of detail number
             o.internal_format,
-            @intCast( w),
-            @intCast( h),
-            0,//khronos.org: this value must be 0
+            std.math.lossyCast(i32, w),
+            std.math.lossyCast(i32, h),
+            0, //khronos.org: this value must be 0
             o.pixel_format,
             o.pixel_type,
-            if(bitmap)|bmp| &bmp[0] else null,
+            if (bitmap) |bmp| &bmp[0] else null,
         );
-        if(o.generate_mipmaps)
+        if (o.generate_mipmaps)
             c.glGenerateMipmap(o.target);
 
         c.glTexParameteri(o.target, c.GL_TEXTURE_WRAP_S, o.wrap_u);
@@ -2092,26 +2206,24 @@ pub const Texture = struct {
 
         c.glTexParameterfv(o.target, c.GL_TEXTURE_BORDER_COLOR, &o.border_color);
 
-
         c.glEnable(c.GL_BLEND);
         c.glBlendFunc(c.GL_SRC_ALPHA, c.GL_ONE_MINUS_SRC_ALPHA);
         c.glBlendEquation(c.GL_FUNC_ADD);
 
         c.glBindTexture(c.GL_TEXTURE_2D, 0);
-        return Texture{ .w = w, .h = h, .id = tex_id };
+        return Texture{ .w = std.math.lossyCast(i32, w), .h = std.math.lossyCast(i32, h), .id = tex_id };
     }
 
-    pub fn empty()Texture{
-        return .{.w = 0, .h = 0, .id = 0};
+    pub fn empty() Texture {
+        return .{ .w = 0, .h = 0, .id = 0 };
     }
 
-    pub fn fromImage(relative_file_name:[]const u8, alloc: std.mem.Allocator,opts:Options  )!Texture{
+    pub fn fromImage(relative_file_name: []const u8, alloc: std.mem.Allocator, opts: Options) !Texture {
         const bmp = try loadPngBitmap(relative_file_name, alloc);
         defer bmp.data.deinit();
-        return fromArray(bmp.data.items,@intCast(bmp.w), @intCast(bmp.h) ,opts);
+        return fromArray(bmp.data.items, @intCast(bmp.w), @intCast(bmp.h), opts);
     }
 };
-
 
 //TODO Support multiple non scaled sizes
 //Layouting
@@ -2124,7 +2236,6 @@ pub const Texture = struct {
 //
 //On the fly atlas generation,
 //When encountering a unbaked glyph, display a blank and in a second thread? generate a new texture with it baked in
-// zig fmt: on
 pub const Font = struct {
     //TODO document all the glyph fields
     pub const Glyph = struct {
@@ -2188,13 +2299,13 @@ pub const Font = struct {
         if (error_code == 0)
             return;
 
-        _ = c.FT_Err_Cannot_Open_Resource;
         var found = false;
         inline for (c.ft_errors) |err| {
             if (err.err_code == error_code) {
                 found = true;
-                if (err.err_msg) |msg|
+                if (err.err_msg) |msg| {
                     stream.print("Freetype: Error {s}\n", .{msg}) catch return;
+                }
 
                 break;
             }
@@ -2217,7 +2328,6 @@ pub const Font = struct {
     //Allow logging and debug to be disabled
     pub fn init(filename: []const u8, alloc: std.mem.Allocator, point_size: f32, dpi: u32, codepoints_to_load: []const CharMapEntry, opt_pack_factor: ?f32) !Self {
         const codepoints: []Glyph = blk: {
-            //TODO should we ensure no duplicates?
             var codepoint_list = std.ArrayList(Glyph).init(alloc);
             try codepoint_list.append(.{ .i = std.unicode.replacement_character });
             for (codepoints_to_load) |codepoint| {
@@ -2282,7 +2392,13 @@ pub const Font = struct {
 
             //FT_New_Face loads font file from filepathname
             //the face pointer should be destroyed with FT_Done_Face()
-            try freetypeLogErr(stderr, c.FT_New_Face(ftlib, @as([*:0]const u8, @ptrCast(strbuf.items)), 0, &face));
+            {
+                const err_code = c.FT_New_Face(ftlib, @as([*:0]const u8, @ptrCast(strbuf.items)), 0, &face);
+                switch (err_code) {
+                    c.FT_Err_Cannot_Open_Resource => return error.fucked,
+                    else => try freetypeLogErr(stderr, err_code),
+                }
+            }
 
             try log.print("Freetype face: num_faces:  {d}\n", .{face.*.num_faces});
             try log.print("Freetype face: num_glyphs:  {d}\n", .{face.*.num_glyphs});
@@ -2296,6 +2412,8 @@ pub const Font = struct {
             try log.print("Freetype face: max_advance_width:  {d}fu\n", .{face.*.max_advance_width});
             try log.print("Freetype face: underline_position:  {d}fu\n", .{face.*.underline_position});
             try log.print("Freetype face: underline_thickness:  {d}fu\n", .{face.*.underline_thickness});
+
+            //const xw = face.*.max_advance_width
 
             {
                 const mask_item = struct { mask: c_long, str: []const u8 };
@@ -2357,6 +2475,7 @@ pub const Font = struct {
 
                 charcode = c.FT_Get_Next_Char(face, charcode, &agindex);
             }
+            try log.print("\n", .{});
         }
 
         const fr = face.*;
@@ -2369,6 +2488,11 @@ pub const Font = struct {
         try log.print("Freetype face: ascender:  {d}px\n", .{result.ascent});
         try log.print("Freetype face: descender:  {d}px\n", .{result.descent});
         try log.print("Freetype face: line_gap:  {d}px\n", .{result.line_gap});
+
+        //const row_count = @round(@sqrt(@as(f32, @floatFromInt(result.glyph_set.dense.items.len))));
+        //const tex_w = row_count * result.max_advance;
+        //const tex_h = row_count * result.line_gap;
+        //std.debug.print("Row count: {d}, {d}\n", .{ tex_w, tex_h });
 
         var packing_rects = std.ArrayList(c.stbrp_rect).init(alloc);
         defer packing_rects.deinit();

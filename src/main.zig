@@ -501,53 +501,6 @@ pub const EntityStorage = struct {
 
 //fn getArchetype(list of entitytypes)
 
-fn testHsvImage(alloc: std.mem.Allocator, h: f32) !graph.Texture {
-    //HSV
-    //S is the x axis
-    //V is the y axis
-    var bmp = try graph.Bitmap.initBlank(alloc, 250, 250);
-    defer bmp.data.deinit();
-    defer bmp.writeToBmpFile(alloc, "debug/hsv.bmp") catch unreachable;
-
-    var timer = try std.time.Timer.start();
-
-    var vy: u32 = 0;
-    while (vy < bmp.h) : (vy += 1) {
-        var sx: u32 = 0;
-        while (sx < bmp.w) : (sx += 1) {
-            const V = @as(f32, @floatFromInt(vy)) / @as(f32, @floatFromInt(bmp.h));
-            const S = @as(f32, @floatFromInt(sx)) / @as(f32, @floatFromInt(bmp.w));
-            const C = V * S;
-            const hp = h / 60.0;
-            const X = C * (1 - @fabs(@mod(hp, 2) - 1));
-            const rgb1 = switch (@as(u32, @intFromFloat(hp))) {
-                0 => graph.za.Vec3.new(C, X, 0),
-                1 => graph.za.Vec3.new(X, C, 0),
-                2 => graph.za.Vec3.new(0, C, X),
-                3 => graph.za.Vec3.new(0, X, C),
-                4 => graph.za.Vec3.new(X, 0, C),
-                5 => graph.za.Vec3.new(C, 0, X),
-                else => unreachable,
-            };
-            const M = V - C;
-            const index = ((bmp.h - vy - 1) * bmp.w + sx) * 4;
-            const d = bmp.data.items[index .. index + 4];
-            for (d, 0..) |*dd, i| {
-                if (i == 3) {
-                    dd.* = 0xff;
-                    break;
-                }
-                dd.* = @as(u8, @intFromFloat((M + rgb1.data[i]) * 256));
-            }
-        }
-    }
-
-    const time = timer.read();
-    std.debug.print("Time took: {d}\n", .{time});
-
-    return graph.Texture.fromArray(bmp.data.items, bmp.w, bmp.h, .{});
-}
-
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.detectLeaks();
@@ -555,7 +508,7 @@ pub fn main() !void {
 
     //var testmap = graph.Bind(&.{.{ "fuck", "a" }}).init();
 
-    var win = try graph.SDL.Window.createWindow("My window");
+    var win = try graph.SDL.Window.createWindow("zig-game-engine");
     defer win.destroyWindow();
 
     var ctx = try graph.GraphicsContext.init(alloc, 163);
@@ -564,11 +517,14 @@ pub fn main() !void {
     //const mc_atlas = try mcBlockAtlas.buildAtlas(alloc);
     //defer mc_atlas.deinit(alloc);
 
-    var timer = try std.time.Timer.start();
-    var mario_atlas = try graph.Atlas.initFromJsonFile("mario_assets/tileset_manifest.json", alloc, null);
-    defer mario_atlas.deinit();
-    const time_took = timer.read();
-    std.debug.print("Loaded mario in {d}ms\n", .{time_took / std.time.ns_per_ms});
+    var asset_dir = try std.fs.cwd().openDir("mario_assets", .{});
+    defer asset_dir.close();
+
+    var atlasjson = try graph.Atlas.AtlasJson.initFromJsonFile(asset_dir, "testoutput.json", alloc);
+
+    var baked_atlas = try graph.BakedAtlas.fromAtlas(asset_dir, atlasjson, alloc);
+    defer baked_atlas.deinit();
+    atlasjson.deinit(alloc);
 
     const SaveData = struct {
         fps_posx: f32 = 0,
@@ -622,7 +578,7 @@ pub fn main() !void {
         try draw.begin(graph.itc(0x2f2f2fff));
         win.pumpEvents();
 
-        //try draw.rectTex(graph.Rec(0, 0, 1000, 1000), graph.Rec(0, 0, mario_atlas.texture.w, mario_atlas.texture.h), 0xffffffff, mario_atlas.texture);
+        try draw.rectTex(graph.Rec(0, 0, 1000, 1000), baked_atlas.texture.rect(), 0xffffffff, baked_atlas.texture);
 
         try draw.text(.{ .x = 1000, .y = 200 }, "Test string ____.!", &font, 72, 0xffffffff);
 
