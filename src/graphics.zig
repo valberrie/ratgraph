@@ -3,6 +3,7 @@ pub const za = @import("zalgebra");
 pub const c = @import("c.zig");
 
 pub const SparseSet = @import("sparse_set.zig").SparseSet;
+pub const MarioData = @import("data_mario.zig");
 //TODO for the graphics api
 //texture creation helper functions
 //it should be easy to create a texture with the following paramaters
@@ -653,6 +654,11 @@ pub const RectPack = struct {
         };
     }
 
+    pub fn deinit(self: Self) void {
+        self.rects.deinit();
+        self.nodes.deinit();
+    }
+
     pub fn appendRect(self: *Self, id: anytype, w: anytype, h: anytype) !void {
         try self.rects.append(.{
             .was_packed = 0,
@@ -687,11 +693,6 @@ pub const RectPack = struct {
         if (pack_err != 1)
             return error.rectPackFailed;
     }
-
-    pub fn deinit(self: Self) void {
-        self.rects.deinit();
-        self.nodes.deinit();
-    }
 };
 
 pub fn copyAlloc(comptime T: type, alloc: std.mem.Allocator, items: []T) ![]T {
@@ -700,13 +701,12 @@ pub fn copyAlloc(comptime T: type, alloc: std.mem.Allocator, items: []T) ![]T {
     return slice;
 }
 
+const MarioBgColor = 0x9290ffff;
+const MarioBgColor2 = 0x9494ffff;
+
 pub const BakedAtlas = struct {
     const Self = @This();
     const ImgIdBitShift = 16;
-
-    pub const TilesetEnumEntry = struct {
-        name: []u8,
-    };
 
     texture: Texture,
     tilesets: std.ArrayList(SubTileset),
@@ -730,15 +730,6 @@ pub const BakedAtlas = struct {
         for (data.sets, 0..) |img_set, img_index| {
             for (img_set.tilesets, 0..) |ts, ts_index| {
                 running_area += ts.tw * ts.num.x * ts.th * ts.num.y;
-                try tilesets.append(SubTileset{
-                    .description = try copyAlloc(u8, alloc, ts.description),
-                    .start = ts.start,
-                    .tw = ts.tw,
-                    .th = ts.th,
-                    .pad = .{ .x = 0, .y = 0 }, //Reset padding because it is removed when copying
-                    .num = ts.num,
-                    .count = ts.count,
-                });
                 try pack_ctx.appendRect((img_index << ImgIdBitShift) + ts_index, ts.num.x * ts.tw, ts.num.y * ts.th);
             }
         }
@@ -778,7 +769,16 @@ pub const BakedAtlas = struct {
 
             const set = data.sets[img_index].tilesets[set_index];
 
-            tilesets.items[set_index].start = .{ .x = rect.x, .y = rect.y };
+            //tilesets.items[set_index].start = .{ .x = rect.x, .y = rect.y };
+            try tilesets.append(SubTileset{
+                .description = try copyAlloc(u8, alloc, set.description),
+                .start = .{ .x = rect.x, .y = rect.y },
+                .tw = set.tw,
+                .th = set.th,
+                .pad = .{ .x = 0, .y = 0 }, //Reset padding because it is removed when copying
+                .num = set.num,
+                .count = set.count,
+            });
             for (0..set.count) |ui| {
                 const i: i32 = @intCast(ui);
                 Bitmap.copySub(
@@ -794,12 +794,18 @@ pub const BakedAtlas = struct {
             }
         }
 
+        bit.replaceColor(MarioBgColor, 0x0);
+        bit.replaceColor(MarioBgColor2, 0x0);
         return Self{ .alloc = alloc, .tilesets = tilesets, .texture = Texture.fromArray(
             bit.data.items,
             atlas_size,
             atlas_size,
-            .{},
+            .{ .mag_filter = c.GL_NEAREST },
         ) };
+    }
+
+    pub fn getTexRec(self: Self, si: usize, ti: usize) Rect {
+        return self.tilesets.items[si].getTexRec(ti);
     }
 
     pub fn deinit(self: *Self) void {
@@ -984,7 +990,6 @@ pub const Bitmap = struct {
     w: u32,
     h: u32,
 
-    //TODO actually initalize the memory
     pub fn initBlank(alloc: std.mem.Allocator, width: u32, height: u32) !m {
         var ret = m{ .data = std.ArrayList(u8).init(alloc), .w = width, .h = height };
         try ret.data.appendNTimes(0, 4 * width * height);
@@ -993,6 +998,20 @@ pub const Bitmap = struct {
 
     pub fn deinit(self: m) void {
         self.data.deinit();
+    }
+
+    pub fn replaceColor(self: *m, color: u32, replacement: u32) void {
+        const search = intToColor(color);
+        const rep = intToColor(replacement);
+        for (0..(self.data.items.len / 4)) |i| {
+            const d = self.data.items[i * 4 .. i * 4 + 4];
+            if (d[0] == search.r and d[1] == search.g and d[2] == search.b) {
+                d[0] = rep.r;
+                d[1] = rep.g;
+                d[2] = rep.b;
+                d[3] = rep.a;
+            }
+        }
     }
 
     pub fn writeToBmpFile(self: *const m, alloc: std.mem.Allocator, file_name: []const u8) !void {
@@ -1925,6 +1944,10 @@ pub const Rect = struct {
         return Rec(self.x, self.y, self.x + self.w, self.y + self.h);
     }
 
+    pub fn eql(a: Self, b: Self) bool {
+        return (a.x == b.x and a.y == b.y and a.w == b.w and a.h == b.h);
+    }
+
     //pub fn param(
     //    self: Self,
     //) @This() {
@@ -2489,13 +2512,8 @@ pub const Font = struct {
         try log.print("Freetype face: descender:  {d}px\n", .{result.descent});
         try log.print("Freetype face: line_gap:  {d}px\n", .{result.line_gap});
 
-        //const row_count = @round(@sqrt(@as(f32, @floatFromInt(result.glyph_set.dense.items.len))));
-        //const tex_w = row_count * result.max_advance;
-        //const tex_h = row_count * result.line_gap;
-        //std.debug.print("Row count: {d}, {d}\n", .{ tex_w, tex_h });
-
-        var packing_rects = std.ArrayList(c.stbrp_rect).init(alloc);
-        defer packing_rects.deinit();
+        var pack_ctx = RectPack.init(alloc);
+        defer pack_ctx.deinit();
 
         const GlyphBitmap = struct {
             buffer: std.ArrayList(u8),
@@ -2551,15 +2569,7 @@ pub const Font = struct {
                 });
                 try bitmaps.items[ind].buffer.appendSlice(bitmap.buffer[0 .. bitmap.width * bitmap.rows]);
 
-                try packing_rects.append(.{
-                    //.id = @intCast(c_int, ind),
-                    .id = codepoint.i,
-                    .w = @as(c_ushort, @intCast(bitmap.width + padding + padding)),
-                    .h = @as(c_ushort, @intCast(bitmap.rows + padding + padding)),
-                    .x = 50,
-                    .y = 50,
-                    .was_packed = 1,
-                });
+                try pack_ctx.appendRect(codepoint.i, bitmap.width + padding + padding, bitmap.rows + padding + padding);
             }
             const metrics = &face.*.glyph.*.metrics;
             {
@@ -2589,39 +2599,21 @@ pub const Font = struct {
         try log.print("Rendered {d} glyphs in {d} ms, {d} ms avg\n", .{ result.glyph_set.dense.items.len, @as(f32, @floatFromInt(elapsed)) / std.time.ns_per_ms, @as(f32, @floatFromInt(elapsed)) / std.time.ns_per_ms / @as(f32, @floatFromInt(result.glyph_set.dense.items.len)) });
         {
             var num_pixels: usize = 0;
-            for (packing_rects.items) |r| {
+            for (pack_ctx.rects.items) |r| {
                 num_pixels += (@as(usize, @intCast(r.w)) * @as(usize, @intCast(r.h)));
             }
             result.texture.w = @as(i32, @intFromFloat(@sqrt(@as(f32, @floatFromInt(num_pixels)) * pack_factor)));
             result.texture.h = @as(i32, @intFromFloat(@sqrt(@as(f32, @floatFromInt(num_pixels)) * pack_factor)));
             try log.print("Texture size: {d} x {d}\n", .{ result.texture.w, result.texture.h });
 
-            var nodes = std.ArrayList(c.stbrp_node).init(alloc);
-            defer nodes.deinit();
-            try nodes.appendNTimes(undefined, @as(u32, @intCast(result.texture.w)) + 200); //TODO MAGICNUM
-            var rect_context: c.stbrp_context = undefined;
-            c.stbrp_init_target(
-                &rect_context,
-                @as(c_int, @intCast(result.texture.w)),
-                @as(c_int, @intCast(result.texture.h)),
-                @as([*c]c.stbrp_node, @ptrCast(nodes.items[0..nodes.items.len])),
-                @as(c_int, @intCast(nodes.items.len)),
-            );
-
-            const pack_err = c.stbrp_pack_rects(
-                &rect_context,
-                @as([*c]c.stbrp_rect, @ptrCast(packing_rects.items[0 .. packing_rects.items.len - 1])),
-                @as(c_int, @intCast(packing_rects.items.len)),
-            );
-            if (pack_err != 1)
-                return error.needLargerPackingFactor;
+            try pack_ctx.pack(@intCast(result.texture.w), @intCast(result.texture.h));
 
             {
                 var texture_bitmap = std.ArrayList(u8).init(alloc);
                 defer texture_bitmap.deinit();
                 try texture_bitmap.appendNTimes(0, @as(usize, @intCast(result.texture.w * result.texture.h)));
 
-                for (packing_rects.items, 0..) |rect, i| {
+                for (pack_ctx.rects.items, 0..) |rect, i| {
                     const g = try result.glyph_set.getPtr(@as(u21, @intCast(rect.id)));
                     g.tr.x = @as(f32, @floatFromInt(@as(u32, @intCast(rect.x)) + padding)) - @as(f32, @floatFromInt(padding)) / 2;
                     g.tr.y = @as(f32, @floatFromInt(@as(u32, @intCast(rect.y)) + padding)) - @as(f32, @floatFromInt(padding)) / 2;
