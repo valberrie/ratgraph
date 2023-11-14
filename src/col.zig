@@ -4,6 +4,27 @@ const graph = @import("graphics.zig");
 pub const ColRect = graph.Rect;
 
 pub const SparseSet = graph.SparseSet;
+const collision_set = SparseSet(ColRect);
+//A collision system that uses external sparse_set
+//Only function we need is simulateMove
+
+pub fn simulateMove(ecs: anytype, cols: *std.ArrayList(Collision), id: u32, dx: f32, dy: f32) !void {
+    const pl = try ecs.getPtr(id, .col_rect);
+    var col_it = ecs.iterator(.collision_type);
+    while (col_it.next()) |other_opt| {
+        //for (ecs.getDenseSlice(.collision_type)) |other_opt| {
+        if (other_opt.i == id) continue;
+        //if (other_opt.item == .solid) {
+        const col = detectCollision(pl.*, try ecs.get(other_opt.i, .col_rect), .{ .x = pl.x + dx, .y = pl.y + dy }, other_opt.i);
+        if (col.x != null or col.y != null or col.overlaps) {
+            try cols.append(col);
+        }
+        //}
+    }
+    if (cols.items.len > 1) {
+        std.sort.insertion(Collision, cols.items, Vec2f{ .x = 0, .y = 0 }, sortByCompletion);
+    }
+}
 
 //pub const ColRect = struct {
 //    x: f32,
@@ -11,6 +32,10 @@ pub const SparseSet = graph.SparseSet;
 //    w: f32,
 //    h: f32,
 //};
+
+pub fn doRectsOverlap(r1: ColRect, r2: ColRect) bool {
+    return !(r1.x > r2.x + r2.w or r2.x > r1.x + r1.w or r1.y > r2.y + r2.h or r2.y > r1.y + r1.h);
+}
 
 pub fn containsPoint(low: f32, high: f32, point: f32) bool {
     return (low - point > 0) != (high - point > 0);
@@ -87,6 +112,7 @@ pub fn detectCollision(r1: ColRect, r2: ColRect, goal: Vec2f, other_i: u32) Coll
             result.normal = true;
         }
     }
+    result.overlaps = doRectsOverlap(r1, r2);
 
     return result;
 }
@@ -113,11 +139,40 @@ pub const eps = 0.01;
 pub fn CollisionContext() type {
     return struct {
         const Self = @This();
-        const RectSet: type = SparseSet(struct { rect: ColRect, i: u32 }, u32);
+        const RectItem = struct { rect: ColRect, i: u32 };
+        const RectSet: type = SparseSet(RectItem, u32);
+
+        pub const CollisionIterator = struct {
+            const ColIt = @This();
+            cols: std.ArrayList(Collision),
+            index: usize = 0,
+
+            pub fn init(alloc: std.mem.Allocator) ColIt {
+                return .{ .cols = std.ArrayList(Collision).init(alloc) };
+            }
+
+            pub fn deinit(self: *ColIt) void {
+                self.cols.deinit();
+            }
+
+            pub fn reset(self: *ColIt) !void {
+                self.index = 0;
+                try self.cols.resize(0);
+            }
+
+            pub fn next(self: *ColIt) ?Collision {
+                defer self.index += 1;
+
+                if (self.index == self.cols.items.len)
+                    return null;
+
+                return self.cols.items[self.index];
+            }
+        };
 
         rect_set: RectSet,
 
-        pub fn init(alloc: *const std.mem.Allocator) Self {
+        pub fn init(alloc: std.mem.Allocator) Self {
             return .{
                 .rect_set = RectSet.init(alloc) catch unreachable,
             };
@@ -127,10 +182,18 @@ pub fn CollisionContext() type {
             self.rect_set.deinit();
         }
 
+        pub fn remove(self: *Self, id: u32) !void {
+            _ = try self.rect_set.remove(id);
+        }
+
         pub fn add(self: *Self, rect: ColRect) !u32 {
             //TODO Add and remove functions need to treat data arrays as memory? or something, reuse empty slots rather than always appending
 
             return try self.rect_set.add(.{ .rect = rect, .i = 0 });
+        }
+
+        pub fn rectSlice(self: *Self) []const RectItem {
+            return self.rect_set.dense.items;
         }
 
         pub fn insert(self: *Self, rect: ColRect, index: u32) !void {
@@ -145,26 +208,31 @@ pub fn CollisionContext() type {
             return &(try self.rect_set.getPtr(id)).rect;
         }
 
-        pub fn slide(self: *Self, alloc: *const std.mem.Allocator, id: u32, dx: f32, dy: f32) anyerror!Collision {
-            var ldx = dx;
-            var ldy = dy;
-            var cols = std.ArrayList(Collision).init(alloc.*);
-            defer cols.deinit();
-
-            var ret = Collision{ .x = null, .y = null, .perc = 0, .normal = false, .overlaps = false, .other_i = 0 };
+        pub fn simulateMove(self: *Self, cols: *std.ArrayList(Collision), id: u32, dx: f32, dy: f32) !void {
             const pl = try self.rect_set.getPtr(id);
             for (self.rect_set.dense.items) |other_opt| {
                 if (other_opt.i == id) continue;
                 const other = other_opt;
 
                 const col = detectCollision(pl.rect, other.rect, .{ .x = pl.rect.x + dx, .y = pl.rect.y + dy }, other_opt.i);
-                if (col.x != null or col.y != null) {
+                if (col.x != null or col.y != null or col.overlaps) {
                     try cols.append(col);
                 }
             }
             if (cols.items.len > 1) {
-                std.sort.insertionSort(Collision, cols.items, Vec2f{ .x = 0, .y = 0 }, sortByCompletion);
+                std.sort.insertion(Collision, cols.items, Vec2f{ .x = 0, .y = 0 }, sortByCompletion);
             }
+        }
+
+        pub fn slide(self: *Self, alloc: std.mem.Allocator, id: u32, dx: f32, dy: f32) anyerror!Collision {
+            var ldx = dx;
+            var ldy = dy;
+            var cols = std.ArrayList(Collision).init(alloc);
+            defer cols.deinit();
+
+            var ret = Collision{ .x = null, .y = null, .perc = 0, .normal = false, .overlaps = false, .other_i = 0 };
+            const pl = try self.rect_set.getPtr(id);
+            try self.simulateMove(&cols, id, dx, dy);
             if (cols.items.len > 0) {
                 const col = cols.items[0];
                 if (col.x) |cx| {

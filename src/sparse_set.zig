@@ -13,7 +13,26 @@ pub fn SparseSet(comptime child_type: type, comptime index_type: type) type {
     return struct {
         const Self = @This();
         const max_index = std.math.maxInt(index_type);
-        const null_marker: index_type = max_index;
+        const sparse_null_marker: index_type = max_index;
+        const dense_null_marker: index_type = max_index;
+
+        //TODO write tests that ensure addition and removal during iteration does not invalidate anything
+        pub const Iterator = struct {
+            dense: *std.ArrayList(child_type), //Pointer so reallocation during iteration won't invalidate iterator
+            index: usize,
+
+            pub fn next(self: *Iterator) ?*child_type {
+                defer self.index += 1;
+                if (self.index >= self.dense.items.len)
+                    return null;
+                while (self.dense.items[self.index].i == dense_null_marker) : (self.index += 1) {
+                    if (self.index == self.dense.items.len - 1) {
+                        return null;
+                    }
+                }
+                return &self.dense.items[self.index];
+            }
+        };
 
         //TODO implement cool algorothim for sparse array
         //ALGO:
@@ -37,8 +56,12 @@ pub fn SparseSet(comptime child_type: type, comptime index_type: type) type {
         sparse: std.ArrayList(index_type),
         dense: std.ArrayList(child_type),
 
-        pub fn init(alloc: *const std.mem.Allocator) !Self {
-            var ret = Self{ .sparse = std.ArrayList(index_type).init(alloc.*), .dense = std.ArrayList(child_type).init(alloc.*) };
+        pub fn denseIterator(self: *Self) Iterator {
+            return Iterator{ .dense = &self.dense, .index = 0 };
+        }
+
+        pub fn init(alloc: std.mem.Allocator) !Self {
+            var ret = Self{ .sparse = std.ArrayList(index_type).init(alloc), .dense = std.ArrayList(child_type).init(alloc) };
             return ret;
         }
 
@@ -48,11 +71,11 @@ pub fn SparseSet(comptime child_type: type, comptime index_type: type) type {
             ret.sparse = std.ArrayList(index_type).init(alloc);
 
             for (ret.dense.items, 0..) |item, i| {
-                if (item.i == null_marker)
+                if (item.i == dense_null_marker)
                     return error.invalidIndex;
 
                 if (item.i >= ret.sparse.items.len)
-                    try ret.sparse.appendNTimes(null_marker, item.i - ret.sparse.items.len + 1);
+                    try ret.sparse.appendNTimes(sparse_null_marker, item.i - ret.sparse.items.len + 1);
 
                 ret.sparse.items[item.i] = @as(index_type, @intCast(i));
             }
@@ -66,11 +89,11 @@ pub fn SparseSet(comptime child_type: type, comptime index_type: type) type {
         }
 
         pub fn insert(self: *Self, index: index_type, item: child_type) !void {
-            if (index < self.sparse.items.len and self.sparse.items[index] != null_marker)
+            if (index < self.sparse.items.len and self.sparse.items[index] != sparse_null_marker)
                 return error.indexOccupied;
 
             if (index >= self.sparse.items.len)
-                try self.sparse.appendNTimes(null_marker, index - self.sparse.items.len + 1);
+                try self.sparse.appendNTimes(sparse_null_marker, index - self.sparse.items.len + 1);
 
             self.sparse.items[index] = @as(index_type, @intCast(self.dense.items.len));
             var new_item = item;
@@ -79,11 +102,11 @@ pub fn SparseSet(comptime child_type: type, comptime index_type: type) type {
             //TODO use errdefer to prevent garbage in sparse
         }
 
+        //TODO iteration safe, but not deterministic, item added during iteration getting seen during that iteration is random
         pub fn add(self: *Self, item: child_type) !index_type {
-            //TODO more effecient lookup of empty indicies
             var empty_index: ?index_type = null;
             for (self.sparse.items, 0..) |item_index, sp_i| {
-                if (item_index == null_marker and sp_i != null_marker) {
+                if (item_index == sparse_null_marker and sp_i != sparse_null_marker) {
                     empty_index = @as(index_type, @intCast(sp_i));
                     break;
                 }
@@ -91,7 +114,7 @@ pub fn SparseSet(comptime child_type: type, comptime index_type: type) type {
 
             if (empty_index == null) {
                 empty_index = @as(index_type, @intCast(self.sparse.items.len));
-                try self.sparse.append(null_marker);
+                try self.sparse.append(sparse_null_marker);
             }
 
             self.sparse.items[empty_index.?] = @as(index_type, @intCast(self.dense.items.len));
@@ -106,14 +129,20 @@ pub fn SparseSet(comptime child_type: type, comptime index_type: type) type {
             return self.dense.items[di];
         }
 
+        pub fn getOpt(self: *Self, index: index_type) ?child_type {
+            if (index >= self.sparse.items.len or self.sparse.items[index] == sparse_null_marker)
+                return null;
+
+            return self.dense.items[self.sparse.items[index]];
+        }
+
         pub fn getPtr(self: *Self, index: index_type) !*child_type {
             const di = try self.getDenseIndex(index);
             return &self.dense.items[di];
         }
 
         pub fn getDenseIndex(self: *Self, index: index_type) !index_type {
-            if (index >= self.sparse.items.len or self.sparse.items[index] == null_marker) {
-                //std.debug.print("Index {d}\n", .{index});
+            if (index >= self.sparse.items.len or self.sparse.items[index] == sparse_null_marker) {
                 return error.invalidIndex;
             }
 
@@ -122,15 +151,21 @@ pub fn SparseSet(comptime child_type: type, comptime index_type: type) type {
 
         pub fn remove(self: *Self, index: index_type) !child_type {
             const di = try self.getDenseIndex(index);
-            self.sparse.items[index] = null_marker;
+            self.sparse.items[index] = sparse_null_marker;
+            //get copy of component to remove
+            //set dense sparse_index value to dense_null_marker;
+            //update iterator to discard null values
+            const item = self.dense.items[di];
+            self.dense.items[di].i = dense_null_marker;
+            return item;
 
-            if (self.dense.items.len - 1 == di) return self.dense.pop();
+            //if (self.dense.items.len - 1 == di) return self.dense.pop();
 
-            const replacement_item = self.dense.pop();
-            const old_item = self.dense.items[di];
-            self.sparse.items[replacement_item.i] = di;
-            self.dense.items[di] = replacement_item;
-            return old_item;
+            //const replacement_item = self.dense.pop();
+            //const old_item = self.dense.items[di];
+            //self.sparse.items[replacement_item.i] = di;
+            //self.dense.items[di] = replacement_item;
+            //return old_item;
         }
     };
 }
@@ -142,20 +177,14 @@ const ItemType = struct {
 const SetType = SparseSet(ItemType, u32);
 test "Sparse set basic usage" {
     const a = testing.allocator;
-    var sset = try SetType.init(&a);
+    var sset = try SetType.init(a);
     defer sset.deinit();
 
     const first_id = try sset.add(.{ .item = "first item", .i = 0 });
-    std.debug.print("Ret {any}\n", .{sset.get(first_id)});
-    std.debug.print("len: {d}\n", .{sset.sparse.items.len});
 
     const next_id = 300;
     try sset.insert(next_id, .{ .item = "my item", .i = 100 });
 
-    std.debug.print("Ret {any}\n", .{sset.get(next_id)});
-    std.debug.print("len: {d}\n", .{sset.sparse.items.len});
-
     _ = try sset.remove(first_id);
-    std.debug.print("Ret {any}\n", .{sset.get(first_id)});
-    std.debug.print("len: {d}\n", .{sset.sparse.items.len});
 }
+//TODO add more tests

@@ -1,9 +1,15 @@
 const std = @import("std");
 pub const za = @import("zalgebra");
 pub const c = @import("c.zig");
+pub const Tiled = @import("tiled.zig");
 
+const lcast = std.math.lossyCast;
+pub const Gui = @import("gui.zig");
 pub const SparseSet = @import("sparse_set.zig").SparseSet;
 pub const MarioData = @import("data_mario.zig");
+pub const Collision = @import("col.zig");
+pub const Ecs = @import("registry.zig");
+
 //TODO for the graphics api
 //texture creation helper functions
 //it should be easy to create a texture with the following paramaters
@@ -54,6 +60,10 @@ pub fn RingBuffer(comptime size: u32, comptime T: type, comptime default: T) typ
 pub const Vec2f = packed struct {
     x: f32,
     y: f32,
+
+    pub fn Zero() @This() {
+        return .{ .x = 0, .y = 0 };
+    }
 
     pub fn new(x: f32, y: f32) @This() {
         return @This(){ .x = x, .y = y };
@@ -638,15 +648,6 @@ pub const RectPack = struct {
     rects: std.ArrayList(RectType),
     nodes: std.ArrayList(NodeType),
 
-    //Steps to take in order:
-    //Initilize rects list with all the rects we are packing
-    //
-    //create a stbrp node list
-    //initilize stbrp_init_target
-    //call pack rects and check error
-    //
-    //Iterate rects and use positions and ids
-
     pub fn init(alloc: std.mem.Allocator) Self {
         return Self{
             .rects = std.ArrayList(RectType).init(alloc),
@@ -703,19 +704,64 @@ pub fn copyAlloc(comptime T: type, alloc: std.mem.Allocator, items: []T) ![]T {
 
 const MarioBgColor = 0x9290ffff;
 const MarioBgColor2 = 0x9494ffff;
+const MarioBgColor3 = 0x00298cff;
 
 pub const BakedAtlas = struct {
     const Self = @This();
     const ImgIdBitShift = 16;
+    const TsetT = std.StringHashMap(usize);
+
+    pub const Tile = struct {
+        si: usize,
+        ti: usize,
+    };
 
     texture: Texture,
+    bitmap: Bitmap,
     tilesets: std.ArrayList(SubTileset),
+    tilesets_map: TsetT,
 
     alloc: std.mem.Allocator,
 
     fn rectSortFnLessThan(ctx: u8, lhs: RectPack.RectType, rhs: RectPack.RectType) bool {
         _ = ctx;
         return (lhs.id >> ImgIdBitShift) < (rhs.id >> ImgIdBitShift);
+    }
+
+    pub fn fromTiled(dir: std.fs.Dir, tiled_tileset_list: []const Tiled.TilesetRef, alloc: std.mem.Allocator) !Self {
+        var pack_ctx = RectPack.init(alloc);
+        defer pack_ctx.deinit();
+
+        var tsets_json = std.ArrayList(std.json.Parsed(Tiled.Tileset)).init(alloc);
+        defer {
+            for (tsets_json.items) |*jitem| {
+                jitem.deinit();
+            }
+            tsets_json.deinit();
+        }
+
+        var running_area: i32 = 0;
+        for (tiled_tileset_list, 0..) |set, i| {
+            const json_slice = try dir.readFileAlloc(alloc, set.source, std.math.maxInt(usize));
+            defer alloc.free(json_slice);
+            try tsets_json.append(try std.json.parseFromSlice(Tiled.Tileset, alloc, json_slice, .{ .allocate = .alloc_always }));
+            const ts = tsets_json.items[tsets_json.items.len - 1].value;
+            running_area += ts.count * ts.tileheight * ts.tilewidth;
+            try pack_ctx.appendRect(i, ts.imagewidth, ts.imageheight);
+        }
+
+        const atlas_size: i32 = @intFromFloat(@sqrt(@as(f32, @floatFromInt(running_area)) * 2));
+        try pack_ctx.pack(atlas_size, atlas_size);
+        var bit = try Bitmap.initBlank(alloc, atlas_size, atlas_size);
+
+        _ = bit;
+        unreachable;
+        //for(pack_ctx.rects.items)|rect|{
+        //    //load the image,
+        //    //copy the image to atlas bitmap
+        //    //append the tileset
+        //    //
+        //}
     }
 
     pub fn fromAtlas(dir: std.fs.Dir, data: Atlas.AtlasJson, alloc: std.mem.Allocator) !Self {
@@ -725,6 +771,7 @@ pub const BakedAtlas = struct {
         defer pack_ctx.deinit();
 
         var tilesets = std.ArrayList(SubTileset).init(alloc);
+        var tsets = TsetT.init(alloc);
 
         var running_area: i32 = 0;
         for (data.sets, 0..) |img_set, img_index| {
@@ -744,7 +791,6 @@ pub const BakedAtlas = struct {
         try pack_ctx.pack(atlas_size, atlas_size);
         std.sort.insertion(RectPack.RectType, pack_ctx.rects.items, @as(u8, 0), rectSortFnLessThan);
         var bit = try Bitmap.initBlank(alloc, atlas_size, atlas_size);
-        defer bit.deinit();
 
         var img_dir = try dir.openDir(data.img_dir_path, .{});
         defer img_dir.close();
@@ -762,15 +808,13 @@ pub const BakedAtlas = struct {
                 if (loaded_img_bitmap) |*lbmp|
                     lbmp.deinit();
 
-                var img_file = try img_dir.openFile(data.sets[img_index].filename, .{});
-                defer img_file.close();
-                loaded_img_bitmap = try loadPngBitmapFile(img_file, alloc);
+                loaded_img_bitmap = try Bitmap.initFromPngFile(alloc, img_dir, data.sets[img_index].filename);
             }
 
             const set = data.sets[img_index].tilesets[set_index];
 
             //tilesets.items[set_index].start = .{ .x = rect.x, .y = rect.y };
-            try tilesets.append(SubTileset{
+            const ts = SubTileset{
                 .description = try copyAlloc(u8, alloc, set.description),
                 .start = .{ .x = rect.x, .y = rect.y },
                 .tw = set.tw,
@@ -778,7 +822,9 @@ pub const BakedAtlas = struct {
                 .pad = .{ .x = 0, .y = 0 }, //Reset padding because it is removed when copying
                 .num = set.num,
                 .count = set.count,
-            });
+            };
+            try tsets.put(ts.description, tilesets.items.len);
+            try tilesets.append(ts);
             for (0..set.count) |ui| {
                 const i: i32 = @intCast(ui);
                 Bitmap.copySub(
@@ -796,10 +842,9 @@ pub const BakedAtlas = struct {
 
         bit.replaceColor(MarioBgColor, 0x0);
         bit.replaceColor(MarioBgColor2, 0x0);
-        return Self{ .alloc = alloc, .tilesets = tilesets, .texture = Texture.fromArray(
-            bit.data.items,
-            atlas_size,
-            atlas_size,
+        bit.replaceColor(MarioBgColor3, 0x0);
+        return Self{ .bitmap = bit, .alloc = alloc, .tilesets = tilesets, .tilesets_map = tsets, .texture = Texture.initFromBitmap(
+            bit,
             .{ .mag_filter = c.GL_NEAREST },
         ) };
     }
@@ -808,15 +853,31 @@ pub const BakedAtlas = struct {
         return self.tilesets.items[si].getTexRec(ti);
     }
 
+    pub fn getTexRecTile(self: Self, t: Tile) Rect {
+        return self.tilesets.items[t.si].getTexRec(t.ti);
+    }
+
+    pub fn getSi(self: *Self, name: []const u8) usize {
+        return self.tilesets_map.get(name) orelse {
+            std.debug.print("Couldn't find {s}\n", .{name});
+            unreachable;
+        };
+    }
+
+    pub fn getTile(self: *Self, name: []const u8, ti: usize) Tile {
+        return .{ .si = self.getSi(name), .ti = ti };
+    }
+
     pub fn deinit(self: *Self) void {
+        self.tilesets_map.deinit();
         for (self.tilesets.items) |*ts| {
             self.alloc.free(ts.description);
         }
         self.tilesets.deinit();
+        self.bitmap.deinit();
     }
 };
 
-//TODO move atlas struct to EditAtlas and AtlasJson out
 pub const Atlas = struct {
     const Self = @This();
     pub const AtlasJson = struct {
@@ -877,11 +938,9 @@ pub const Atlas = struct {
     alloc: std.mem.Allocator,
 
     //TODO determine optimal texture_size
-    //TODO use AtlasJson init function
     pub fn initFromJsonFile(dir: std.fs.Dir, json_filename: []const u8, alloc: std.mem.Allocator) !Atlas {
         const json_slice = try dir.readFileAlloc(alloc, json_filename, std.math.maxInt(usize));
         defer alloc.free(json_slice);
-
         const json_p = try std.json.parseFromSlice(AtlasJson, alloc, json_slice, .{ .allocate = .alloc_always });
         const json = json_p.value;
         defer json_p.deinit();
@@ -899,11 +958,7 @@ pub const Atlas = struct {
         var textures = std.ArrayList(Texture).init(alloc);
 
         for (sets_to_load, 0..) |item, i| {
-            var pngfile = try img_dir.openFile(item.filename, .{});
-            defer pngfile.close();
-            const bmp = try loadPngBitmapFile(pngfile, alloc);
-            defer bmp.data.deinit();
-            try textures.append(Texture.fromArray(bmp.data.items, bmp.w, bmp.h, .{ .mag_filter = c.GL_NEAREST, .min_filter = c.GL_NEAREST }));
+            try textures.append(try Texture.initFromImgFile(alloc, img_dir, item.filename, .{ .mag_filter = c.GL_NEAREST, .min_filter = c.GL_NEAREST }));
 
             ret_j.sets[i] = .{ .filename = try alloc.alloc(u8, item.filename.len), .tilesets = try alloc.alloc(SubTileset, item.tilesets.len) };
             cpy(u8, ret_j.sets[i].filename, item.filename);
@@ -919,6 +974,70 @@ pub const Atlas = struct {
 
     pub fn getTexRec(m: @This(), si: usize, ti: usize) Rect {
         return m.sets.items[si].getTexRec(ti);
+    }
+
+    pub fn writeToTiled(dir: std.fs.Dir, json_filename: []const u8, out_dir: std.fs.Dir, alloc: std.mem.Allocator) !void {
+        const json_slice = try dir.readFileAlloc(alloc, json_filename, std.math.maxInt(usize));
+        defer alloc.free(json_slice);
+        const json_p = try std.json.parseFromSlice(AtlasJson, alloc, json_slice, .{ .allocate = .alloc_always });
+        const json = json_p.value;
+        defer json_p.deinit();
+
+        var img_filename = std.ArrayList(u8).init(alloc);
+        defer img_filename.deinit();
+        var fout_buf: [100]u8 = undefined;
+        var fbs = std.io.FixedBufferStream([]u8){ .buffer = &fout_buf, .pos = 0 };
+        const img_dir = try dir.openDir(json.img_dir_path, .{});
+        //iterate sets
+        //for each sts output a png and tsj json file
+        for (json.sets) |set| {
+            var bmp = try Bitmap.initFromPngFile(alloc, img_dir, set.filename);
+            defer bmp.deinit();
+            for (set.tilesets) |ts| {
+                var out_bmp = try Bitmap.initBlank(alloc, ts.num.x * ts.tw, ts.num.y * ts.th);
+                defer out_bmp.deinit();
+                try img_filename.resize(0);
+                try img_filename.writer().print("{s}.png", .{ts.description});
+                fbs.reset();
+                try fbs.writer().print("{s}.json", .{ts.description});
+                var out_json = try out_dir.createFile(fbs.getWritten(), .{});
+                defer out_json.close();
+                const tsj = Tiled.Tileset{
+                    .class = "",
+                    .name = ts.description,
+                    .columns = ts.num.x,
+                    .firstgid = 1,
+                    .imageheight = @intCast(out_bmp.h),
+                    .imagewidth = @intCast(out_bmp.w),
+                    .margin = 0,
+                    .spacing = 0,
+                    .tilecount = @intCast(ts.count),
+                    .tileheight = ts.th,
+                    .tilewidth = ts.tw,
+
+                    .fillmode = "",
+                    .backgroundcolor = "",
+                    .image = img_filename.items,
+                };
+                try std.json.stringify(tsj, .{}, out_json.writer());
+                for (0..ts.count) |ui| {
+                    const i: i32 = @intCast(ui);
+                    if (i >= ts.num.x * ts.num.y)
+                        break;
+                    Bitmap.copySub(
+                        &bmp,
+                        @intCast(ts.start.x + @mod(i, ts.num.x) * (ts.tw + ts.pad.x)),
+                        @intCast(ts.start.y + @divFloor(i, ts.num.x) * (ts.th + ts.pad.y)),
+                        @intCast(ts.tw),
+                        @intCast(ts.th),
+                        &out_bmp,
+                        @as(u32, @intCast(@mod(i, ts.num.x) * ts.tw)),
+                        @as(u32, @intCast(@divFloor(i, ts.num.x) * ts.th)),
+                    );
+                }
+                try out_bmp.writeToPngFile(out_dir, img_filename.items);
+            }
+        }
     }
 
     pub fn deinit(m: Atlas) void {
@@ -957,6 +1076,15 @@ pub const SubTileset = struct {
             self.th,
         );
     }
+
+    pub fn getBounds(self: Self) Rect {
+        return Rec(
+            self.start.x,
+            self.start.y,
+            self.num.x * (self.tw + self.pad.x),
+            self.num.y * (self.th + self.pad.y),
+        );
+    }
 };
 
 ///A Fixed width bitmap font structure
@@ -984,23 +1112,58 @@ pub const FixedBitmapFont = struct {
 };
 
 pub const Bitmap = struct {
-    const m = @This();
-    //TODO add support for different types: rgba only for now
+    const Self = @This();
+    pub const ImageFormat = enum {
+        rgba_8,
+        g_8, //grayscale, 8 bit
+    };
+
+    format: ImageFormat = .rgba_8,
     data: std.ArrayList(u8),
     w: u32,
     h: u32,
 
-    pub fn initBlank(alloc: std.mem.Allocator, width: u32, height: u32) !m {
-        var ret = m{ .data = std.ArrayList(u8).init(alloc), .w = width, .h = height };
-        try ret.data.appendNTimes(0, 4 * width * height);
+    pub fn initBlank(alloc: std.mem.Allocator, width: anytype, height: anytype) !Self {
+        var ret = Self{ .data = std.ArrayList(u8).init(alloc), .w = lcast(u32, width), .h = lcast(u32, height) };
+        try ret.data.appendNTimes(0, 4 * @as(usize, @intCast(width * height)));
         return ret;
     }
 
-    pub fn deinit(self: m) void {
+    pub fn initFromBuffer(alloc: std.mem.Allocator, buffer: []const u8, width: anytype, height: anytype, format: ImageFormat) !Bitmap {
+        const copy = try alloc.dupe(u8, buffer);
+        return Bitmap{ .data = std.ArrayList(u8).fromOwnedSlice(alloc, copy), .w = lcast(u32, width), .h = lcast(u32, height), .format = format };
+    }
+
+    pub fn initFromPngFileBuffer(alloc: std.mem.Allocator, buffer: []const u8) !Bitmap {
+        var pngctx = c.spng_ctx_new(0);
+        defer c.spng_ctx_free(pngctx);
+        _ = c.spng_set_png_buffer(pngctx, &buffer[0], buffer.len);
+
+        var ihdr: c.spng_ihdr = undefined;
+        _ = c.spng_get_ihdr(pngctx, &ihdr);
+
+        var out_size: usize = 0;
+        _ = c.spng_decoded_image_size(pngctx, c.SPNG_FMT_RGBA8, &out_size);
+
+        const decoded_data = try alloc.alloc(u8, out_size);
+
+        _ = c.spng_decode_image(pngctx, &decoded_data[0], out_size, c.SPNG_FMT_RGBA8, 0);
+
+        return Bitmap{ .w = ihdr.width, .h = ihdr.height, .data = std.ArrayList(u8).fromOwnedSlice(alloc, decoded_data) };
+    }
+
+    pub fn initFromPngFile(alloc: std.mem.Allocator, dir: std.fs.Dir, sub_path: []const u8) !Bitmap {
+        const file_slice = try dir.readFileAlloc(alloc, sub_path, std.math.maxInt(usize));
+        defer alloc.free(file_slice);
+
+        return try initFromPngFileBuffer(alloc, file_slice);
+    }
+
+    pub fn deinit(self: Self) void {
         self.data.deinit();
     }
 
-    pub fn replaceColor(self: *m, color: u32, replacement: u32) void {
+    pub fn replaceColor(self: *Self, color: u32, replacement: u32) void {
         const search = intToColor(color);
         const rep = intToColor(replacement);
         for (0..(self.data.items.len / 4)) |i| {
@@ -1014,7 +1177,7 @@ pub const Bitmap = struct {
         }
     }
 
-    pub fn writeToBmpFile(self: *const m, alloc: std.mem.Allocator, file_name: []const u8) !void {
+    pub fn writeToBmpFile(self: *const Self, alloc: std.mem.Allocator, file_name: []const u8) !void {
         var null_str_buf = std.ArrayList(u8).init(alloc);
         defer null_str_buf.deinit();
         try null_str_buf.appendSlice(file_name);
@@ -1023,7 +1186,68 @@ pub const Bitmap = struct {
         _ = c.stbi_write_bmp(@as([*c]const u8, @ptrCast(null_str_buf.items)), @as(c_int, @intCast(self.w)), @as(c_int, @intCast(self.h)), 4, @as([*c]u8, @ptrCast(self.data.items[0..self.data.items.len])));
     }
 
-    pub fn copySub(source: *m, srect_x: u32, srect_y: u32, srect_w: u32, srect_h: u32, dest: *m, des_x: u32, des_y: u32) void {
+    pub fn writeToPngFile(self: *Self, dir: std.fs.Dir, sub_path: []const u8) !void {
+        var out_file = try dir.createFile(sub_path, .{});
+        defer out_file.close();
+        var pngctx = c.spng_ctx_new(c.SPNG_CTX_ENCODER);
+        defer c.spng_ctx_free(pngctx);
+
+        _ = c.spng_set_option(pngctx, c.SPNG_ENCODE_TO_BUFFER, 1);
+
+        var ihdr = c.spng_ihdr{
+            .width = self.w,
+            .height = self.h,
+            .bit_depth = 8,
+            .color_type = c.SPNG_COLOR_TYPE_TRUECOLOR_ALPHA,
+            .compression_method = 0,
+            .filter_method = 0,
+            .interlace_method = 0,
+        };
+        var err: c_int = 0;
+        err = c.spng_set_ihdr(pngctx, &ihdr);
+        if (err != 0)
+            std.debug.print("PNG error {s}\n", .{c.spng_strerror(err)});
+
+        err = c.spng_encode_image(pngctx, &self.data.items[0], self.data.items.len, c.SPNG_FMT_PNG, c.SPNG_ENCODE_FINALIZE);
+        if (err != 0)
+            std.debug.print("PNG error {s}\n", .{c.spng_strerror(err)});
+        var png_size: usize = 0;
+        const data = c.spng_get_png_buffer(pngctx, &png_size, &err);
+        if (err != 0)
+            std.debug.print("PNG error {s}\n", .{c.spng_strerror(err)});
+        if (data) |d| {
+            const sl = @as([*]u8, @ptrCast(d));
+            _ = try out_file.writer().write(sl[0..png_size]);
+            var c_alloc = std.heap.raw_c_allocator;
+            c_alloc.free(sl[0..png_size]);
+        } else {
+            return error.failedToEncodePng;
+        }
+    }
+
+    pub fn copySubR(num_component: u8, dest: *Self, des_x: u32, des_y: u32, source: *Self, src_x: u32, src_y: u32, src_w: u32, src_h: u32) void {
+        var sy = src_y;
+        while (sy < src_y + src_h) : (sy += 1) {
+            var sx = src_x;
+            while (sx < src_x + src_w) : (sx += 1) {
+                const source_i = ((sy * source.w) + sx) * num_component;
+
+                const rel_y = sy - src_y;
+                const rel_x = sx - src_x;
+
+                const dest_i = (((des_y + rel_y) * dest.w) + rel_x + des_x) * num_component;
+
+                var i: usize = 0;
+                while (i < num_component) : (i += 1) {
+                    dest.data.items[dest_i + i] = source.data.items[source_i + i];
+                }
+            }
+        }
+    }
+
+    //TODO should the source and dest be swapped, copy functions usually have the destination argument before the source
+    pub fn copySub(source: *Self, srect_x: u32, srect_y: u32, srect_w: u32, srect_h: u32, dest: *Self, des_x: u32, des_y: u32) void {
+        if (source.format != dest.format) unreachable;
         const num_comp = 4;
 
         var sy = srect_y;
@@ -1046,37 +1270,6 @@ pub const Bitmap = struct {
         }
     }
 };
-
-pub fn loadPngBitmapFile(file: std.fs.File, alloc: std.mem.Allocator) !Bitmap {
-    var buf = std.ArrayList(u8).init(alloc);
-    defer buf.deinit();
-
-    try file.reader().readAllArrayList(&buf, std.math.maxInt(usize));
-
-    var pngctx = c.spng_ctx_new(0);
-    defer c.spng_ctx_free(pngctx);
-
-    _ = c.spng_set_png_buffer(pngctx, &buf.items[0], buf.items.len);
-
-    var ihdr: c.spng_ihdr = undefined;
-    _ = c.spng_get_ihdr(pngctx, &ihdr);
-
-    var out_size: usize = 0;
-    _ = c.spng_decoded_image_size(pngctx, c.SPNG_FMT_RGBA8, &out_size);
-
-    const decoded_data = try alloc.alloc(u8, out_size);
-
-    _ = c.spng_decode_image(pngctx, &decoded_data[0], out_size, c.SPNG_FMT_RGBA8, 0);
-
-    return Bitmap{ .w = ihdr.width, .h = ihdr.height, .data = std.ArrayList(u8).fromOwnedSlice(alloc, decoded_data) };
-}
-
-pub fn loadPngBitmap(relative_path: []const u8, alloc: std.mem.Allocator) !Bitmap {
-    const cwd = std.fs.cwd();
-    const png_file = try cwd.openFile(relative_path, .{});
-    defer png_file.close();
-    return try loadPngBitmapFile(png_file, alloc);
-}
 
 pub const GL = struct {
     pub const PrimitiveMode = enum(u32) {
@@ -1130,7 +1323,6 @@ pub const GL = struct {
         c.glBindBuffer(c.GL_ARRAY_BUFFER, 0);
     }
 
-    //TODO should this output a string specifiing GLSL input layouts that can be catted with our shader
     fn generateVertexAttributes(vao: c_uint, vbo: c_uint, comptime T: anytype) void {
         const info = @typeInfo(T);
         switch (info) {
@@ -1451,7 +1643,9 @@ pub const NewCtx = struct {
             v.value_ptr.draw(.{ .texture = v.key_ptr.* }, self.textured_tri_shader, view, model);
         }
         self.batch_font.pushVertexData();
-        self.batch_font.draw(.{ .texture = self.delete_me_font_tex.?.id }, self.font_shader, view, model);
+        if (self.delete_me_font_tex) |id| {
+            self.batch_font.draw(.{ .texture = id.id }, self.font_shader, view, model);
+        }
     }
 };
 
@@ -1832,7 +2026,7 @@ pub fn intToColor(color: u32) CharColor {
         .r = @as(u8, @intCast((color >> 24) & 0xff)),
         .g = @as(u8, @intCast((color >> 16) & 0xff)),
         .b = @as(u8, @intCast((color >> 8) & 0xff)),
-        .a = @as(u8, @intCast((color >> 0) & 0xff)),
+        .a = @as(u8, @intCast((color) & 0xff)),
     };
 }
 
@@ -1887,8 +2081,8 @@ pub const Rect = struct {
         return .{ .x = _pos.x, .y = _pos.y, .w = dim.x, .h = dim.y };
     }
 
-    pub fn addV(self: @This(), x: f32, y: f32) @This() {
-        return .{ .x = self.x + x, .y = self.y + y, .w = self.w, .h = self.h };
+    pub fn addV(self: @This(), x: anytype, y: anytype) @This() {
+        return .{ .x = self.x + lcast(f32, x), .y = self.y + lcast(f32, y), .w = self.w, .h = self.h };
     }
 
     pub fn subVec(self: Self, s: Vec2f) Self {
@@ -1970,6 +2164,10 @@ pub const Rect = struct {
 
     pub fn swapAxis(self: Self) Self {
         return Rec(self.y, self.x, self.h, self.w);
+    }
+
+    pub fn invX(self: Self) Self {
+        return Rec(self.x + self.w, self.y, -self.w, self.h);
     }
 };
 
@@ -2127,7 +2325,8 @@ pub const RenderTexture = struct {
             .h = h,
             .fb = 0,
             .depth_rb = 0,
-            .texture = Texture.fromArray(null, w, h, .{ .min_filter = c.GL_LINEAR, .mag_filter = c.GL_LINEAR, .generate_mipmaps = false }),
+            .texture = Texture.initFromBuffer(null, w, h, .{ .min_filter = c.GL_LINEAR, .mag_filter = c.GL_LINEAR, .generate_mipmaps = false }),
+            //.texture = Texture.
         };
         c.glGenFramebuffers(1, &ret.fb);
         c.glBindFramebuffer(c.GL_FRAMEBUFFER, ret.fb);
@@ -2198,10 +2397,16 @@ pub const Texture = struct {
         mag_filter: c.GLint = c.GL_LINEAR,
         border_color: [4]f32 = .{ 0, 0, 0, 1.0 },
     };
-    //TODO function for texture destruction
 
-    //TODO rename this function to create or new or something
-    pub fn fromArray(bitmap: ?[]const u8, w: anytype, h: anytype, o: Options) Texture {
+    //TODO assert gl context is initilized
+    pub fn initFromImgFile(alloc: std.mem.Allocator, dir: std.fs.Dir, sub_path: []const u8, o: Options) !Texture {
+        var bmp = try Bitmap.initFromPngFile(alloc, dir, sub_path);
+        defer bmp.deinit();
+
+        return initFromBitmap(bmp, o);
+    }
+
+    pub fn initFromBuffer(buffer: ?[]const u8, w: i32, h: i32, o: Options) Texture {
         var tex_id: glID = 0;
         c.glPixelStorei(c.GL_UNPACK_ALIGNMENT, o.pixel_store_alignment);
         c.glGenTextures(1, &tex_id);
@@ -2210,12 +2415,12 @@ pub const Texture = struct {
             o.target,
             0, //Level of detail number
             o.internal_format,
-            std.math.lossyCast(i32, w),
-            std.math.lossyCast(i32, h),
+            w,
+            h,
             0, //khronos.org: this value must be 0
             o.pixel_format,
             o.pixel_type,
-            if (bitmap) |bmp| &bmp[0] else null,
+            if (buffer) |bmp| &bmp[0] else null,
         );
         if (o.generate_mipmaps)
             c.glGenerateMipmap(o.target);
@@ -2234,18 +2439,17 @@ pub const Texture = struct {
         c.glBlendEquation(c.GL_FUNC_ADD);
 
         c.glBindTexture(c.GL_TEXTURE_2D, 0);
-        return Texture{ .w = std.math.lossyCast(i32, w), .h = std.math.lossyCast(i32, h), .id = tex_id };
+        return Texture{ .w = w, .h = h, .id = tex_id };
     }
 
-    pub fn empty() Texture {
+    pub fn initFromBitmap(bitmap: Bitmap, o: Options) Texture {
+        return initFromBuffer(bitmap.data.items, @intCast(bitmap.w), @intCast(bitmap.h), o);
+    }
+
+    pub fn initEmpty() Texture {
         return .{ .w = 0, .h = 0, .id = 0 };
     }
-
-    pub fn fromImage(relative_file_name: []const u8, alloc: std.mem.Allocator, opts: Options) !Texture {
-        const bmp = try loadPngBitmap(relative_file_name, alloc);
-        defer bmp.data.deinit();
-        return fromArray(bmp.data.items, @intCast(bmp.w), @intCast(bmp.h), opts);
-    }
+    //TODO add deinit function to unload gl texture;
 };
 
 //TODO Support multiple non scaled sizes
@@ -2296,6 +2500,15 @@ pub const Font = struct {
             .{ .unicode = 0x1001B8 },
         };
     };
+
+    //pub const DrawIterator = struct {
+
+    //    unicode_it:std.unicode.Utf8Iterator,
+
+    //    pub fn init(str:[]const u8, pos:Vec2f, )DrawIterator{
+
+    //    }
+    //};
 
     font_size: f32, //Native size in points
 
@@ -2515,15 +2728,10 @@ pub const Font = struct {
         var pack_ctx = RectPack.init(alloc);
         defer pack_ctx.deinit();
 
-        const GlyphBitmap = struct {
-            buffer: std.ArrayList(u8),
-            w: usize,
-            h: usize,
-        };
-        var bitmaps = std.ArrayList(GlyphBitmap).init(alloc);
+        var bitmaps = std.ArrayList(Bitmap).init(alloc);
         defer {
             for (bitmaps.items) |*bitmap|
-                bitmap.buffer.deinit();
+                bitmap.deinit();
             bitmaps.deinit();
         }
         if (dump_bitmaps) {
@@ -2561,13 +2769,7 @@ pub const Font = struct {
                         @as([*c]u8, @ptrCast(bitmap.buffer[0 .. bitmap.rows * bitmap.width])),
                     );
                 }
-                const ind = bitmaps.items.len;
-                try bitmaps.append(GlyphBitmap{
-                    .buffer = std.ArrayList(u8).init(alloc),
-                    .w = bitmap.width,
-                    .h = bitmap.rows,
-                });
-                try bitmaps.items[ind].buffer.appendSlice(bitmap.buffer[0 .. bitmap.width * bitmap.rows]);
+                try bitmaps.append(try Bitmap.initFromBuffer(alloc, bitmap.buffer[0 .. bitmap.width * bitmap.rows], bitmap.width, bitmap.rows, .g_8));
 
                 try pack_ctx.appendRect(codepoint.i, bitmap.width + padding + padding, bitmap.rows + padding + padding);
             }
@@ -2618,13 +2820,13 @@ pub const Font = struct {
                     g.tr.x = @as(f32, @floatFromInt(@as(u32, @intCast(rect.x)) + padding)) - @as(f32, @floatFromInt(padding)) / 2;
                     g.tr.y = @as(f32, @floatFromInt(@as(u32, @intCast(rect.y)) + padding)) - @as(f32, @floatFromInt(padding)) / 2;
                     const bitmap = &bitmaps.items[i];
-                    if (bitmap.buffer.items.len > 0) {
+                    if (bitmap.data.items.len > 0) {
                         var row: usize = 0;
                         var col: usize = 0;
                         while (row < rect.h) : (row += 1) {
                             while (col < rect.w) : (col += 1) {
                                 if (row < bitmap.h + padding and col < bitmap.w + padding and row >= padding and col >= padding) {
-                                    const dat = bitmap.buffer.items[((row - padding) * bitmap.w) + col - padding];
+                                    const dat = bitmap.data.items[((row - padding) * bitmap.w) + col - padding];
                                     texture_bitmap.items[(@as(u32, @intCast(result.texture.w)) * (row + @as(usize, @intCast(rect.y)))) + col + @as(usize, @intCast(rect.x))] = dat;
                                 } else {
                                     texture_bitmap.items[(@as(u32, @intCast(result.texture.h)) * (row + @as(usize, @intCast(rect.y)))) + col + @as(usize, @intCast(rect.x))] = 0;
@@ -2637,7 +2839,7 @@ pub const Font = struct {
 
                 if (dump_bitmaps)
                     writeBmp("debug/freetype.bmp", @as(c_int, @intCast(result.texture.w)), @as(c_int, @intCast(result.texture.h)), 1, texture_bitmap.items);
-                result.texture = Texture.fromArray(texture_bitmap.items, result.texture.w, result.texture.h, .{
+                result.texture = Texture.initFromBuffer(texture_bitmap.items, result.texture.w, result.texture.h, .{
                     .pixel_store_alignment = 1,
                     .internal_format = c.GL_RED,
                     .pixel_format = c.GL_RED,
@@ -3105,11 +3307,7 @@ pub const GraphicsContext = struct {
     //TODO Split this off into a function that draws a single unicode codepoint
     //TODO have a function that takes pts and one that takes pixels,(this one takes pixels)
     pub fn drawText(self: *Self, x: f32, y: f32, str: []const u8, font: *Font, size: f32, col: CharColor) void {
-        //TODO investigae index ob when nothing happens in a drawcall
-        //const SF = size / font.font_size;
-        //const SF = size / font.line_gap;
         const SF = (size / self.dpi * 72) / font.font_size;
-        //const fac = self.dpi / 72;
         const fac = 1;
 
         const batch = (self.getBatch(.{ .mode = .triangles, .texture = font.texture.id, .shader = self.font_shad }) catch unreachable);
@@ -3730,10 +3928,3 @@ pub fn Bind(comptime map: BindList) type {
 
 //loadTexture()
 //unloadTexture()
-test "Main test" {
-    //const expect = std.testing.expect();
-    const alloc = std.testing.allocator;
-    var ctx = GraphicsContext.init(&alloc);
-
-    try ctx.beginDraw();
-}

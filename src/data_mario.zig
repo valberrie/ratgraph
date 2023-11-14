@@ -30,7 +30,7 @@ pub fn genJsonType(comptime T: type) type {
     return u8;
 }
 
-pub const jj = genJsonType(Map);
+pub const dd = genJsonType(Map);
 
 pub const MapJson = struct {
     pub const Layer = struct {
@@ -125,12 +125,7 @@ pub const Map = struct {
         }
 
         if (ret.ref_img_path.items.len > 0) {
-            var file = try dir.openFile(ret.ref_img_path.items, .{});
-            defer file.close();
-            var bit = try graph.loadPngBitmapFile(file, alloc);
-            defer bit.deinit();
-
-            ret.ref_img_texture = graph.Texture.fromArray(bit.data.items, bit.w, bit.h, .{});
+            ret.ref_img_texture = try graph.Texture.initFromImgFile(alloc, dir, ret.ref_img_path.items, .{});
             if (ret.ref_img_pos.eql(graph.Rec(0, 0, 0, 0))) {
                 ret.ref_img_pos = ret.ref_img_texture.?.rect();
             }
