@@ -362,6 +362,7 @@ pub const SDL = struct {
             pressed,
             released,
             held,
+            none,
         };
 
         state: State,
@@ -393,8 +394,10 @@ pub const SDL = struct {
 
         mouse: MouseState = undefined,
 
+        key_state: [c.SDL_NUM_SCANCODES]KeyState.State = [_]KeyState.State{.none} ** c.SDL_NUM_SCANCODES,
         keys: KeysT = KeysT.init(0) catch unreachable,
         keyboard_state: KeyboardStateT = KeyboardStateT.initEmpty(),
+        last_frame_keyboard_state: KeyboardStateT = KeyboardStateT.initEmpty(),
 
         text_input_buffer: [32]u8 = undefined,
         text_input: []const u8,
@@ -535,8 +538,12 @@ pub const SDL = struct {
                 self.mouse.left_down = !self.mouse.left_down and self.mouse.left and !old_left;
                 self.mouse.wheel_delta = 0;
             }
+            for (&self.key_state) |*k| {
+                k.* = .none;
+            }
 
             self.keys.resize(0) catch unreachable;
+            self.last_frame_keyboard_state = self.keyboard_state;
             self.keyboard_state.mask = 0;
             {
                 var l: i32 = 0;
@@ -545,6 +552,7 @@ pub const SDL = struct {
                 for (ret, 0..) |key, i| {
                     if (key == 1) {
                         self.keyboard_state.set(i);
+                        self.key_state[i] = .held;
                     }
                 }
             }
@@ -558,9 +566,15 @@ pub const SDL = struct {
                         if (event.key.keysym.sym == c.SDLK_ESCAPE)
                             self.should_exit = true;
 
-                        self.keys.append(.{ .state = .pressed, .scancode = c.SDL_GetScancodeFromKey(event.key.keysym.sym) }) catch unreachable;
+                        const scancode = c.SDL_GetScancodeFromKey(event.key.keysym.sym);
+                        if (!self.last_frame_keyboard_state.isSet(scancode))
+                            self.key_state[scancode] = .pressed;
+                        self.keys.append(.{ .state = .pressed, .scancode = scancode }) catch unreachable;
                     },
-                    c.SDL_KEYUP => {},
+                    c.SDL_KEYUP => {
+                        const scancode = c.SDL_GetScancodeFromKey(event.key.keysym.sym);
+                        self.key_state[scancode] = .released;
+                    },
                     c.SDL_TEXTEDITING => {
                         const ed = event.edit;
                         const slice = std.mem.sliceTo(&ed.text, 0);
@@ -629,6 +643,14 @@ pub const SDL = struct {
         pub fn stopTextInput(self: *const Self) void {
             _ = self;
             c.SDL_StopTextInput();
+        }
+
+        pub fn keyPressed(self: *const Self, scancode: keycodes.Scancode) bool {
+            return self.key_state[@intFromEnum(scancode)] == .pressed;
+        }
+
+        pub fn keyReleased(self: *const Self, scancode: keycodes.Scancode) bool {
+            return self.key_state[@intFromEnum(scancode)] == .released;
         }
 
         pub fn keydown(self: *const Self, scancode: keycodes.Scancode) bool {
@@ -702,9 +724,9 @@ pub fn copyAlloc(comptime T: type, alloc: std.mem.Allocator, items: []T) ![]T {
     return slice;
 }
 
-const MarioBgColor = 0x9290ffff;
-const MarioBgColor2 = 0x9494ffff;
-const MarioBgColor3 = 0x00298cff;
+pub const MarioBgColor = 0x9290ffff;
+pub const MarioBgColor2 = 0x9494ffff;
+pub const MarioBgColor3 = 0x00298cff;
 
 pub const BakedAtlas = struct {
     const Self = @This();
@@ -934,6 +956,7 @@ pub const Atlas = struct {
     atlas_data: AtlasJson,
 
     textures: std.ArrayList(Texture),
+    img_dir: std.fs.Dir,
 
     alloc: std.mem.Allocator,
 
@@ -953,7 +976,7 @@ pub const Atlas = struct {
         if (sets_to_load.len == 0) return error.noSets;
 
         var img_dir = try dir.openDir(json.img_dir_path, .{});
-        defer img_dir.close();
+        //defer img_dir.close();
 
         var textures = std.ArrayList(Texture).init(alloc);
 
@@ -969,11 +992,33 @@ pub const Atlas = struct {
             }
         }
 
-        return .{ .alloc = alloc, .textures = textures, .atlas_data = ret_j };
+        return .{ .alloc = alloc, .textures = textures, .atlas_data = ret_j, .img_dir = img_dir };
     }
 
     pub fn getTexRec(m: @This(), si: usize, ti: usize) Rect {
         return m.sets.items[si].getTexRec(ti);
+    }
+
+    pub fn addSet(self: *@This(), img_filename: []const u8) !void {
+        //add an AtlasJson entry
+        //add a textures entry
+
+        const texture = (try Texture.initFromImgFile(self.alloc, self.img_dir, img_filename, .{ .mag_filter = c.GL_NEAREST, .min_filter = c.GL_NEAREST }));
+        const num = self.atlas_data.sets.len;
+        self.atlas_data.sets = try self.alloc.realloc(self.atlas_data.sets, num + 1);
+        //self.textures = try self.alloc.realloc(self.textures, num + 1);
+
+        const ts = try self.alloc.alloc(SubTileset, 1);
+        ts[0] = .{
+            .start = .{ .x = 0, .y = 0 },
+            .pad = .{ .x = 0, .y = 0 },
+            .num = .{ .x = 1, .y = 1 },
+            .count = 1,
+            .tw = 16,
+            .th = 16,
+        };
+        self.atlas_data.sets[num] = .{ .filename = try self.alloc.dupe(u8, img_filename), .tilesets = ts };
+        try self.textures.append(texture);
     }
 
     pub fn writeToTiled(dir: std.fs.Dir, json_filename: []const u8, out_dir: std.fs.Dir, alloc: std.mem.Allocator) !void {
@@ -1047,7 +1092,8 @@ pub const Atlas = struct {
             for (s.tilesets) |*ts| {
                 m.alloc.free(ts.description);
             }
-            m.alloc.free(s.tilesets);
+            if (s.tilesets.len > 0)
+                m.alloc.free(s.tilesets);
         }
         m.alloc.free(m.atlas_data.sets);
         m.textures.deinit();
@@ -3276,7 +3322,7 @@ pub const GraphicsContext = struct {
 
         var i: u32 = 0;
         for (str) |char| {
-            if (char == ' ') {
+            if (char == ' ' or char == '_') {
                 i += 1;
                 continue;
             }

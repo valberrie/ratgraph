@@ -187,6 +187,13 @@ pub fn Registry(comptime field_names_l: FieldList) type {
             return new_ent;
         }
 
+        pub fn destroyAll(self: *Self) !void {
+            inline for (field_names_l) |field| {
+                try @field(self.data, field.name).empty();
+            }
+            try self.entities.resize(0);
+        }
+
         pub fn destroyEntity(self: *Self, index: ID_TYPE) !void {
             const ent = try self.getEntity(index);
             inline for (field_names_l, 0..) |field, i| {

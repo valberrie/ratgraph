@@ -88,6 +88,11 @@ pub fn SparseSet(comptime child_type: type, comptime index_type: type) type {
             self.dense.deinit();
         }
 
+        pub fn empty(self: *Self) !void {
+            try self.sparse.resize(0);
+            try self.dense.resize(0);
+        }
+
         pub fn insert(self: *Self, index: index_type, item: child_type) !void {
             if (index < self.sparse.items.len and self.sparse.items[index] != sparse_null_marker)
                 return error.indexOccupied;
