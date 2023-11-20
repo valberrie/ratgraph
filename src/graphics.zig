@@ -788,6 +788,7 @@ pub const BakedAtlas = struct {
 
     pub fn fromAtlas(dir: std.fs.Dir, data: Atlas.AtlasJson, alloc: std.mem.Allocator) !Self {
         const texture_size = null;
+        const pad = 2;
 
         var pack_ctx = RectPack.init(alloc);
         defer pack_ctx.deinit();
@@ -799,7 +800,11 @@ pub const BakedAtlas = struct {
         for (data.sets, 0..) |img_set, img_index| {
             for (img_set.tilesets, 0..) |ts, ts_index| {
                 running_area += ts.tw * ts.num.x * ts.th * ts.num.y;
-                try pack_ctx.appendRect((img_index << ImgIdBitShift) + ts_index, ts.num.x * ts.tw, ts.num.y * ts.th);
+                try pack_ctx.appendRect(
+                    (img_index << ImgIdBitShift) + ts_index,
+                    ts.num.x * (ts.tw + pad),
+                    ts.num.y * (ts.th + pad),
+                );
             }
         }
         const atlas_size: u32 = blk: {
@@ -841,7 +846,7 @@ pub const BakedAtlas = struct {
                 .start = .{ .x = rect.x, .y = rect.y },
                 .tw = set.tw,
                 .th = set.th,
-                .pad = .{ .x = 0, .y = 0 }, //Reset padding because it is removed when copying
+                .pad = .{ .x = pad, .y = pad }, //Reset padding because it is removed when copying
                 .num = set.num,
                 .count = set.count,
             };
@@ -856,8 +861,8 @@ pub const BakedAtlas = struct {
                     @intCast(set.tw),
                     @intCast(set.th),
                     &bit,
-                    @as(u32, @intCast(rect.x)) + @as(u32, @intCast(@mod(i, set.num.x) * set.tw)),
-                    @as(u32, @intCast(rect.y)) + @as(u32, @intCast(@divFloor(i, set.num.x) * set.th)),
+                    @as(u32, @intCast(rect.x)) + @as(u32, @intCast(@mod(i, set.num.x) * (set.tw + pad))),
+                    @as(u32, @intCast(rect.y)) + @as(u32, @intCast(@divFloor(i, set.num.x) * (set.th + pad))),
                 );
             }
         }
@@ -1497,7 +1502,7 @@ pub const NewCtx = struct {
 
     const ColorTriBatch = NewBatch(ColorTriVert, .{ .index_buffer = true, .primitive_mode = .triangles });
     const ColorLine3DBatch = NewBatch(Line3DVert, .{ .index_buffer = false, .primitive_mode = .lines });
-    const TextureTriBatch = NewBatch(TexTriVert, .{ .index_buffer = true, .primitive_mode = .triangles });
+    pub const TextureTriBatch = NewBatch(TexTriVert, .{ .index_buffer = true, .primitive_mode = .triangles });
     const FontBatch = NewBatch(TexTriVert, .{ .index_buffer = true, .primitive_mode = .triangles });
 
     batch_colored_line3D: ColorLine3DBatch,
@@ -1771,7 +1776,7 @@ pub fn NewBatch(comptime vertex_type: type, comptime batch_options: BatchOptions
     };
 }
 
-const Shader = struct {
+pub const Shader = struct {
     fn checkShaderErr(shader: glID, comporlink: c_uint) void {
         var success: c_int = undefined;
         var infoLog: [512]u8 = undefined;
@@ -1791,7 +1796,7 @@ const Shader = struct {
         return vert;
     }
 
-    fn simpleShader(vert_src: [*c]const u8, frag_src: [*c]const u8) glID {
+    pub fn simpleShader(vert_src: [*c]const u8, frag_src: [*c]const u8) glID {
         const vert = compShader(vert_src, c.GL_VERTEX_SHADER);
         defer c.glDeleteShader(vert);
 
@@ -2123,8 +2128,8 @@ pub const Rect = struct {
         return .{ .x = x, .y = y, .w = w, .h = h };
     }
 
-    pub fn newV(_pos: Vec2f, dim: Vec2f) @This() {
-        return .{ .x = _pos.x, .y = _pos.y, .w = dim.x, .h = dim.y };
+    pub fn newV(_pos: Vec2f, dim_: Vec2f) @This() {
+        return .{ .x = _pos.x, .y = _pos.y, .w = dim_.x, .h = dim_.y };
     }
 
     pub fn addV(self: @This(), x: anytype, y: anytype) @This() {
@@ -2149,6 +2154,14 @@ pub const Rect = struct {
 
     pub fn inset(self: Self, amount: f32) Self {
         return .{ .x = self.x + amount, .y = self.y + amount, .w = self.w - amount * 2, .h = self.h - amount * 2 };
+    }
+
+    pub fn dimR(self: Self) Self {
+        return .{ .x = 0, .y = 0, .w = self.w, .h = self.h };
+    }
+
+    pub fn dim(self: Self) Vec2f {
+        return Vec2f.new(self.w, self.h);
     }
 
     //TODO remove in favor of topL()
@@ -2371,7 +2384,7 @@ pub const RenderTexture = struct {
             .h = h,
             .fb = 0,
             .depth_rb = 0,
-            .texture = Texture.initFromBuffer(null, w, h, .{ .min_filter = c.GL_LINEAR, .mag_filter = c.GL_LINEAR, .generate_mipmaps = false }),
+            .texture = Texture.initFromBuffer(null, w, h, .{ .min_filter = c.GL_LINEAR, .mag_filter = c.GL_NEAREST, .generate_mipmaps = false }),
             //.texture = Texture.
         };
         c.glGenFramebuffers(1, &ret.fb);
@@ -2398,6 +2411,11 @@ pub const RenderTexture = struct {
             self.deinit();
             self.* = try RenderTexture.init(w, h);
         }
+    }
+
+    pub fn rect(self: *Self) Rect {
+        const r = self.texture.rect();
+        return Rec(r.x, r.y + r.h, r.w, -r.h);
     }
 
     pub fn deinit(self: *Self) void {
@@ -2634,6 +2652,7 @@ pub const Font = struct {
         };
         const dump_bitmaps = false;
 
+        //TODO move to using a passed in dir and filename
         const dir = std.fs.cwd();
         dir.makeDir("debug") catch |err| switch (err) {
             error.PathAlreadyExists => {},

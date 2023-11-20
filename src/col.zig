@@ -8,7 +8,10 @@ const collision_set = SparseSet(ColRect);
 //A collision system that uses external sparse_set
 //Only function we need is simulateMove
 
+pub var simulate_move_time: u64 = 0;
 pub fn simulateMove(ecs: anytype, cols: *std.ArrayList(Collision), id: u32, dx: f32, dy: f32) !void {
+    var timer = try std.time.Timer.start();
+    defer simulate_move_time += timer.read();
     const pl = try ecs.getPtr(id, .col_rect);
     var col_it = ecs.iterator(.collision_type);
     while (col_it.next()) |other_opt| {

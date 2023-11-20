@@ -133,11 +133,14 @@ pub fn Registry(comptime field_names_l: FieldList) type {
         pub const Types = GenRegistryStructs(field_names_l);
         pub const Fields = field_names_l;
         pub const Components = Types.component_enum;
+        pub const SleptT = SparseSet(struct { i: ID_TYPE = 0 }, ID_TYPE);
 
         data: Types.reg,
 
         ///All entities have an entry in this array. The bitset represents what components are attached to this entity.
         entities: std.ArrayList(Types.component_bit_set),
+
+        slept: SleptT,
 
         pub fn Type(comptime component_type: Components) type {
             return Fields[@intFromEnum(component_type)].ftype;
@@ -147,17 +150,36 @@ pub fn Registry(comptime field_names_l: FieldList) type {
             return container_struct(Type(component_type), ID_TYPE);
         }
 
+        pub fn Iterator(comptime component_type: Components) type {
+            return struct {
+                const childT = container_struct(Fields[@intFromEnum(component_type)].ftype, ID_TYPE);
+                child_it: SparseSet(childT, ID_TYPE).Iterator,
+
+                slept: *SleptT,
+
+                pub fn next(self: *@This()) ?*childT {
+                    while (self.child_it.next()) |item| {
+                        if (self.slept.getOpt(item.i) == null)
+                            return item;
+                    }
+                    return null;
+                }
+            };
+        }
+
         pub fn init(alloc: std.mem.Allocator) !Self {
             var ret: Self = undefined;
             inline for (field_names_l) |comp| {
                 @field(ret.data, comp.name) = try SparseSet(container_struct(comp.ftype, ID_TYPE), ID_TYPE).init(alloc);
             }
             ret.entities = std.ArrayList(Types.component_bit_set).init(alloc);
+            ret.slept = try SleptT.init(alloc);
 
             return ret;
         }
 
         pub fn deinit(self: *Self) void {
+            self.slept.deinit();
             self.entities.deinit();
             inline for (field_names_l) |field| {
                 @field(self.data, field.name).deinit();
@@ -279,9 +301,21 @@ pub fn Registry(comptime field_names_l: FieldList) type {
             return (try @field(self.data, @tagName(component_type)).get(index)).item;
         }
 
-        pub fn iterator(self: *Self, comptime component_type: Components) SparseSet(container_struct(Fields[@intFromEnum(component_type)].ftype, ID_TYPE), ID_TYPE).Iterator {
-            return @field(self.data, @tagName(component_type)).denseIterator();
+        pub fn iterator(self: *Self, comptime component_type: Components) Iterator(component_type) {
+            return .{ .child_it = @field(self.data, @tagName(component_type)).denseIterator(), .slept = &self.slept };
         }
+
+        pub fn sleepEntity(self: *Self, index: ID_TYPE) !void {
+            try self.slept.insert(index, .{});
+        }
+
+        pub fn wakeEntity(self: *Self, index: ID_TYPE) !void {
+            _ = try self.slept.remove(index);
+        }
+
+        //pub fn iterator(self: *Self, comptime component_type: Components) SparseSet(container_struct(Fields[@intFromEnum(component_type)].ftype, ID_TYPE), ID_TYPE).Iterator {
+        //    return @field(self.data, @tagName(component_type)).denseIterator();
+        //}
 
         pub fn printEntityInfo(self: *Self, index: ID_TYPE) void {
             std.debug.print("Entity Info: {d}\n", .{index});
@@ -296,86 +330,34 @@ pub fn Registry(comptime field_names_l: FieldList) type {
             }
         }
 
-        //pub fn createSystemSet(comptime components: []const Types.component_enum) type {
-        //    var fields: [components.len]std.builtin.Type.StructField = undefined;
-        //    inline for (components, 0..) |comp, f_i| {
-        //        fields[f_i] = .{
-        //            .name = field_names_l[@intFromEnum(comp)].name,
-        //            .type = *field_names_l[@intFromEnum(comp)].ftype,
-        //            .default_value = null,
-        //            .is_comptime = false,
-        //            .alignment = 0,
-        //        };
-        //    }
+        pub fn setType(comptime components: []const Types.component_enum) type {
+            var fields: [components.len]std.builtin.Type.StructField = undefined;
+            inline for (components, 0..) |comp, f_i| {
+                fields[f_i] = .{
+                    .name = field_names_l[@intFromEnum(comp)].name,
+                    .type = *field_names_l[@intFromEnum(comp)].ftype,
+                    .default_value = null,
+                    .is_comptime = false,
+                    .alignment = 0,
+                };
+            }
 
-        //    return @Type(std.builtin.Type{ .Struct = .{
-        //        .fields = fields[0..],
-        //        .decls = &.{},
-        //        .is_tuple = false,
-        //    } });
-        //}
+            return @Type(std.builtin.Type{ .Struct = .{
+                .layout = .Auto,
+                .fields = fields[0..],
+                .decls = &.{},
+                .is_tuple = false,
+            } });
+        }
 
-        //pub fn attachComponent(self: *Self, index: ID_TYPE, comptime component_type: type, component: component_type) !void {
-        //    //TODO check if index exisits
-        //    //const entity_mask = self.entities.items[index];
-        //    var valid_component_type = false;
-        //    inline for (field_names_l, 0..) |field, i| {
-        //        if (field.ftype == component_type) {
-        //            valid_component_type = true;
-
-        //            self.entities.items[index].set(i);
-        //            try @field(self.data, field.name).insert(index, .{ .item = component, .i = index });
-        //        }
-        //    }
-        //    if (!valid_component_type) {
-        //        std.debug.print("FUCK\n", .{});
-        //        //@compileError("Valid component type required: " ++ @typeName(@TypeOf(component)));
-        //    }
-        //}
-
-        //pub fn removeComponent(self: *Self, index: ID_TYPE, component: Types.component_enum) !void {
-        //    if (self.entities.items[index].isSet(@intFromEnum(component))) {
-        //        self.entities.items[index].unset(@intFromEnum(component));
-        //        inline for (field_names_l, 0..) |field, i| {
-        //            if (@intFromEnum(component) == i) {
-        //                _ = try @field(self.data, field.name).remove(index);
-        //            }
-        //        }
-        //    }
-        //}
-
-        //pub fn hasComponent(self: *Self, index: ID_TYPE, comptime component: Types.component_enum) bool {
-        //    return self.entities.items[index].isSet(@intFromEnum(component));
-        //}
-
-        //pub fn getComponentPtr(self: *Self, index: ID_TYPE, comptime component: Types.component_enum) ?*field_names_l[@intFromEnum(component)].ftype {
-        //    if (self.entities.items[index].isSet(@intFromEnum(component))) {
-        //        return &((@field(self.data, field_names_l[@intFromEnum(component)].name).getPtr(index) catch unreachable).item);
-        //    } else {
-        //        return null;
-        //    }
-        //}
-
-        //pub fn destroyEntity(self: *Self, index: ID_TYPE) !void {
-        //    //get mask
-        //    //for each set bit remove component entry
-        //    //remove entity from entity_set
-        //    const mask = self.entities.items[index];
-        //    //TODO deal with deletion from entity_set
-        //    inline for (field_names_l, 0..) |field, i| {
-        //        if (mask.isSet(i))
-        //            _ = try @field(self.data, field.name).remove(index);
-        //    }
-        //}
-
-        //pub fn getEntitySetPtr(self: *Self, index: ID_TYPE, comptime system_type: type) !system_type {
-        //    var result: system_type = undefined;
-        //    const info = @typeInfo(system_type);
-        //    inline for (info.Struct.fields) |field| {
-        //        @field(result, field.name) = &((try @field(self.data, field.name).getPtr(index)).item);
-        //    }
-        //    return result;
-        //}
+        pub fn getSetPtr(self: *Self, index: ID_TYPE, comptime set_type: type) !set_type {
+            var result: set_type = undefined;
+            const info = @typeInfo(set_type);
+            inline for (info.Struct.fields) |field| {
+                @field(result, field.name) = &((try @field(self.data, field.name).getPtr(index)).item);
+            }
+            return result;
+        }
 
         //pub fn getEntitySetIterator() type {
         //    return struct {

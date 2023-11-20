@@ -100,10 +100,21 @@ pub fn SparseSet(comptime child_type: type, comptime index_type: type) type {
             if (index >= self.sparse.items.len)
                 try self.sparse.appendNTimes(sparse_null_marker, index - self.sparse.items.len + 1);
 
-            self.sparse.items[index] = @as(index_type, @intCast(self.dense.items.len));
+            const dense_index = blk: {
+                for (self.dense.items, 0..) |dense_item, i| {
+                    if (dense_item.i == dense_null_marker) {
+                        break :blk i;
+                    }
+                }
+                try self.dense.resize(self.dense.items.len + 1);
+                break :blk self.dense.items.len - 1;
+            };
+
+            self.sparse.items[index] = @as(index_type, @intCast(dense_index));
             var new_item = item;
             new_item.i = @as(index_type, @intCast(index));
-            try self.dense.append(new_item);
+            self.dense.items[dense_index] = new_item;
+            //try self.dense.append(new_item);
             //TODO use errdefer to prevent garbage in sparse
         }
 
