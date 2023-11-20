@@ -9,6 +9,13 @@ pub const SparseSet = @import("sparse_set.zig").SparseSet;
 pub const MarioData = @import("data_mario.zig");
 pub const Collision = @import("col.zig");
 pub const Ecs = @import("registry.zig");
+//TODO write functions for
+//drawing debug information on the screen. Lots of strings, some sort of table.
+//like minecraft f3
+//drawing text is expensive.
+//write all strings to buffer. compare frame to frame using hash
+//only redraw when needed
+//can be done line by line or something so that fast changing numbers don't wreck the entire caching idea.
 
 //TODO for the graphics api
 //texture creation helper functions
