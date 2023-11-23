@@ -1,11 +1,22 @@
 const std = @import("std");
 const SparseSet = @import("sparse_set.zig").SparseSet;
 
-pub const MapField = struct { ftype: type, name: []const u8 };
+pub const MapField = struct {
+    ftype: type,
+    name: []const u8,
+    allow_getPtr: bool = true,
+    callback: ?struct {
+        create_pointer: type,
+        destroy_pointer: type,
+        user_data: type,
+    } = null,
+};
 
 pub fn Component(comptime name: []const u8, comptime _type: type) MapField {
     return .{ .ftype = _type, .name = name };
 }
+
+pub const ComponentCreateCallback = fn (user_ctx: anytype, component: anytype) void;
 
 pub const FieldList = []const MapField;
 
@@ -27,6 +38,7 @@ pub fn GenRegistryStructs(comptime fields: FieldList) struct {
     component_bit_set: type,
     queued: type,
     union_type: type,
+    callbacks: type,
 } {
     const TypeInfo = std.builtin.Type;
 
@@ -37,6 +49,8 @@ pub fn GenRegistryStructs(comptime fields: FieldList) struct {
     var enum_fields: [fields.len]TypeInfo.EnumField = undefined;
 
     var queued_fields: [fields.len]TypeInfo.StructField = undefined;
+    const num_cbs = 3;
+    var callback_fields: [fields.len * num_cbs]TypeInfo.StructField = undefined;
 
     inline for (fields, 0..) |f, lt_i| {
         const inner_struct = container_struct(f.ftype, ID_TYPE);
@@ -61,6 +75,28 @@ pub fn GenRegistryStructs(comptime fields: FieldList) struct {
             .alignment = @alignOf(f.ftype),
         };
 
+        const cb_type = if (f.callback) |cb| cb.create_pointer else void;
+        callback_fields[lt_i * num_cbs] = .{
+            .name = f.name ++ "create",
+            .type = cb_type,
+            .alignment = @alignOf(cb_type),
+            .is_comptime = false,
+            .default_value = null,
+        };
+        callback_fields[(lt_i * num_cbs) + 1] = .{
+            .name = f.name ++ "data",
+            .type = if (f.callback) |cb| cb.user_data else void,
+            .alignment = @alignOf(if (f.callback) |cb| cb.user_data else void),
+            .is_comptime = false,
+            .default_value = null,
+        };
+        callback_fields[(lt_i * num_cbs) + 2] = .{
+            .name = f.name ++ "destroy",
+            .type = if (f.callback) |cb| cb.destroy_pointer else void,
+            .alignment = @alignOf(if (f.callback) |cb| cb.destroy_pointer else void),
+            .is_comptime = false,
+            .default_value = null,
+        };
         enum_fields[lt_i] = .{
             .name = f.name,
             .value = lt_i,
@@ -82,6 +118,12 @@ pub fn GenRegistryStructs(comptime fields: FieldList) struct {
     } });
 
     return .{
+        .callbacks = @Type(TypeInfo{ .Struct = .{
+            .layout = .Auto,
+            .fields = callback_fields[0..],
+            .decls = &.{},
+            .is_tuple = false,
+        } }),
         .union_type = @Type(TypeInfo{ .Union = .{
             .layout = .Auto,
             .fields = union_fields[0..],
@@ -135,12 +177,15 @@ pub fn Registry(comptime field_names_l: FieldList) type {
         pub const Components = Types.component_enum;
         pub const SleptT = SparseSet(struct { i: ID_TYPE = 0 }, ID_TYPE);
 
+        callbacks: Types.callbacks,
         data: Types.reg,
 
         ///All entities have an entry in this array. The bitset represents what components are attached to this entity.
         entities: std.ArrayList(Types.component_bit_set),
 
         slept: SleptT,
+
+        get_call_count: usize = 0,
 
         pub fn Type(comptime component_type: Components) type {
             return Fields[@intFromEnum(component_type)].ftype;
@@ -186,6 +231,28 @@ pub fn Registry(comptime field_names_l: FieldList) type {
             }
         }
 
+        fn call_create_callback(self: *Self, comptime component_type: Components, comp: anytype, id: ID_TYPE) void {
+            const fname = @tagName(component_type) ++ "create";
+            const data = @tagName(component_type) ++ "data";
+            if (@TypeOf(@field(self.callbacks, fname)) != void) {
+                @field(self.callbacks, fname)(@field(self.callbacks, data), comp, id);
+            }
+        }
+
+        fn call_destroy_callback(self: *Self, comptime component_type: Components, comp: anytype, id: ID_TYPE) void {
+            const fname = @tagName(component_type) ++ "destroy";
+            const data = @tagName(component_type) ++ "data";
+            if (@TypeOf(@field(self.callbacks, fname)) != void) {
+                @field(self.callbacks, fname)(@field(self.callbacks, data), comp, id);
+            }
+        }
+
+        pub fn registerCallback(self: *Self, comptime component_type: Components, create_fn: anytype, destroy_fn: anytype, user_data: anytype) void {
+            @field(self.callbacks, @tagName(component_type) ++ "create") = create_fn;
+            @field(self.callbacks, @tagName(component_type) ++ "destroy") = destroy_fn;
+            @field(self.callbacks, @tagName(component_type) ++ "data") = user_data;
+        }
+
         pub fn createEntity(self: *Self) !ID_TYPE {
             const index = @as(ID_TYPE, @intCast(self.entities.items.len));
             try self.entities.append(Types.component_bit_set.initEmpty());
@@ -203,6 +270,7 @@ pub fn Registry(comptime field_names_l: FieldList) type {
 
                         try @field(self.data, field.name).insert(new_ent, .{ .i = new_ent, .item = @field(comp, field.name) });
                         ent.set(comp_i);
+                        self.call_create_callback(@enumFromInt(i), @field(comp, field.name), new_ent);
                     }
                 }
             }
@@ -220,7 +288,8 @@ pub fn Registry(comptime field_names_l: FieldList) type {
             const ent = try self.getEntity(index);
             inline for (field_names_l, 0..) |field, i| {
                 if (ent.isSet(i)) {
-                    _ = (try @field(self.data, field.name).remove(index));
+                    const d = (try @field(self.data, field.name).remove(index));
+                    self.call_destroy_callback(@enumFromInt(i), d.item, index);
                 }
             }
             ent.* = Types.component_bit_set.initEmpty();
@@ -228,9 +297,16 @@ pub fn Registry(comptime field_names_l: FieldList) type {
         }
 
         pub fn getEntity(self: *const Self, entity_index: ID_TYPE) !*Types.component_bit_set {
-            if (entity_index >= self.entities.items.len) return error.invalidEntityId;
+            if (entity_index >= self.entities.items.len) {
+                std.debug.print("ID {d}\n", .{entity_index});
+                return error.invalidEntityId;
+            }
+
             const ent = &self.entities.items[entity_index];
-            if (ent.isSet(Types.tombstone_bit)) return error.invalidEntityId;
+            if (ent.isSet(Types.tombstone_bit)) {
+                std.debug.print("ID {d}\n", .{entity_index});
+                return error.invalidEntityId;
+            }
             return ent;
         }
 
@@ -253,6 +329,7 @@ pub fn Registry(comptime field_names_l: FieldList) type {
 
             try @field(self.data, @tagName(component_type)).insert(index, .{ .i = index, .item = component });
             ent.set(@intFromEnum(component_type));
+            self.call_create_callback(component_type, component, index);
         }
 
         pub fn removeComponent(self: *Self, index: ID_TYPE, comptime component_type: Components) !Fields[@intFromEnum(component_type)].ftype {
@@ -260,7 +337,9 @@ pub fn Registry(comptime field_names_l: FieldList) type {
             const ent = try self.getEntity(index);
             if (!ent.isSet(comp)) return error.componentNotAttached;
             ent.unset(comp);
-            return (try @field(self.data, @tagName(component_type)).remove(index)).item;
+            const d = (try @field(self.data, @tagName(component_type)).remove(index)).item;
+            self.call_destroy_callback(component_type, d, index);
+            return d;
         }
 
         pub fn removeAllExcept(self: *Self, index: ID_TYPE, comptime components_to_keep: []const Components) !void {
@@ -271,7 +350,8 @@ pub fn Registry(comptime field_names_l: FieldList) type {
             const ent = try self.getEntity(index);
             inline for (field_names_l, 0..) |field, i| {
                 if (ent.isSet(i) and !keeper_set.isSet(i)) {
-                    _ = (try @field(self.data, field.name).remove(index));
+                    const d = (try @field(self.data, field.name).remove(index));
+                    self.call_destroy_callback(@enumFromInt(i), d.item, index);
                 }
             }
             ent.* = keeper_set;
@@ -279,7 +359,17 @@ pub fn Registry(comptime field_names_l: FieldList) type {
 
         //pub fn getPtrI(self: *Self, index:ID_TYPE, comptime component_type:Components)!
 
+        pub fn getPtrAllow(self: *Self, index: ID_TYPE, comptime component_type: Components) !*Fields[@intFromEnum(component_type)].ftype {
+            self.get_call_count += 1;
+            const ent = try self.getEntity(index);
+            if (!ent.isSet(@intFromEnum(component_type))) return error.componentNotAttached;
+            return &((try @field(self.data, @tagName(component_type)).getPtr(index)).item);
+        }
+
         pub fn getPtr(self: *Self, index: ID_TYPE, comptime component_type: Components) !*Fields[@intFromEnum(component_type)].ftype {
+            if (Fields[@intFromEnum(component_type)].allow_getPtr == false)
+                @compileError("allow_getPtr false on: " ++ @tagName(component_type));
+            self.get_call_count += 1;
             const ent = try self.getEntity(index);
             if (!ent.isSet(@intFromEnum(component_type))) return error.componentNotAttached;
             return &((try @field(self.data, @tagName(component_type)).getPtr(index)).item);
@@ -292,10 +382,11 @@ pub fn Registry(comptime field_names_l: FieldList) type {
         }
 
         pub fn get(self: *Self, index: ID_TYPE, comptime component_type: Components) !Fields[@intFromEnum(component_type)].ftype {
-            return (try self.getPtr(index, component_type)).*;
+            return (try self.getPtrAllow(index, component_type)).*;
         }
 
         pub fn getOpt(self: *Self, index: ID_TYPE, comptime component_type: Components) !?Fields[@intFromEnum(component_type)].ftype {
+            self.get_call_count += 1;
             const ent = try self.getEntity(index);
             if (!ent.isSet(@intFromEnum(component_type))) return null;
             return (try @field(self.data, @tagName(component_type)).get(index)).item;

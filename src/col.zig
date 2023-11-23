@@ -1,4 +1,21 @@
 const std = @import("std");
+//TODO
+//Currently simulateMove uses at least 50% of our time.
+//What kind of spatial indexing should we use.
+//what is the interface like.
+//
+//When calling simulate move we could calculate a "hull" that the rect moves through.
+//adding all rects that intersect this hull, then iterating these
+//
+//grid is simple
+//
+//should we store an array of indicies into col_rect or just store slices of col_rect and keep col_rect sorted?
+//
+//how will additions and removals and moves to col_rect be handled
+//A: all modification of col_rect data is done through member functions
+//B: idk
+
+//const Grid = std.AutoHashMap()
 
 const graph = @import("graphics.zig");
 pub const ColRect = graph.Rect;
@@ -9,32 +26,36 @@ const collision_set = SparseSet(ColRect);
 //Only function we need is simulateMove
 
 pub var simulate_move_time: u64 = 0;
-pub fn simulateMove(ecs: anytype, cols: *std.ArrayList(Collision), id: u32, dx: f32, dy: f32) !void {
+pub fn simulateMove(game: anytype, cols: *std.ArrayList(Collision), id: u32, dx: f32, dy: f32) !void {
     var timer = try std.time.Timer.start();
     defer simulate_move_time += timer.read();
-    const pl = try ecs.getPtr(id, .col_rect);
-    var col_it = ecs.iterator(.collision_type);
-    while (col_it.next()) |other_opt| {
-        //for (ecs.getDenseSlice(.collision_type)) |other_opt| {
-        if (other_opt.i == id) continue;
-        //if (other_opt.item == .solid) {
-        const col = detectCollision(pl.*, try ecs.get(other_opt.i, .col_rect), .{ .x = pl.x + dx, .y = pl.y + dy }, other_opt.i);
+    const pl = try game.ecs.get(id, .col_rect);
+
+    const area = graph.Rect.hull(pl, pl.addV(dx, dy));
+    var rects_to_check = try game.grid.getObjectsInArea(game.temp_alloc.allocator(), area);
+
+    for (rects_to_check.items) |o_id| {
+        if (o_id == id) continue;
+        if (try game.ecs.getOpt(o_id, .collision_type) == null) continue;
+
+        const col = detectCollision(pl, try game.ecs.get(o_id, .col_rect), .{ .x = pl.x + dx, .y = pl.y + dy }, o_id);
         if (col.x != null or col.y != null or col.overlaps) {
             try cols.append(col);
         }
-        //}
     }
+
+    //var col_it = game.ecs.iterator(.collision_type);
+    //while (col_it.next()) |other_opt| {
+    //    if (other_opt.i == id) continue;
+    //    const col = detectCollision(pl, try game.ecs.get(other_opt.i, .col_rect), .{ .x = pl.x + dx, .y = pl.y + dy }, other_opt.i);
+    //    if (col.x != null or col.y != null or col.overlaps) {
+    //        try cols.append(col);
+    //    }
+    //}
     if (cols.items.len > 1) {
         std.sort.insertion(Collision, cols.items, Vec2f{ .x = 0, .y = 0 }, sortByCompletion);
     }
 }
-
-//pub const ColRect = struct {
-//    x: f32,
-//    y: f32,
-//    w: f32,
-//    h: f32,
-//};
 
 pub fn doRectsOverlap(r1: ColRect, r2: ColRect) bool {
     return !(r1.x > r2.x + r2.w or r2.x > r1.x + r1.w or r1.y > r2.y + r2.h or r2.y > r1.y + r1.h);
@@ -190,8 +211,6 @@ pub fn CollisionContext() type {
         }
 
         pub fn add(self: *Self, rect: ColRect) !u32 {
-            //TODO Add and remove functions need to treat data arrays as memory? or something, reuse empty slots rather than always appending
-
             return try self.rect_set.add(.{ .rect = rect, .i = 0 });
         }
 

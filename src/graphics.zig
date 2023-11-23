@@ -470,16 +470,27 @@ pub const SDL = struct {
             errdefer c.SDL_GL_DeleteContext(context);
 
             c.glEnable(c.GL_MULTISAMPLE);
+            const vsync: enum(i32) {
+                vsync = 1,
+                adaptave_vsync = -1,
+                immediate = 0,
+            } = .vsync;
 
-            if (c.SDL_GL_SetSwapInterval(1) < 0) {
+            if (c.SDL_GL_SetSwapInterval(@intFromEnum(vsync)) < 0) {
                 sdlLogErr();
-                return error.SetSwapInterval;
+                if (vsync == .adaptave_vsync) {
+                    std.debug.print("SDL failed to set adaptive sync, trying vsync\n", .{});
+                    if (c.SDL_GL_SetSwapInterval(1) < 0) {
+                        sdlLogErr();
+                        return error.SetSwapInterval;
+                    }
+                } else {
+                    return error.SetSwapInterval;
+                }
             }
             c.glEnable(c.GL_DEPTH_TEST);
             c.glEnable(c.GL_STENCIL_TEST);
             c.glEnable(c.GL_DEBUG_OUTPUT);
-
-            //_ = c.SDL_SetRelativeMouseMode(c.SDL_TRUE);
 
             return Self{
                 .win = win,
@@ -614,6 +625,9 @@ pub const SDL = struct {
                                 self.screen_width = event.window.data1;
                                 self.screen_height = event.window.data2;
                                 c.glViewport(0, 0, self.screen_width, self.screen_height);
+                            },
+                            c.SDL_WINDOWEVENT_SIZE_CHANGED => {
+                                std.debug.print("MORE shitttt {d} {d}\n", .{ event.window.data1, event.window.data2 });
                             },
                             c.SDL_WINDOWEVENT_CLOSE => self.should_exit = true,
                             else => {},
@@ -2208,6 +2222,12 @@ pub const Rect = struct {
         return (a.x == b.x and a.y == b.y and a.w == b.w and a.h == b.h);
     }
 
+    pub fn hull(a: Self, b: Self) Self {
+        const x = @min(a.x, b.x);
+        const y = @min(a.y, b.y);
+        return Rec(x, y, @max(a.farX(), b.farX()) - x, @max(a.farY(), b.farY()) - y);
+    }
+
     //pub fn param(
     //    self: Self,
     //) @This() {
@@ -3151,9 +3171,11 @@ pub const GraphicsContext = struct {
         //self.last_memcpy_time = self.memcpy_time;
         self.memcpy_time = 1; //prevent divide by zero with 1ns
 
-        const desired_frametime = @as(u64, @intFromFloat((1.0 / 63.0) * @as(f32, @floatFromInt(std.time.ns_per_s))));
-        if (self.last_frame_time < desired_frametime) {
-            std.time.sleep(desired_frametime - self.last_frame_time);
+        if (false) {
+            const desired_frametime = @as(u64, @intFromFloat((1.0 / 63.0) * @as(f32, @floatFromInt(std.time.ns_per_s))));
+            if (self.last_frame_time < desired_frametime) {
+                std.time.sleep(desired_frametime - self.last_frame_time);
+            }
         }
         self.frame_timer.reset();
 
