@@ -4,4 +4,7 @@ layout (location = 0) out vec4 FragColor;
 void main()
 {
    FragColor = color;
+   if(FragColor.a < 40 / 255){
+    discard;
+   }
 };

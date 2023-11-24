@@ -431,7 +431,13 @@ pub const SDL = struct {
 
         //}
 
-        pub fn createWindow(title: [*c]const u8) !Self {
+        pub fn createWindow(title: [*c]const u8, options: struct {
+            frame_sync: enum(i32) {
+                vsync = 1,
+                adaptave_vsync = -1,
+                immediate = 0,
+            } = .vsync,
+        }) !Self {
             //This does not seem to be needed
             //No errors occur
             //Event handling still functions
@@ -470,15 +476,10 @@ pub const SDL = struct {
             errdefer c.SDL_GL_DeleteContext(context);
 
             c.glEnable(c.GL_MULTISAMPLE);
-            const vsync: enum(i32) {
-                vsync = 1,
-                adaptave_vsync = -1,
-                immediate = 0,
-            } = .vsync;
 
-            if (c.SDL_GL_SetSwapInterval(@intFromEnum(vsync)) < 0) {
+            if (c.SDL_GL_SetSwapInterval(@intFromEnum(options.frame_sync)) < 0) {
                 sdlLogErr();
-                if (vsync == .adaptave_vsync) {
+                if (options.frame_sync == .adaptave_vsync) {
                     std.debug.print("SDL failed to set adaptive sync, trying vsync\n", .{});
                     if (c.SDL_GL_SetSwapInterval(1) < 0) {
                         sdlLogErr();

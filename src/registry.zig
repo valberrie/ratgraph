@@ -8,6 +8,7 @@ pub const MapField = struct {
     callback: ?struct {
         create_pointer: type,
         destroy_pointer: type,
+        reset_pointer: type,
         user_data: type,
     } = null,
 };
@@ -49,7 +50,7 @@ pub fn GenRegistryStructs(comptime fields: FieldList) struct {
     var enum_fields: [fields.len]TypeInfo.EnumField = undefined;
 
     var queued_fields: [fields.len]TypeInfo.StructField = undefined;
-    const num_cbs = 3;
+    const num_cbs = 4;
     var callback_fields: [fields.len * num_cbs]TypeInfo.StructField = undefined;
 
     inline for (fields, 0..) |f, lt_i| {
@@ -94,6 +95,13 @@ pub fn GenRegistryStructs(comptime fields: FieldList) struct {
             .name = f.name ++ "destroy",
             .type = if (f.callback) |cb| cb.destroy_pointer else void,
             .alignment = @alignOf(if (f.callback) |cb| cb.destroy_pointer else void),
+            .is_comptime = false,
+            .default_value = null,
+        };
+        callback_fields[(lt_i * num_cbs) + 3] = .{
+            .name = f.name ++ "reset",
+            .type = if (f.callback) |cb| cb.reset_pointer else void,
+            .alignment = @alignOf(if (f.callback) |cb| cb.reset_pointer else void),
             .is_comptime = false,
             .default_value = null,
         };
@@ -247,9 +255,25 @@ pub fn Registry(comptime field_names_l: FieldList) type {
             }
         }
 
-        pub fn registerCallback(self: *Self, comptime component_type: Components, create_fn: anytype, destroy_fn: anytype, user_data: anytype) void {
+        fn call_reset_callback(self: *Self, comptime component_type: Components) void {
+            const fname = @tagName(component_type) ++ "reset";
+            const data = @tagName(component_type) ++ "data";
+            if (@TypeOf(@field(self.callbacks, fname)) != void) {
+                @field(self.callbacks, fname)(@field(self.callbacks, data));
+            }
+        }
+
+        pub fn registerCallback(
+            self: *Self,
+            comptime component_type: Components,
+            create_fn: anytype,
+            destroy_fn: anytype,
+            reset_fn: anytype,
+            user_data: anytype,
+        ) void {
             @field(self.callbacks, @tagName(component_type) ++ "create") = create_fn;
             @field(self.callbacks, @tagName(component_type) ++ "destroy") = destroy_fn;
+            @field(self.callbacks, @tagName(component_type) ++ "reset") = reset_fn;
             @field(self.callbacks, @tagName(component_type) ++ "data") = user_data;
         }
 
@@ -278,7 +302,8 @@ pub fn Registry(comptime field_names_l: FieldList) type {
         }
 
         pub fn destroyAll(self: *Self) !void {
-            inline for (field_names_l) |field| {
+            inline for (field_names_l, 0..) |field, i| {
+                self.call_reset_callback(@enumFromInt(i));
                 try @field(self.data, field.name).empty();
             }
             try self.entities.resize(0);
