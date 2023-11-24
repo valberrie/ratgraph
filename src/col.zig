@@ -1,29 +1,10 @@
 const std = @import("std");
-//TODO
-//Currently simulateMove uses at least 50% of our time.
-//What kind of spatial indexing should we use.
-//what is the interface like.
-//
-//When calling simulate move we could calculate a "hull" that the rect moves through.
-//adding all rects that intersect this hull, then iterating these
-//
-//grid is simple
-//
-//should we store an array of indicies into col_rect or just store slices of col_rect and keep col_rect sorted?
-//
-//how will additions and removals and moves to col_rect be handled
-//A: all modification of col_rect data is done through member functions
-//B: idk
-
-//const Grid = std.AutoHashMap()
 
 const graph = @import("graphics.zig");
 pub const ColRect = graph.Rect;
 
 pub const SparseSet = graph.SparseSet;
 const collision_set = SparseSet(ColRect);
-//A collision system that uses external sparse_set
-//Only function we need is simulateMove
 
 pub var simulate_move_time: u64 = 0;
 pub fn simulateMove(game: anytype, cols: *std.ArrayList(Collision), id: u32, dx: f32, dy: f32) !void {
