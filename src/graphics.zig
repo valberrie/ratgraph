@@ -215,7 +215,6 @@ pub const Camera2d = struct {
     pub fn toWorld(self: *Self, local: Rect) Rect {
         const f = self.factor().inv();
         const cam_area = self.cam_area.pos();
-        //return local.addVec(self.offset).subVec(cam_area).vmul(f).addVec(self.screen_area.pos());
         return local.subVec(cam_area).vmul(f).addVec(self.screen_area.pos());
     }
 
