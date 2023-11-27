@@ -2,6 +2,7 @@ const std = @import("std");
 
 const graph = @import("graphics.zig");
 pub const ColRect = graph.Rect;
+const Vec2f = graph.Vec2f;
 
 pub const SparseSet = graph.SparseSet;
 const collision_set = SparseSet(ColRect);
@@ -38,6 +39,26 @@ pub fn simulateMove(game: anytype, cols: *std.ArrayList(Collision), id: u32, dx:
     }
 }
 
+pub fn simulateMoveNew(game: anytype, cols: *std.ArrayList(Collision), id: u32, dx: f32, dy: f32) !void {
+    var timer = try std.time.Timer.start();
+    defer simulate_move_time += timer.read();
+    const plc = try game.ecs.get(id, .collide);
+    const pl = plc.rect;
+
+    var col_it = game.ecs.iterator(.collide);
+    while (col_it.next()) |other_opt| {
+        if (other_opt.i == id) continue;
+        if (other_opt.item.kind == .nocollide) continue;
+        const col = detectCollision(pl, (try game.ecs.get(other_opt.i, .collide)).rect, .{ .x = pl.x + dx, .y = pl.y + dy }, other_opt.i);
+        if (col.x != null or col.y != null or col.overlaps) {
+            try cols.append(col);
+        }
+    }
+    if (cols.items.len > 1) {
+        std.sort.insertion(Collision, cols.items, Vec2f{ .x = 0, .y = 0 }, sortByCompletion);
+    }
+}
+
 pub fn doRectsOverlap(r1: ColRect, r2: ColRect) bool {
     return !(r1.x > r2.x + r2.w or r2.x > r1.x + r1.w or r1.y > r2.y + r2.h or r2.y > r1.y + r1.h);
 }
@@ -54,12 +75,14 @@ pub fn slope(x1: f32, x2: f32, y1: f32, y2: f32) Vec2f {
     return .{ .y = (y2 - y1), .x = x2 - x1 };
 }
 
+//TODO helper functions for checking the side of collision
 pub const Collision = struct {
     x: ?f32,
     y: ?f32,
     perc: f32,
     overlaps: bool,
 
+    //TODO use enum values instead of bool, .left, .right, .top, .bottom
     normal: bool,
 
     //other: ColRect,
@@ -122,10 +145,10 @@ pub fn detectCollision(r1: ColRect, r2: ColRect, goal: Vec2f, other_i: u32) Coll
     return result;
 }
 
-pub const Vec2f = struct {
-    x: f32,
-    y: f32,
-};
+//pub const Vec2f = struct {
+//    x: f32,
+//    y: f32,
+//};
 
 //Entity
 //Coord
