@@ -45,15 +45,29 @@ pub fn simulateMoveNew(game: anytype, cols: *std.ArrayList(Collision), id: u32, 
     const plc = try game.ecs.get(id, .collide);
     const pl = plc.rect;
 
-    var col_it = game.ecs.iterator(.collide);
-    while (col_it.next()) |other_opt| {
-        if (other_opt.i == id) continue;
-        if (other_opt.item.kind == .nocollide) continue;
-        const col = detectCollision(pl, (try game.ecs.get(other_opt.i, .collide)).rect, .{ .x = pl.x + dx, .y = pl.y + dy }, other_opt.i);
+    const area = graph.Rect.hull(pl, pl.addV(dx, dy));
+    var rects_to_check = try game.grid.getObjectsInArea(game.temp_alloc.allocator(), area);
+
+    for (rects_to_check.items) |o_id| {
+        if (o_id == id) continue;
+        const other = try game.ecs.get(o_id, .collide);
+        if (other.kind == .nocollide) continue;
+
+        const col = detectCollision(pl, other.rect, .{ .x = pl.x + dx, .y = pl.y + dy }, o_id);
         if (col.x != null or col.y != null or col.overlaps) {
             try cols.append(col);
         }
     }
+
+    //var col_it = game.ecs.iterator(.collide);
+    //while (col_it.next()) |other_opt| {
+    //    if (other_opt.i == id) continue;
+    //    if (other_opt.item.kind == .nocollide) continue;
+    //    const col = detectCollision(pl, (try game.ecs.get(other_opt.i, .collide)).rect, .{ .x = pl.x + dx, .y = pl.y + dy }, other_opt.i);
+    //    if (col.x != null or col.y != null or col.overlaps) {
+    //        try cols.append(col);
+    //    }
+    //}
     if (cols.items.len > 1) {
         std.sort.insertion(Collision, cols.items, Vec2f{ .x = 0, .y = 0 }, sortByCompletion);
     }

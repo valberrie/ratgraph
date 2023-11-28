@@ -6,10 +6,10 @@ pub const MapField = struct {
     name: []const u8,
     allow_getPtr: bool = true,
     callback: ?struct {
-        create_pointer: type,
-        destroy_pointer: type,
-        reset_pointer: type,
-        user_data: type,
+        create_pointer: type = void,
+        destroy_pointer: type = void,
+        reset_pointer: type = void,
+        user_data: type = void,
     } = null,
 };
 
@@ -427,6 +427,10 @@ pub fn Registry(comptime field_names_l: FieldList) type {
 
         pub fn wakeEntity(self: *Self, index: ID_TYPE) !void {
             _ = try self.slept.remove(index);
+        }
+
+        pub fn hasComponent(self: *Self, index: ID_TYPE, comptime component_type: Components) !bool {
+            return (try self.getEntity(index)).isSet(@intFromEnum(component_type));
         }
 
         //pub fn iterator(self: *Self, comptime component_type: Components) SparseSet(container_struct(Fields[@intFromEnum(component_type)].ftype, ID_TYPE), ID_TYPE).Iterator {

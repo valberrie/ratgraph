@@ -72,8 +72,11 @@ pub const Vec2f = packed struct {
         return .{ .x = 0, .y = 0 };
     }
 
-    pub fn new(x: f32, y: f32) @This() {
-        return @This(){ .x = x, .y = y };
+    pub fn new(x: anytype, y: anytype) @This() {
+        return .{
+            .x = std.math.lossyCast(f32, x),
+            .y = std.math.lossyCast(f32, y),
+        };
     }
 
     pub fn mul(s: @This(), b: @This()) @This() {
