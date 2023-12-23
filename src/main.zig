@@ -508,7 +508,7 @@ pub fn main() !void {
 
     //var testmap = graph.Bind(&.{.{ "fuck", "a" }}).init();
 
-    var win = try graph.SDL.Window.createWindow("zig-game-engine");
+    var win = try graph.SDL.Window.createWindow("zig-game-engine", .{});
     defer win.destroyWindow();
 
     var ctx = try graph.GraphicsContext.init(alloc, 163);
@@ -519,12 +519,6 @@ pub fn main() !void {
 
     var asset_dir = try std.fs.cwd().openDir("mario_assets", .{});
     defer asset_dir.close();
-
-    var atlasjson = try graph.Atlas.AtlasJson.initFromJsonFile(asset_dir, "testoutput.json", alloc);
-
-    var baked_atlas = try graph.BakedAtlas.fromAtlas(asset_dir, atlasjson, alloc);
-    defer baked_atlas.deinit();
-    atlasjson.deinit(alloc);
 
     const SaveData = struct {
         fps_posx: f32 = 0,
@@ -577,8 +571,6 @@ pub fn main() !void {
     while (!win.should_exit) {
         try draw.begin(graph.itc(0x2f2f2fff));
         win.pumpEvents();
-
-        try draw.rectTex(graph.Rec(0, 0, 1000, 1000), baked_atlas.texture.rect(), 0xffffffff, baked_atlas.texture);
 
         try draw.text(.{ .x = 1000, .y = 200 }, "Test string ____.!", &font, 72, 0xffffffff);
 
