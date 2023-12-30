@@ -104,6 +104,8 @@ pub const Collision = struct {
 };
 
 pub fn sortByCompletion(goal: Vec2f, a: Collision, b: Collision) bool {
+    if (a.overlaps) return true;
+    if (b.overlaps and !a.overlaps) return false;
     _ = goal;
     return a.perc < b.perc;
 }

@@ -520,15 +520,6 @@ pub fn main() !void {
     //const mc_atlas = try mcBlockAtlas.buildAtlas(alloc);
     //defer mc_atlas.deinit(alloc);
 
-    var asset_dir = try std.fs.cwd().openDir("mario_assets", .{});
-    defer asset_dir.close();
-
-    var atlasjson = try graph.Atlas.AtlasJson.initFromJsonFile(asset_dir, "testoutput.json", alloc);
-
-    var baked_atlas = try graph.BakedAtlas.fromAtlas(asset_dir, atlasjson, alloc);
-    defer baked_atlas.deinit();
-    atlasjson.deinit(alloc);
-
     const SaveData = struct {
         fps_posx: f32 = 0,
         fps_posy: f32 = 40,

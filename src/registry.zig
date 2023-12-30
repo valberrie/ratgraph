@@ -410,6 +410,12 @@ pub fn Registry(comptime field_names_l: FieldList) type {
             return (try self.getPtrAllow(index, component_type)).*;
         }
 
+        pub fn getOptPtr(self: *Self, index: ID_TYPE, comptime component_type: Components) !?*Fields[@intFromEnum(component_type)].ftype {
+            const ent = try self.getEntity(index);
+            if (!ent.isSet(@intFromEnum(component_type))) return null;
+            return try self.getPtr(index, component_type);
+        }
+
         pub fn getOpt(self: *Self, index: ID_TYPE, comptime component_type: Components) !?Fields[@intFromEnum(component_type)].ftype {
             self.get_call_count += 1;
             const ent = try self.getEntity(index);
