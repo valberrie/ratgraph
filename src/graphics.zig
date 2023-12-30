@@ -42,6 +42,14 @@ pub const keycodes = @import("keycodes.zig");
 
 pub const V3 = za.Vec3;
 
+pub fn reduceU32Mask(items: []const u32) u32 {
+    var result: u32 = 0;
+    for (items) |item| {
+        result |= item;
+    }
+    return result;
+}
+
 pub fn RingBuffer(comptime size: u32, comptime T: type, comptime default: T) type {
     return struct {
         const Self = @This();
@@ -348,34 +356,55 @@ pub fn writeBmp(file_name: [*c]const u8, w: i32, h: i32, component_count: i32, d
 }
 
 //Ideally I don't want to make any c.SDL calls in my application
-//TODO detect dpi changes
 pub const SDL = struct {
-    pub const MouseState = struct {
-        left: bool,
-        right: bool,
-        middle: bool,
+    /// These names are less ambiguous than "pressed" "released" "held"
+    pub const ButtonState = enum {
+        rising,
+        high,
+        falling,
+        low,
 
-        //TODO rename and add other mouse buttons
-        //each button has 4 states, Click, Hold, Up, Release
-        //This mouse state structure can be used by Gui
-        left_down: bool,
+        ///From frame to frame, correctly set state of a button given a binary input (up, down)
+        pub fn set(self: *ButtonState, pressed: bool) void {
+            if (pressed) {
+                self.* = switch (self.*) {
+                    .rising, .high => .high,
+                    .low, .falling => .rising,
+                };
+            } else {
+                self.* = switch (self.*) {
+                    .rising, .high => .falling,
+                    .low, .falling => .low,
+                };
+            }
+        }
+    };
+
+    pub const MouseState = struct {
+        left: ButtonState,
+        right: ButtonState,
+        middle: ButtonState,
+        x1: ButtonState,
+        x2: ButtonState,
 
         pos: Vec2f,
         delta: Vec2f,
 
-        wheel_delta: f32,
+        wheel_delta: Vec2f,
+
+        pub fn setButtons(self: *MouseState, sdl_button_mask: u32) void {
+            const b = sdl_button_mask;
+            self.left.set(b & c.SDL_BUTTON_LMASK != 0);
+            self.right.set(b & c.SDL_BUTTON_RMASK != 0);
+            self.middle.set(b & c.SDL_BUTTON_MMASK != 0);
+            self.x1.set(b & c.SDL_BUTTON_X1MASK != 0);
+            self.x2.set(b & c.SDL_BUTTON_X2MASK != 0);
+        }
     };
 
     pub const KeyState = struct {
-        pub const State = enum {
-            pressed,
-            released,
-            held,
-            none,
-        };
-
-        state: State,
-        scancode: usize,
+        state: ButtonState,
+        scancode: keycodes.Scancode,
     };
 
     pub fn getKeyFromScancode(scancode: keycodes.Scancode) keycodes.Keycode {
@@ -403,7 +432,7 @@ pub const SDL = struct {
 
         mouse: MouseState = undefined,
 
-        key_state: [c.SDL_NUM_SCANCODES]KeyState.State = [_]KeyState.State{.none} ** c.SDL_NUM_SCANCODES,
+        key_state: [c.SDL_NUM_SCANCODES]ButtonState = [_]ButtonState{.low} ** c.SDL_NUM_SCANCODES,
         keys: KeysT = KeysT.init(0) catch unreachable,
         keyboard_state: KeyboardStateT = KeyboardStateT.initEmpty(),
         last_frame_keyboard_state: KeyboardStateT = KeyboardStateT.initEmpty(),
@@ -434,37 +463,51 @@ pub const SDL = struct {
         //}
 
         pub fn createWindow(title: [*c]const u8, options: struct {
+            window_size: Vec2i = .{ .x = 1280, .y = 960 },
+            double_buffer: bool = true,
+            gl_profile: enum { core, compat, es } = .core,
+            stencil_buffer_depth: ?i32 = 8,
+            gl_major_version: i32 = 4,
+            gl_minor_version: i32 = 6,
             frame_sync: enum(i32) {
                 vsync = 1,
+                ///FreeSync, G-Sync
                 adaptave_vsync = -1,
                 immediate = 0,
             } = .vsync,
+            extra_gl_attributes: []const struct { attr: c.SDL_GLattr, val: i32 } = &.{},
+            gl_flags: []const u32 = &.{c.SDL_GL_CONTEXT_DEBUG_FLAG},
+            window_flags: []const u32 = &.{},
         }) !Self {
-            //This does not seem to be needed
-            //No errors occur
-            //Event handling still functions
             if (c.SDL_Init(c.SDL_INIT_VIDEO) < 0) {
                 sdlLogErr();
                 return error.SDLInit;
             }
             errdefer c.SDL_Quit();
 
-            try setAttr(c.SDL_GL_CONTEXT_PROFILE_MASK, c.SDL_GL_CONTEXT_PROFILE_CORE);
-            try setAttr(c.SDL_GL_DOUBLEBUFFER, 1);
-            try setAttr(c.SDL_GL_CONTEXT_MAJOR_VERSION, 4);
-            try setAttr(c.SDL_GL_CONTEXT_MINOR_VERSION, 6);
-            try setAttr(c.SDL_GL_CONTEXT_FLAGS, c.SDL_GL_CONTEXT_DEBUG_FLAG);
-            try setAttr(c.SDL_GL_STENCIL_SIZE, 8);
-            //try setAttr(c.SDL_GL_MULTISAMPLEBUFFERS, 1);
-            //try setAttr(c.SDL_GL_MULTISAMPLESAMPLES, 16);
+            try setAttr(c.SDL_GL_CONTEXT_PROFILE_MASK, switch (options.gl_profile) {
+                .core => c.SDL_GL_CONTEXT_PROFILE_CORE,
+                .compat => c.SDL_GL_CONTEXT_PROFILE_COMPATIBILITY,
+                .es => c.SDL_GL_CONTEXT_PROFILE_ES,
+            });
+            try setAttr(c.SDL_GL_DOUBLEBUFFER, if (options.double_buffer) 1 else 0);
+            try setAttr(c.SDL_GL_CONTEXT_MAJOR_VERSION, options.gl_major_version);
+            try setAttr(c.SDL_GL_CONTEXT_MINOR_VERSION, options.gl_minor_version);
+            try setAttr(c.SDL_GL_CONTEXT_FLAGS, @as(i32, @intCast(reduceU32Mask(options.gl_flags))));
+            if (options.stencil_buffer_depth) |sdepth|
+                try setAttr(c.SDL_GL_STENCIL_SIZE, sdepth);
+            for (options.extra_gl_attributes) |attr| {
+                try setAttr(attr.attr, attr.val);
+            }
 
             const win = c.SDL_CreateWindow(
                 title,
                 c.SDL_WINDOWPOS_UNDEFINED,
                 c.SDL_WINDOWPOS_UNDEFINED,
-                1280,
-                960,
-                c.SDL_WINDOW_OPENGL | c.SDL_WINDOW_RESIZABLE,
+                options.window_size.x,
+                options.window_size.y,
+                @as(u32, c.SDL_WINDOW_OPENGL | c.SDL_WINDOW_RESIZABLE) |
+                    @as(u32, @intCast(reduceU32Mask(options.window_flags))),
             ) orelse {
                 sdlLogErr();
                 return error.SDLInit;
@@ -476,8 +519,6 @@ pub const SDL = struct {
                 return error.SDLCreatingContext;
             };
             errdefer c.SDL_GL_DeleteContext(context);
-
-            c.glEnable(c.GL_MULTISAMPLE);
 
             if (c.SDL_GL_SetSwapInterval(@intFromEnum(options.frame_sync)) < 0) {
                 sdlLogErr();
@@ -491,6 +532,7 @@ pub const SDL = struct {
                     return error.SetSwapInterval;
                 }
             }
+            c.glEnable(c.GL_MULTISAMPLE);
             c.glEnable(c.GL_DEPTH_TEST);
             c.glEnable(c.GL_STENCIL_TEST);
             c.glEnable(c.GL_DEBUG_OUTPUT);
@@ -545,22 +587,15 @@ pub const SDL = struct {
             {
                 var x: c_int = undefined;
                 var y: c_int = undefined;
-                const button = c.SDL_GetMouseState(&x, &y);
+                self.mouse.setButtons(c.SDL_GetMouseState(&x, &y));
+                const old_pos = self.mouse.pos;
                 self.mouse.pos = .{ .x = @floatFromInt(x), .y = @floatFromInt(y) };
+                self.mouse.delta = self.mouse.pos.sub(old_pos);
 
-                const old_left = self.mouse.left;
-
-                self.mouse.left = button & c.SDL_BUTTON_LMASK != 0;
-                self.mouse.right = button & c.SDL_BUTTON_RMASK != 0;
-                self.mouse.middle = button & c.SDL_BUTTON_MMASK != 0;
-                _ = c.SDL_GetRelativeMouseState(&x, &y);
-                self.mouse.delta = .{ .x = @floatFromInt(x), .y = @floatFromInt(y) };
-
-                self.mouse.left_down = !self.mouse.left_down and self.mouse.left and !old_left;
-                self.mouse.wheel_delta = 0;
+                self.mouse.wheel_delta = .{ .x = 0, .y = 0 };
             }
             for (&self.key_state) |*k| {
-                k.* = .none;
+                k.* = .low;
             }
 
             self.keys.resize(0) catch unreachable;
@@ -573,7 +608,7 @@ pub const SDL = struct {
                 for (ret, 0..) |key, i| {
                     if (key == 1) {
                         self.keyboard_state.set(i);
-                        self.key_state[i] = .held;
+                        self.key_state[i] = .high;
                     }
                 }
             }
@@ -589,12 +624,15 @@ pub const SDL = struct {
 
                         const scancode = c.SDL_GetScancodeFromKey(event.key.keysym.sym);
                         if (!self.last_frame_keyboard_state.isSet(scancode))
-                            self.key_state[scancode] = .pressed;
-                        self.keys.append(.{ .state = .pressed, .scancode = scancode }) catch unreachable;
+                            self.key_state[scancode] = .rising;
+                        self.keys.append(.{
+                            .state = .rising,
+                            .scancode = @enumFromInt(scancode),
+                        }) catch unreachable;
                     },
                     c.SDL_KEYUP => {
                         const scancode = c.SDL_GetScancodeFromKey(event.key.keysym.sym);
-                        self.key_state[scancode] = .released;
+                        self.key_state[scancode] = .falling;
                     },
                     c.SDL_TEXTEDITING => {
                         const ed = event.edit;
@@ -605,33 +643,22 @@ pub const SDL = struct {
                         const slice = std.mem.sliceTo(&event.text.text, 0);
                         std.mem.copy(u8, &self.text_input_buffer, slice);
                         self.text_input = self.text_input_buffer[0..slice.len];
-                        //std.debug.print("SLICE {s}\n",.{slice});
                     },
                     c.SDL_KEYMAPCHANGED => {},
                     c.SDL_MOUSEWHEEL => {
-                        self.mouse.wheel_delta = event.wheel.preciseY;
+                        self.mouse.wheel_delta = Vec2f.new(event.wheel.preciseX, event.wheel.preciseY);
                     },
-                    c.SDL_MOUSEMOTION => {
-                        //const m = event.motion;
-                        //self.mouse.delta = .{ .x = @intToFloat(f32, m.xrel), .y = @intToFloat(f32, m.yrel) };
-                        //self.mouse.pos = .{ .x = @intToFloat(f32, m.x), .y = @intToFloat(f32, m.y) };
-                        //self.mouse.left = m.state & c.SDL_BUTTON_LMASK != 0;
-                        //self.mouse.right = m.state & c.SDL_BUTTON_RMASK != 0;
-                        //self.mouse.middle = m.state & c.SDL_BUTTON_MMASK != 0;
-                    },
+                    c.SDL_MOUSEMOTION => {},
                     c.SDL_MOUSEBUTTONDOWN => {},
                     c.SDL_MOUSEBUTTONUP => {},
                     c.SDL_WINDOWEVENT => {
-                        //std.debug.print("Window event!\n", .{});
                         switch (event.window.event) {
                             c.SDL_WINDOWEVENT_RESIZED => {
                                 self.screen_width = event.window.data1;
                                 self.screen_height = event.window.data2;
                                 c.glViewport(0, 0, self.screen_width, self.screen_height);
                             },
-                            c.SDL_WINDOWEVENT_SIZE_CHANGED => {
-                                std.debug.print("MORE shitttt {d} {d}\n", .{ event.window.data1, event.window.data2 });
-                            },
+                            c.SDL_WINDOWEVENT_SIZE_CHANGED => {},
                             c.SDL_WINDOWEVENT_CLOSE => self.should_exit = true,
                             else => {},
                         }
@@ -742,6 +769,7 @@ pub const RectPack = struct {
     }
 };
 
+//TODO just use alloc.dupe
 pub fn copyAlloc(comptime T: type, alloc: std.mem.Allocator, items: []T) ![]T {
     const slice = try alloc.alloc(T, items.len);
     std.mem.copy(T, slice, items);
@@ -1699,6 +1727,18 @@ pub const NewCtx = struct {
         const b = &self.batch_colored_line3D;
         try b.vertices.append(.{ .pos = start_point, .color = color });
         try b.vertices.append(.{ .pos = end_point, .color = color });
+    }
+
+    pub fn triangle(self: *Self, v1: Vec2f, v2: Vec2f, v3: Vec2f, color: u32) !void {
+        const b = &self.batch_colored_tri;
+        const z = self.zindex;
+        const i: u32 = @intCast(b.vertices.items.len);
+        try b.indicies.appendSlice(&.{ i, i + 1, i + 2, i });
+        try b.vertices.appendSlice(&.{
+            ColorTriVert{ .pos = v1, .z = z, .color = color },
+            ColorTriVert{ .pos = v2, .z = z, .color = color },
+            ColorTriVert{ .pos = v3, .z = z, .color = color },
+        });
     }
 
     pub fn end(self: *Self, screenW: i32, screenH: i32, camera: za.Mat4) void {
@@ -4024,4 +4064,3 @@ pub fn Bind(comptime map: BindList) type {
 //
 
 //loadTexture()
-//unloadTexture()

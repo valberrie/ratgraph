@@ -1,6 +1,7 @@
 const std = @import("std");
 const graph = @import("graphics.zig");
 const gui = @import("gui.zig");
+const V2f = graph.Vec2f;
 
 const c = @import("c.zig");
 
@@ -508,7 +509,9 @@ pub fn main() !void {
 
     //var testmap = graph.Bind(&.{.{ "fuck", "a" }}).init();
 
-    var win = try graph.SDL.Window.createWindow("zig-game-engine");
+    var win = try graph.SDL.Window.createWindow("zig-game-engine", .{ .window_flags = &.{
+        c.SDL_WINDOW_BORDERLESS,
+    } });
     defer win.destroyWindow();
 
     var ctx = try graph.GraphicsContext.init(alloc, 163);
@@ -551,7 +554,7 @@ pub fn main() !void {
     const rand = prng.random();
     _ = rand;
 
-    win.grabMouse(true);
+    //win.grabMouse(true);
     //var cubes = graph.Cubes.init(alloc, mc_atlas.texture.id, ctx.tex_shad);
     //defer cubes.deinit();
     //{
@@ -578,9 +581,8 @@ pub fn main() !void {
         try draw.begin(graph.itc(0x2f2f2fff));
         win.pumpEvents();
 
-        try draw.rectTex(graph.Rec(0, 0, 1000, 1000), baked_atlas.texture.rect(), 0xffffffff, baked_atlas.texture);
-
         try draw.text(.{ .x = 1000, .y = 200 }, "Test string ____.!", &font, 72, 0xffffffff);
+        try draw.triangle(V2f.new(0, 0), V2f.new(500, 0), V2f.new(250, 100), 0xffff00ff);
 
         draw.end(win.screen_width, win.screen_height, graph.za.Mat4.identity());
         win.swap();
