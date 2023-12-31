@@ -11,5 +11,5 @@ void main()
    gl_Position = view * model * vec4(pos, z, 1.0f);
 
    //out_color = vec4(1,1,1,1);
-   out_color = unpackUnorm4x8(color);
+   out_color = unpackUnorm4x8(color).abgr;
 };

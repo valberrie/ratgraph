@@ -12,5 +12,5 @@ uniform mat4 view = mat4(1.0f);
 void main() {
    out_texcoord = uv;
    gl_Position = view * model * vec4(pos, z, 1.0f);
-   out_color = unpackUnorm4x8(color);
+   out_color = unpackUnorm4x8(color).abgr;
 };

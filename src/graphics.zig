@@ -697,11 +697,11 @@ pub const SDL = struct {
         }
 
         pub fn keyPressed(self: *const Self, scancode: keycodes.Scancode) bool {
-            return self.key_state[@intFromEnum(scancode)] == .pressed;
+            return self.key_state[@intFromEnum(scancode)] == .rising;
         }
 
         pub fn keyReleased(self: *const Self, scancode: keycodes.Scancode) bool {
-            return self.key_state[@intFromEnum(scancode)] == .released;
+            return self.key_state[@intFromEnum(scancode)] == .falling;
         }
 
         pub fn keydown(self: *const Self, scancode: keycodes.Scancode) bool {
@@ -1543,9 +1543,17 @@ pub const GL = struct {
     }
 };
 
-//TODO have a default font that gets loaded
 //Handle dpi
 //More 3d primitives
+//TODO defer errors to end of frame. not drawing is not fatal, ergonomically much nicer to not "try draw.*"
+//The point of this drawing context is to get common 2d primitives drawn to the screen with as little boilerplate as possible.
+//This means:
+//  Loading a default font
+//  Handling multiple texture handles
+//  easy depth?
+//  functions should have terse but descriptive names
+//  no returning errors from draw functions.
+//  Don't mess with gl state to much so other drawing is easy
 pub const NewCtx = struct {
     const Self = @This();
     pub const ColorTriVert = packed struct { pos: Vec2f, z: u16, color: u32 };
@@ -1573,6 +1581,14 @@ pub const NewCtx = struct {
     delete_me_font_tex: ?Texture = null,
 
     alloc: std.mem.Allocator,
+    //TODO comptime function where you specify the indicies or verticies you want to append to by a string name, handles setting error flags and everything
+
+    //TODO actually check this and log or panic
+    draw_fn_error: enum {
+        //TODO maybe have different?
+        no,
+        yes,
+    } = .no,
 
     pub fn init(alloc: std.mem.Allocator, dpi: f32) Self {
         return Self{
@@ -1615,7 +1631,7 @@ pub const NewCtx = struct {
         return res.value_ptr;
     }
 
-    pub fn begin(self: *Self, bg: CharColor) !void {
+    pub fn begin(self: *Self, bg_color: u32) !void {
         try self.batch_colored_tri.clear();
         try self.batch_colored_line3D.clear();
         try self.batch_font.clear();
@@ -1628,46 +1644,55 @@ pub const NewCtx = struct {
         self.zindex = 1;
         std.time.sleep(16 * std.time.ns_per_ms);
 
-        const color = charColorToFloat(bg);
+        const color = intToColorF(bg_color);
         c.glClearColor(color[0], color[1], color[2], color[3]);
         c.glClear(c.GL_COLOR_BUFFER_BIT | c.GL_DEPTH_BUFFER_BIT);
     }
 
-    pub fn rectPt(self: *Self, rpt: Rect, color: u32) !void {
-        try self.rect(rpt.mul(self.dpi / 72.0), color);
+    pub fn rectPt(self: *Self, rpt: Rect, color: u32) void {
+        self.rect(rpt.mul(self.dpi / 72.0), color);
     }
 
-    //TODO defer errors to end of frame when fn end() called
-    pub fn rect(self: *Self, rpt: Rect, color: u32) !void {
+    pub fn rectV(self: *Self, pos: Vec2f, dim: Vec2f, color: u32) void {
+        self.rect(Rect.newV(pos, dim), color);
+    }
+
+    pub fn rect(self: *Self, rpt: Rect, color: u32) void {
         const r = rpt;
         const b = &self.batch_colored_tri;
         const z = self.zindex;
         self.zindex += 1;
-        try b.indicies.appendSlice(&genQuadIndices(@as(u32, @intCast(b.vertices.items.len))));
-        try b.vertices.appendSlice(&.{
+        b.indicies.appendSlice(&genQuadIndices(@as(u32, @intCast(b.vertices.items.len)))) catch {
+            self.draw_fn_error = .yes;
+            return;
+        };
+        b.vertices.appendSlice(&.{
             ColorTriVert{ .pos = .{ .x = r.x + r.w, .y = r.y + r.h }, .z = z, .color = color },
             ColorTriVert{ .pos = .{ .x = r.x + r.w, .y = r.y }, .z = z, .color = color },
             ColorTriVert{ .pos = .{ .x = r.x, .y = r.y }, .z = z, .color = color },
             ColorTriVert{ .pos = .{ .x = r.x, .y = r.y + r.h }, .z = z, .color = color },
-        });
+        }) catch {
+            self.draw_fn_error = .yes;
+            return;
+        };
     }
 
-    pub fn rectTex(self: *Self, r: Rect, tr: Rect, col: u32, texture: Texture) !void {
-        const b = try self.getTexturedTriBatch(texture.id);
+    pub fn rectTex(self: *Self, r: Rect, tr: Rect, col: u32, texture: Texture) void {
+        const b = self.getTexturedTriBatch(texture.id) catch return;
         const z = self.zindex;
         self.zindex += 1;
         const un = normalizeTexRect(tr, texture.w, texture.h);
 
-        try b.indicies.appendSlice(&genQuadIndices(@as(u32, @intCast(b.vertices.items.len))));
-        try b.vertices.appendSlice(&.{
+        b.indicies.appendSlice(&genQuadIndices(@as(u32, @intCast(b.vertices.items.len)))) catch return;
+        b.vertices.appendSlice(&.{
             TexTriVert{ .pos = .{ .x = r.x + r.w, .y = r.y + r.h }, .z = z, .uv = .{ .x = un.x + un.w, .y = un.y + un.h }, .color = col }, //0
             TexTriVert{ .pos = .{ .x = r.x + r.w, .y = r.y }, .z = z, .uv = .{ .x = un.x + un.w, .y = un.y }, .color = col }, //1
             TexTriVert{ .pos = .{ .x = r.x, .y = r.y }, .z = z, .uv = .{ .x = un.x, .y = un.y }, .color = col }, //2
             TexTriVert{ .pos = .{ .x = r.x, .y = r.y + r.h }, .z = z, .uv = .{ .x = un.x, .y = un.y + un.h }, .color = col }, //3
-        });
+        }) catch return;
     }
 
-    pub fn text(self: *Self, pos: Vec2f, str: []const u8, font: *Font, pt_size: f32, col: u32) !void {
+    pub fn text(self: *Self, pos: Vec2f, str: []const u8, font: *Font, pt_size: f32, col: u32) void {
         self.delete_me_font_tex = font.texture;
         const SF = (pt_size / font.font_size);
         const fac = 1;
@@ -1711,34 +1736,41 @@ pub const NewCtx = struct {
             b.indicies.appendSlice(&genQuadIndices(@as(u32, @intCast(b.vertices.items.len)))) catch unreachable;
             const un = normalizeTexRect(g.tr, font.texture.w, font.texture.h);
             const z = self.zindex;
-            try b.vertices.appendSlice(&.{
+            b.vertices.appendSlice(&.{
                 TexTriVert{ .pos = .{ .x = r.x + r.w, .y = r.y + r.h }, .z = z, .uv = .{ .x = un.x + un.w, .y = un.y + un.h }, .color = col }, //0
                 TexTriVert{ .pos = .{ .x = r.x + r.w, .y = r.y }, .z = z, .uv = .{ .x = un.x + un.w, .y = un.y }, .color = col }, //1
                 TexTriVert{ .pos = .{ .x = r.x, .y = r.y }, .z = z, .uv = .{ .x = un.x, .y = un.y }, .color = col }, //2
                 TexTriVert{ .pos = .{ .x = r.x, .y = r.y + r.h }, .z = z, .uv = .{ .x = un.x, .y = un.y + un.h }, .color = col }, //3
-            });
+            }) catch return;
 
             vx += (g.advance_x) * SF;
         }
         self.zindex += 1;
     }
 
-    pub fn line3D(self: *Self, start_point: Vec3f, end_point: Vec3f, color: u32) !void {
-        const b = &self.batch_colored_line3D;
-        try b.vertices.append(.{ .pos = start_point, .color = color });
-        try b.vertices.append(.{ .pos = end_point, .color = color });
+    pub fn textFmt(self: *Self, pos: Vec2f, comptime fmt: []const u8, args: anytype, font: *Font, pt_size: f32, color: u32) void {
+        var buf: [256]u8 = undefined;
+        var fbs = std.io.FixedBufferStream([]u8){ .pos = 0, .buffer = &buf };
+        fbs.writer().print(fmt, args) catch return;
+        self.text(pos, fbs.getWritten(), font, pt_size, color);
     }
 
-    pub fn triangle(self: *Self, v1: Vec2f, v2: Vec2f, v3: Vec2f, color: u32) !void {
+    pub fn line3D(self: *Self, start_point: Vec3f, end_point: Vec3f, color: u32) void {
+        const b = &self.batch_colored_line3D;
+        b.vertices.append(.{ .pos = start_point, .color = color }) catch return;
+        b.vertices.append(.{ .pos = end_point, .color = color }) catch return;
+    }
+
+    pub fn triangle(self: *Self, v1: Vec2f, v2: Vec2f, v3: Vec2f, color: u32) void {
         const b = &self.batch_colored_tri;
         const z = self.zindex;
         const i: u32 = @intCast(b.vertices.items.len);
-        try b.indicies.appendSlice(&.{ i, i + 1, i + 2, i });
-        try b.vertices.appendSlice(&.{
+        b.indicies.appendSlice(&.{ i, i + 1, i + 2 }) catch return;
+        b.vertices.appendSlice(&.{
             ColorTriVert{ .pos = v1, .z = z, .color = color },
             ColorTriVert{ .pos = v2, .z = z, .color = color },
             ColorTriVert{ .pos = v3, .z = z, .color = color },
-        });
+        }) catch return;
     }
 
     pub fn end(self: *Self, screenW: i32, screenH: i32, camera: za.Mat4) void {
@@ -1908,6 +1940,17 @@ pub fn contrastColor(color: CharColor) CharColor {
     return hsvaToColor(hsva);
 }
 
+pub const Colori = struct {
+    pub const White = 0xffffffff;
+    pub const Black = 0x000000ff;
+    pub const Gray = 0x808080ff;
+    pub const DarkGray = 0xA9A9A9ff;
+    pub const Purple = 0x800080ff;
+    pub const Blue = 0x0000FFff;
+    pub const Red = 0xFF0000ff;
+    pub const Orange = 0xFFA500ff;
+};
+
 pub const CharColor = struct {
     pub const DarkGreen = itc(0x006400ff);
     pub const Green = itc(0x008000ff);
@@ -2059,6 +2102,11 @@ pub const CharColor = struct {
 pub fn CharColorNew(r: u8, g: u8, b: u8, a: u8) CharColor {
     return .{ .r = r, .g = g, .b = b, .a = a };
 }
+//TODO orginize colors, we have 4 different types of colors
+//hsva, (4 f32)
+//u32
+//Rgba (4 u8)
+//Rgba (4 F32)
 
 pub const Hsva = struct {
     h: f32,
@@ -2143,6 +2191,10 @@ pub fn intToColor(color: u32) CharColor {
         .b = @as(u8, @intCast((color >> 8) & 0xff)),
         .a = @as(u8, @intCast((color) & 0xff)),
     };
+}
+
+pub fn intToColorF(color: u32) Color {
+    return charColorToFloat(intToColor(color));
 }
 
 pub const IRect = struct {
@@ -3109,6 +3161,16 @@ fn logErr(msg: []const u8) void {
     std.debug.print("ERROR: {s}\n", .{msg});
 }
 
+//TODO I want to destroy GraphicsContext
+//What projects are using it?
+//What is NewCtx missing:
+//  Multiple font support
+//  a few draw functions
+//  a few utility functions, flush(), setviewport()
+//
+//Projects:
+//  Gui
+//  mario
 pub const GraphicsContext = struct {
     const Self = @This();
 

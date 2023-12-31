@@ -569,11 +569,14 @@ pub fn main() !void {
     var draw = graph.NewCtx.init(alloc, win.getDpi());
     defer draw.deinit();
     while (!win.should_exit) {
-        try draw.begin(graph.itc(0x2f2f2fff));
+        try draw.begin(0x2f2f2fff);
         win.pumpEvents();
 
-        try draw.text(.{ .x = 1000, .y = 200 }, "Test string ____.!", &font, 72, 0xffffffff);
-        try draw.triangle(V2f.new(0, 0), V2f.new(500, 0), V2f.new(250, 100), 0xffff00ff);
+        //draw.text(.{ .x = 1000, .y = 200 }, "Test string ____.!", &font, 72, 0xffffffff);
+        draw.triangle(V2f.new(0, 0), V2f.new(250, 100), V2f.new(500, 0), 0xffff00ff);
+
+        draw.triangle(V2f.new(500, 500), V2f.new(1000, 1000), V2f.new(1400, 700), 0xffffffff);
+        draw.rect(graph.Rec(0, 0, 10, 10), 0xffffffff);
 
         draw.end(win.screen_width, win.screen_height, graph.za.Mat4.identity());
         win.swap();
