@@ -1243,8 +1243,8 @@ pub const Bitmap = struct {
         var out_size: usize = 0;
         _ = c.spng_decoded_image_size(pngctx, c.SPNG_FMT_RGBA8, &out_size);
         //TODO use the SPNG_FMT provided by ihdr
-        if (ihdr.color_type != c.SPNG_FMT_RGBA8)
-            return error.unsupportedColorFormat;
+        // if (ihdr.color_type != c.SPNG_FMT_RGBA8)
+        //     return error.unsupportedColorFormat;
 
         const decoded_data = try alloc.alloc(u8, out_size);
 
