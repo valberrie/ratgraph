@@ -827,7 +827,7 @@ pub const BakedAtlas = struct {
 
         const atlas_size: i32 = @intFromFloat(@sqrt(@as(f32, @floatFromInt(running_area)) * 2));
         try pack_ctx.pack(atlas_size, atlas_size);
-        var bit = try Bitmap.initBlank(alloc, atlas_size, atlas_size);
+        var bit = try Bitmap.initBlank(alloc, atlas_size, atlas_size, .rgba_8);
 
         _ = bit;
         unreachable;
@@ -864,7 +864,7 @@ pub const BakedAtlas = struct {
 
         try pack_ctx.pack(atlas_size, atlas_size);
         std.sort.insertion(RectPack.RectType, pack_ctx.rects.items, @as(u8, 0), rectSortFnLessThan);
-        var bit = try Bitmap.initBlank(alloc, atlas_size, atlas_size);
+        var bit = try Bitmap.initBlank(alloc, atlas_size, atlas_size, .rgba_8);
 
         var img_dir = try dir.openDir(data.img_dir_path, .{});
         defer img_dir.close();
@@ -1090,7 +1090,7 @@ pub const Atlas = struct {
             var bmp = try Bitmap.initFromPngFile(alloc, img_dir, set.filename);
             defer bmp.deinit();
             for (set.tilesets) |ts| {
-                var out_bmp = try Bitmap.initBlank(alloc, ts.num.x * ts.tw, ts.num.y * ts.th);
+                var out_bmp = try Bitmap.initBlank(alloc, ts.num.x * ts.tw, ts.num.y * ts.th, .rgba_8);
                 defer out_bmp.deinit();
                 try img_filename.resize(0);
                 try img_filename.writer().print("{s}.png", .{ts.description});
@@ -1207,22 +1207,23 @@ pub const FixedBitmapFont = struct {
     }
 };
 
-//TODO actually support other image formats? or disallow.
 pub const Bitmap = struct {
     const Self = @This();
     pub const ImageFormat = enum {
         rgba_8,
         g_8, //grayscale, 8 bit
     };
+    pub const FormatCompCount = std.enums.directEnumArray(ImageFormat, usize, 0, .{ .rgba_8 = 4, .g_8 = 1 });
 
     format: ImageFormat = .rgba_8,
     data: std.ArrayList(u8),
     w: u32,
     h: u32,
 
-    pub fn initBlank(alloc: Alloc, width: anytype, height: anytype) !Self {
-        var ret = Self{ .data = std.ArrayList(u8).init(alloc), .w = lcast(u32, width), .h = lcast(u32, height) };
-        try ret.data.appendNTimes(0, 4 * @as(usize, @intCast(width * height)));
+    pub fn initBlank(alloc: Alloc, width: anytype, height: anytype, format: ImageFormat) !Self {
+        var ret = Self{ .format = format, .data = std.ArrayList(u8).init(alloc), .w = lcast(u32, width), .h = lcast(u32, height) };
+        const num_comp = FormatCompCount[@intFromEnum(format)];
+        try ret.data.appendNTimes(0, num_comp * @as(usize, @intCast(width * height)));
         return ret;
     }
 
@@ -1241,6 +1242,9 @@ pub const Bitmap = struct {
 
         var out_size: usize = 0;
         _ = c.spng_decoded_image_size(pngctx, c.SPNG_FMT_RGBA8, &out_size);
+        //TODO use the SPNG_FMT provided by ihdr
+        if (ihdr.color_type != c.SPNG_FMT_RGBA8)
+            return error.unsupportedColorFormat;
 
         const decoded_data = try alloc.alloc(u8, out_size);
 
@@ -1261,6 +1265,8 @@ pub const Bitmap = struct {
     }
 
     pub fn replaceColor(self: *Self, color: u32, replacement: u32) void {
+        //TODO support other formats
+        if (self.format != .rgba_8) unreachable;
         const search = intToColor(color);
         const rep = intToColor(replacement);
         for (0..(self.data.items.len / 4)) |i| {
@@ -1274,13 +1280,12 @@ pub const Bitmap = struct {
         }
     }
 
-    pub fn writeToBmpFile(self: *const Self, alloc: Alloc, file_name: []const u8) !void {
-        var null_str_buf = std.ArrayList(u8).init(alloc);
-        defer null_str_buf.deinit();
-        try null_str_buf.appendSlice(file_name);
-        try null_str_buf.append(0);
+    pub fn writeToBmpFile(self: *Self, alloc: Alloc, dir: Dir, file_name: []const u8) !void {
+        var path = std.ArrayList(u8).init(alloc).fromOwnedSlice(alloc, try dir.realpathAlloc(file_name));
+        defer path.deinit();
+        try path.append(0);
 
-        _ = c.stbi_write_bmp(@as([*c]const u8, @ptrCast(null_str_buf.items)), @as(c_int, @intCast(self.w)), @as(c_int, @intCast(self.h)), 4, @as([*c]u8, @ptrCast(self.data.items[0..self.data.items.len])));
+        _ = c.stbi_write_bmp(@as([*c]const u8, @ptrCast(path.items)), @as(c_int, @intCast(self.w)), @as(c_int, @intCast(self.h)), 4, @as([*c]u8, @ptrCast(self.data.items[0..self.data.items.len])));
     }
 
     pub fn writeToPngFile(self: *Self, dir: Dir, sub_path: []const u8) !void {
@@ -1295,7 +1300,10 @@ pub const Bitmap = struct {
             .width = self.w,
             .height = self.h,
             .bit_depth = 8,
-            .color_type = c.SPNG_COLOR_TYPE_TRUECOLOR_ALPHA,
+            .color_type = switch (self.format) {
+                .rgba_8 => c.SPNG_COLOR_TYPE_TRUECOLOR_ALPHA,
+                .g_8 => c.SPNG_COLOR_TYPE_GRAYSCALE,
+            },
             .compression_method = 0,
             .filter_method = 0,
             .interlace_method = 0,
@@ -1322,6 +1330,7 @@ pub const Bitmap = struct {
         }
     }
 
+    //TODO use self.format
     pub fn copySubR(num_component: u8, dest: *Self, des_x: u32, des_y: u32, source: *Self, src_x: u32, src_y: u32, src_w: u32, src_h: u32) void {
         var sy = src_y;
         while (sy < src_y + src_h) : (sy += 1) {
@@ -1506,8 +1515,6 @@ pub const GL = struct {
     }
 };
 
-//pub fn enumFromStructDecls(decls:type)type{ //const info = }
-
 //Handle dpi
 //More 3d primitives
 //TODO defer errors to end of frame. not drawing is not fatal, ergonomically much nicer to not "try draw.*"
@@ -1517,6 +1524,13 @@ pub const GL = struct {
 //  easy depth?
 //  functions should have terse but descriptive names
 //  Don't mess with gl state to much so other drawing is easy
+//
+//  Loading a default font:
+//  Ideally we know the dpi we are using. either assume camera is always screen space or do something?
+//  One font always loaded from init
+//  we can load other fonts in other threads and notify once ready.
+//  The point of this is to draw text with native scaling as it has no artifacting.
+//
 pub const NewCtx = struct {
     const Self = @This();
 
@@ -1533,11 +1547,17 @@ pub const NewCtx = struct {
         color_line: NewBatch(VtxFmt.Color_2D, .{ .index_buffer = false, .primitive_mode = .lines }),
     };
 
+    const MapT = std.AutoArrayHashMap(MapKey, Batches);
     const MapKey = struct {
         batch_kind: @typeInfo(Batches).Union.tag_type.?,
         params: DrawParams,
     };
-    const MapT = std.AutoHashMap(MapKey, Batches);
+    const MapKeySortCtx = struct {
+        items: []const MapKey,
+        pub fn lessThan(ctx: MapKeySortCtx, l: usize, r: usize) bool {
+            return ctx.items[l].params.draw_priority < ctx.items[r].params.draw_priority;
+        }
+    };
 
     batches: MapT,
 
@@ -1575,8 +1595,7 @@ pub const NewCtx = struct {
     }
 
     pub fn deinit(self: *Self) void {
-        var b_it = self.batches.valueIterator();
-        while (b_it.next()) |b| {
+        for (self.batches.values()) |*b| {
             inline for (@typeInfo(Batches).Union.fields, 0..) |ufield, i| {
                 if (i == @intFromEnum(b.*)) {
                     @field(b, ufield.name).deinit();
@@ -1602,8 +1621,7 @@ pub const NewCtx = struct {
     }
 
     pub fn begin(self: *Self, bg_color: u32) !void {
-        var b_it = self.batches.valueIterator();
-        while (b_it.next()) |b| {
+        for (self.batches.values()) |*b| {
             inline for (@typeInfo(Batches).Union.fields, 0..) |ufield, i| {
                 if (i == @intFromEnum(b.*)) {
                     try @field(b, ufield.name).clear();
@@ -1671,6 +1689,7 @@ pub const NewCtx = struct {
 
         const b = &(self.getBatch(.{
             .batch_kind = .color_tri_tex,
+            //Text should always be drawn last for best transparency
             .params = .{ .shader = self.font_shader, .texture = font.texture.id, .draw_priority = 0xff },
         }) catch unreachable).color_tri_tex;
 
@@ -1759,13 +1778,16 @@ pub const NewCtx = struct {
         }) catch return;
     }
 
+    //pub fn flush(self: *Self, )
+
     pub fn end(self: *Self, screenW: i32, screenH: i32, camera: za.Mat4) void {
         const view = za.orthographic(0, @as(f32, @floatFromInt(screenW)), @as(f32, @floatFromInt(screenH)), 0, -100000, 1);
         const model = za.Mat4.identity();
         //TODO annotate batches with camera or view
         _ = camera;
 
-        //TODO respect draw_priority param
+        const sortctx = MapKeySortCtx{ .items = self.batches.keys() }; // Sort the batches by params.draw_priority
+        self.batches.sort(sortctx);
         var b_it = self.batches.iterator();
         while (b_it.next()) |b| {
             inline for (@typeInfo(Batches).Union.fields, 0..) |ufield, i| {
@@ -2751,7 +2773,6 @@ pub const Font = struct {
             }
             break :blk try codepoint_list.toOwnedSlice();
         };
-        const dump_bitmaps = false;
 
         var log = OptionalFileWriter{};
         if (options.debug_dir) |ddir| {
@@ -2972,9 +2993,8 @@ pub const Font = struct {
             try pack_ctx.pack(@intCast(result.texture.w), @intCast(result.texture.h));
 
             {
-                var texture_bitmap = std.ArrayList(u8).init(alloc);
+                var texture_bitmap = try Bitmap.initBlank(alloc, result.texture.w, result.texture.h, .g_8);
                 defer texture_bitmap.deinit();
-                try texture_bitmap.appendNTimes(0, @as(usize, @intCast(result.texture.w * result.texture.h)));
 
                 for (pack_ctx.rects.items, 0..) |rect, i| {
                     const g = try result.glyph_set.getPtr(@as(u21, @intCast(rect.id)));
@@ -2988,9 +3008,9 @@ pub const Font = struct {
                             while (col < rect.w) : (col += 1) {
                                 if (row < bitmap.h + padding and col < bitmap.w + padding and row >= padding and col >= padding) {
                                     const dat = bitmap.data.items[((row - padding) * bitmap.w) + col - padding];
-                                    texture_bitmap.items[(@as(u32, @intCast(result.texture.w)) * (row + @as(usize, @intCast(rect.y)))) + col + @as(usize, @intCast(rect.x))] = dat;
+                                    texture_bitmap.data.items[(@as(u32, @intCast(result.texture.w)) * (row + @as(usize, @intCast(rect.y)))) + col + @as(usize, @intCast(rect.x))] = dat;
                                 } else {
-                                    texture_bitmap.items[(@as(u32, @intCast(result.texture.h)) * (row + @as(usize, @intCast(rect.y)))) + col + @as(usize, @intCast(rect.x))] = 0;
+                                    texture_bitmap.data.items[(@as(u32, @intCast(result.texture.h)) * (row + @as(usize, @intCast(rect.y)))) + col + @as(usize, @intCast(rect.x))] = 0;
                                 }
                             }
                             col = 0;
@@ -2998,16 +3018,16 @@ pub const Font = struct {
                     }
                 }
 
-                if (dump_bitmaps)
-                    writeBmp("debug/freetype.bmp", @as(c_int, @intCast(result.texture.w)), @as(c_int, @intCast(result.texture.h)), 1, texture_bitmap.items);
-                result.texture = Texture.initFromBuffer(texture_bitmap.items, result.texture.w, result.texture.h, .{
+                if (options.debug_dir) |ddir|
+                    try texture_bitmap.writeToPngFile(ddir, "debug/freetype.png");
+
+                result.texture = Texture.initFromBitmap(texture_bitmap, .{
                     .pixel_store_alignment = 1,
                     .internal_format = c.GL_RED,
                     .pixel_format = c.GL_RED,
                     .min_filter = c.GL_LINEAR,
                     .mag_filter = c.GL_LINEAR,
                 });
-                //result.texture.id = GL.grayscaleTexture(result.texture.w, result.texture.h, texture_bitmap.items);
             }
         }
 
