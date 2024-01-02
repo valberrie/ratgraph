@@ -1514,66 +1514,32 @@ pub const GL = struct {
 //The point of this drawing context is to get common 2d primitives drawn to the screen with as little boilerplate as possible.
 //This means:
 //  Loading a default font
-//  Handling multiple texture handles
 //  easy depth?
 //  functions should have terse but descriptive names
-//  no returning errors from draw functions.
 //  Don't mess with gl state to much so other drawing is easy
 pub const NewCtx = struct {
     const Self = @This();
-    //Define Types of verticies
-    //
-    //Any given batch has the following attributes
-    //Vertex
-    //gl_primitive
-    //index buffer
-    //shader
-    //texture to bind
-    //camera matrix
-    //
-    pub const BatchData = struct {
-        //TODO look at BatchOptions struct, it is exactly what we need
-        //it is missing:
-        //camera?
-        primitive: GL.PrimitiveMode,
-        //vertex_format:
+
+    pub const VtxFmt = struct {
+        pub const Color_2D = packed struct { pos: Vec2f, z: u16, color: u32 };
+        pub const Color_Texture_2D = packed struct { pos: Vec2f, uv: Vec2f, z: u16, color: u32 };
+        pub const Color_3D = packed struct { pos: Vec3f, color: u32 };
     };
 
-    pub const Batches = union {};
-    //VertexFormat is type, so we need a enum or something
-    //NewBatch BatchOptions contains: hasindexbuf, primitive_mode
-    //drawParams for batch.draw contains: ?texture, shader, camera
-    //All of this data defines our batch.
-    //Drawing fonts or other transparency sensitive data requires specifing order of batches
-    //Batches are not exposed to the user by default, having an integer that specifies draw order
-
-    pub const VertexFormats = struct {
-        pub const ColorTriVert = packed struct { pos: Vec2f, z: u16, color: u32 };
-        pub const TexTriVert = packed struct { pos: Vec2f, uv: Vec2f, z: u16, color: u32 };
-        pub const Line2DVert = packed struct { pos: Vec2f, z: u16, color: u32 };
-        pub const Line3DVert = packed struct { pos: Vec3f, color: u32 };
+    pub const Batches = union(enum) {
+        color_tri: NewBatch(VtxFmt.Color_2D, .{ .index_buffer = true, .primitive_mode = .triangles }),
+        color_tri_tex: NewBatch(VtxFmt.Color_Texture_2D, .{ .index_buffer = true, .primitive_mode = .triangles }),
+        color_line3D: NewBatch(VtxFmt.Color_3D, .{ .index_buffer = false, .primitive_mode = .lines }),
+        color_line: NewBatch(VtxFmt.Color_2D, .{ .index_buffer = false, .primitive_mode = .lines }),
     };
 
-    pub const ColorTriVert = packed struct { pos: Vec2f, z: u16, color: u32 };
-    pub const TexTriVert = packed struct { pos: Vec2f, uv: Vec2f, z: u16, color: u32 };
-    pub const Line2DVert = packed struct { pos: Vec2f, z: u16, color: u32 };
-    pub const Line3DVert = packed struct { pos: Vec3f, color: u32 };
-    //Need a way to specify the vertex format
-    //We can't use a union because the memory layout of each vertex type must be packed?
-    //A union is as large as its largest member right
-    //Easy enough with comptime
+    const MapKey = struct {
+        batch_kind: @typeInfo(Batches).Union.tag_type.?,
+        params: DrawParams,
+    };
+    const MapT = std.AutoHashMap(MapKey, Batches);
 
-    pub const ColorTriBatch = NewBatch(ColorTriVert, .{ .index_buffer = true, .primitive_mode = .triangles });
-    pub const ColorLine3DBatch = NewBatch(Line3DVert, .{ .index_buffer = false, .primitive_mode = .lines });
-    pub const ColorLine2DBatch = NewBatch(Line2DVert, .{ .index_buffer = false, .primitive_mode = .lines });
-    pub const TextureTriBatch = NewBatch(TexTriVert, .{ .index_buffer = true, .primitive_mode = .triangles });
-    pub const FontBatch = NewBatch(TexTriVert, .{ .index_buffer = true, .primitive_mode = .triangles });
-
-    batch_colored_line3D: ColorLine3DBatch,
-    batch_colored_tri: ColorTriBatch,
-    batch_font: FontBatch,
-
-    batch_textured_tri_map: std.AutoHashMap(c_uint, TextureTriBatch),
+    batches: MapT,
 
     zindex: u16 = 0,
     font_shader: c_uint,
@@ -1597,11 +1563,8 @@ pub const NewCtx = struct {
     pub fn init(alloc: Alloc, dpi: f32) Self {
         return Self{
             .alloc = alloc,
+            .batches = MapT.init(alloc),
             .dpi = dpi,
-            .batch_colored_tri = ColorTriBatch.init(alloc),
-            .batch_colored_line3D = ColorLine3DBatch.init(alloc),
-            .batch_textured_tri_map = std.AutoHashMap(c_uint, TextureTriBatch).init(alloc),
-            .batch_font = FontBatch.init(alloc),
 
             .colored_tri_shader = Shader.simpleShader(NewTri.shader_test_vert, NewTri.shader_test_frag),
             .colored_line3d_shader = Shader.simpleShader(@embedFile("shader/line3d.vert"), @embedFile("shader/colorquad.frag")),
@@ -1612,37 +1575,40 @@ pub const NewCtx = struct {
     }
 
     pub fn deinit(self: *Self) void {
-        self.batch_colored_tri.deinit();
-        self.batch_font.deinit();
-        self.batch_colored_line3D.deinit();
-        var tex_it = self.batch_textured_tri_map.valueIterator();
-        var v = tex_it.next();
-        while (v) |joj| : (v = tex_it.next()) {
-            _ = joj;
-            v.?.deinit();
+        var b_it = self.batches.valueIterator();
+        while (b_it.next()) |b| {
+            inline for (@typeInfo(Batches).Union.fields, 0..) |ufield, i| {
+                if (i == @intFromEnum(b.*)) {
+                    @field(b, ufield.name).deinit();
+                }
+            }
         }
-        self.batch_textured_tri_map.deinit();
+        self.batches.deinit();
     }
     //TODO function that takes anytype used to draw
 
-    fn getTexturedTriBatch(self: *Self, tex_id: c_uint) !*TextureTriBatch {
-        const res = try self.batch_textured_tri_map.getOrPut(tex_id);
+    pub fn getBatch(self: *Self, key: MapKey) !*Batches {
+        const res = try self.batches.getOrPut(key);
         if (!res.found_existing) {
-            res.value_ptr.* = TextureTriBatch.init(self.alloc);
-            res.key_ptr.* = tex_id;
-            try res.value_ptr.clear();
+            inline for (@typeInfo(Batches).Union.fields, 0..) |ufield, i| {
+                if (i == @intFromEnum(key.batch_kind)) {
+                    res.value_ptr.* = @unionInit(Batches, ufield.name, ufield.type.init(self.alloc));
+                    res.key_ptr.* = key;
+                    break;
+                }
+            }
         }
         return res.value_ptr;
     }
 
     pub fn begin(self: *Self, bg_color: u32) !void {
-        try self.batch_colored_tri.clear();
-        try self.batch_colored_line3D.clear();
-        try self.batch_font.clear();
-        var tex_it = self.batch_textured_tri_map.valueIterator();
-        var vo = tex_it.next();
-        while (vo) |v| : (vo = tex_it.next()) {
-            try v.clear();
+        var b_it = self.batches.valueIterator();
+        while (b_it.next()) |b| {
+            inline for (@typeInfo(Batches).Union.fields, 0..) |ufield, i| {
+                if (i == @intFromEnum(b.*)) {
+                    try @field(b, ufield.name).clear();
+                }
+            }
         }
 
         self.zindex = 1;
@@ -1663,7 +1629,7 @@ pub const NewCtx = struct {
 
     pub fn rect(self: *Self, rpt: Rect, color: u32) void {
         const r = rpt;
-        const b = &self.batch_colored_tri;
+        const b = &(self.getBatch(.{ .batch_kind = .color_tri, .params = .{ .shader = self.colored_tri_shader } }) catch unreachable).color_tri;
         const z = self.zindex;
         self.zindex += 1;
         b.indicies.appendSlice(&genQuadIndices(@as(u32, @intCast(b.vertices.items.len)))) catch {
@@ -1671,10 +1637,10 @@ pub const NewCtx = struct {
             return;
         };
         b.vertices.appendSlice(&.{
-            ColorTriVert{ .pos = .{ .x = r.x + r.w, .y = r.y + r.h }, .z = z, .color = color },
-            ColorTriVert{ .pos = .{ .x = r.x + r.w, .y = r.y }, .z = z, .color = color },
-            ColorTriVert{ .pos = .{ .x = r.x, .y = r.y }, .z = z, .color = color },
-            ColorTriVert{ .pos = .{ .x = r.x, .y = r.y + r.h }, .z = z, .color = color },
+            .{ .pos = .{ .x = r.x + r.w, .y = r.y + r.h }, .z = z, .color = color },
+            .{ .pos = .{ .x = r.x + r.w, .y = r.y }, .z = z, .color = color },
+            .{ .pos = .{ .x = r.x, .y = r.y }, .z = z, .color = color },
+            .{ .pos = .{ .x = r.x, .y = r.y + r.h }, .z = z, .color = color },
         }) catch {
             self.draw_fn_error = .yes;
             return;
@@ -1682,17 +1648,17 @@ pub const NewCtx = struct {
     }
 
     pub fn rectTex(self: *Self, r: Rect, tr: Rect, col: u32, texture: Texture) void {
-        const b = self.getTexturedTriBatch(texture.id) catch return;
+        const b = &(self.getBatch(.{ .batch_kind = .color_tri_tex, .params = .{ .shader = self.textured_tri_shader, .texture = texture.id } }) catch return).color_tri_tex;
         const z = self.zindex;
         self.zindex += 1;
         const un = normalizeTexRect(tr, texture.w, texture.h);
 
         b.indicies.appendSlice(&genQuadIndices(@as(u32, @intCast(b.vertices.items.len)))) catch return;
         b.vertices.appendSlice(&.{
-            TexTriVert{ .pos = .{ .x = r.x + r.w, .y = r.y + r.h }, .z = z, .uv = .{ .x = un.x + un.w, .y = un.y + un.h }, .color = col }, //0
-            TexTriVert{ .pos = .{ .x = r.x + r.w, .y = r.y }, .z = z, .uv = .{ .x = un.x + un.w, .y = un.y }, .color = col }, //1
-            TexTriVert{ .pos = .{ .x = r.x, .y = r.y }, .z = z, .uv = .{ .x = un.x, .y = un.y }, .color = col }, //2
-            TexTriVert{ .pos = .{ .x = r.x, .y = r.y + r.h }, .z = z, .uv = .{ .x = un.x, .y = un.y + un.h }, .color = col }, //3
+            .{ .pos = .{ .x = r.x + r.w, .y = r.y + r.h }, .z = z, .uv = .{ .x = un.x + un.w, .y = un.y + un.h }, .color = col }, //0
+            .{ .pos = .{ .x = r.x + r.w, .y = r.y }, .z = z, .uv = .{ .x = un.x + un.w, .y = un.y }, .color = col }, //1
+            .{ .pos = .{ .x = r.x, .y = r.y }, .z = z, .uv = .{ .x = un.x, .y = un.y }, .color = col }, //2
+            .{ .pos = .{ .x = r.x, .y = r.y + r.h }, .z = z, .uv = .{ .x = un.x, .y = un.y + un.h }, .color = col }, //3
         }) catch return;
     }
 
@@ -1703,7 +1669,10 @@ pub const NewCtx = struct {
         const x = pos.x;
         const y = pos.y;
 
-        const b = &self.batch_font;
+        const b = &(self.getBatch(.{
+            .batch_kind = .color_tri_tex,
+            .params = .{ .shader = self.font_shader, .texture = font.texture.id, .draw_priority = 0xff },
+        }) catch unreachable).color_tri_tex;
 
         b.vertices.ensureUnusedCapacity(str.len * 4) catch unreachable;
         b.indicies.ensureUnusedCapacity(str.len * 6) catch unreachable;
@@ -1741,10 +1710,10 @@ pub const NewCtx = struct {
             const un = normalizeTexRect(g.tr, font.texture.w, font.texture.h);
             const z = self.zindex;
             b.vertices.appendSlice(&.{
-                TexTriVert{ .pos = .{ .x = r.x + r.w, .y = r.y + r.h }, .z = z, .uv = .{ .x = un.x + un.w, .y = un.y + un.h }, .color = col }, //0
-                TexTriVert{ .pos = .{ .x = r.x + r.w, .y = r.y }, .z = z, .uv = .{ .x = un.x + un.w, .y = un.y }, .color = col }, //1
-                TexTriVert{ .pos = .{ .x = r.x, .y = r.y }, .z = z, .uv = .{ .x = un.x, .y = un.y }, .color = col }, //2
-                TexTriVert{ .pos = .{ .x = r.x, .y = r.y + r.h }, .z = z, .uv = .{ .x = un.x, .y = un.y + un.h }, .color = col }, //3
+                .{ .pos = .{ .x = r.x + r.w, .y = r.y + r.h }, .z = z, .uv = .{ .x = un.x + un.w, .y = un.y + un.h }, .color = col }, //0
+                .{ .pos = .{ .x = r.x + r.w, .y = r.y }, .z = z, .uv = .{ .x = un.x + un.w, .y = un.y }, .color = col }, //1
+                .{ .pos = .{ .x = r.x, .y = r.y }, .z = z, .uv = .{ .x = un.x, .y = un.y }, .color = col }, //2
+                .{ .pos = .{ .x = r.x, .y = r.y + r.h }, .z = z, .uv = .{ .x = un.x, .y = un.y + un.h }, .color = col }, //3
             }) catch return;
 
             vx += (g.advance_x) * SF;
@@ -1760,48 +1729,51 @@ pub const NewCtx = struct {
     }
 
     pub fn line3D(self: *Self, start_point: Vec3f, end_point: Vec3f, color: u32) void {
-        const b = &self.batch_colored_line3D;
+        const b = &(self.getBatch(.{ .batch_kind = .color_line3D, .params = .{ .shader = self.colored_line3d_shader } }) catch unreachable).color_line3D;
         b.vertices.append(.{ .pos = start_point, .color = color }) catch return;
         b.vertices.append(.{ .pos = end_point, .color = color }) catch return;
     }
 
     pub fn triangle(self: *Self, v1: Vec2f, v2: Vec2f, v3: Vec2f, color: u32) void {
-        const b = &self.batch_colored_tri;
+        const b = &(self.getBatch(.{ .batch_kind = .color_tri, .params = .{ .shader = self.colored_tri_shader } }) catch unreachable).color_tri;
         const z = self.zindex;
         const i: u32 = @intCast(b.vertices.items.len);
         b.indicies.appendSlice(&.{ i, i + 1, i + 2 }) catch return;
         b.vertices.appendSlice(&.{
-            ColorTriVert{ .pos = v1, .z = z, .color = color },
-            ColorTriVert{ .pos = v2, .z = z, .color = color },
-            ColorTriVert{ .pos = v3, .z = z, .color = color },
+            .{ .pos = v1, .z = z, .color = color },
+            .{ .pos = v2, .z = z, .color = color },
+            .{ .pos = v3, .z = z, .color = color },
         }) catch return;
     }
 
     //TODO
-    // fn line()
     // fn fixedBitmapText?
 
-    //pub fn line(self: *Self, start:Vec2f, end:Vec2f, color:u32) void{ }
+    pub fn line(self: *Self, start_p: Vec2f, end_p: Vec2f, color: u32) void {
+        const b = &(self.getBatch(.{ .batch_kind = .color_line, .params = .{ .shader = self.colored_tri_shader } }) catch unreachable).color_line;
+        const z = self.zindex;
+        self.zindex += 1;
+        b.vertices.appendSlice(&.{
+            .{ .pos = start_p, .z = z, .color = color },
+            .{ .pos = end_p, .z = z, .color = color },
+        }) catch return;
+    }
 
     pub fn end(self: *Self, screenW: i32, screenH: i32, camera: za.Mat4) void {
         const view = za.orthographic(0, @as(f32, @floatFromInt(screenW)), @as(f32, @floatFromInt(screenH)), 0, -100000, 1);
         const model = za.Mat4.identity();
+        //TODO annotate batches with camera or view
+        _ = camera;
 
-        self.batch_colored_tri.pushVertexData();
-        self.batch_colored_tri.draw(.{}, self.colored_tri_shader, view, model);
-
-        self.batch_colored_line3D.pushVertexData();
-        self.batch_colored_line3D.draw(.{}, self.colored_line3d_shader, camera, model);
-
-        var tex_it = self.batch_textured_tri_map.iterator();
-        var vo = tex_it.next();
-        while (vo) |v| : (vo = tex_it.next()) {
-            v.value_ptr.pushVertexData();
-            v.value_ptr.draw(.{ .texture = v.key_ptr.* }, self.textured_tri_shader, view, model);
-        }
-        self.batch_font.pushVertexData();
-        if (self.delete_me_font_tex) |id| {
-            self.batch_font.draw(.{ .texture = id.id }, self.font_shader, view, model);
+        //TODO respect draw_priority param
+        var b_it = self.batches.iterator();
+        while (b_it.next()) |b| {
+            inline for (@typeInfo(Batches).Union.fields, 0..) |ufield, i| {
+                if (i == @intFromEnum(b.value_ptr.*)) {
+                    @field(b.value_ptr.*, ufield.name).pushVertexData();
+                    @field(b.value_ptr.*, ufield.name).draw(b.key_ptr.params, view, model);
+                }
+            }
         }
     }
 };
@@ -1809,16 +1781,17 @@ pub const NewCtx = struct {
 pub const BatchOptions = struct {
     index_buffer: bool,
     primitive_mode: GL.PrimitiveMode,
-    //texture:
 };
-//TODO move vertex type into batch options?
+pub const DrawParams = struct {
+    texture: ?c_uint = null,
+    ///The higher the number, the later the batch gets drawn.
+    draw_priority: u8 = 0,
+    shader: c_uint,
+};
 pub fn NewBatch(comptime vertex_type: type, comptime batch_options: BatchOptions) type {
     const IndexType = u32;
     return struct {
         pub const Self = @This();
-        pub const DrawParams = struct {
-            texture: ?c_uint = null,
-        };
 
         vbo: c_uint,
         vao: c_uint,
@@ -1864,14 +1837,14 @@ pub fn NewBatch(comptime vertex_type: type, comptime batch_options: BatchOptions
                 try self.indicies.resize(0);
         }
 
-        pub fn draw(self: *Self, params: DrawParams, shader: c_uint, view: za.Mat4, model: za.Mat4) void {
-            c.glUseProgram(shader);
+        pub fn draw(self: *Self, params: DrawParams, view: za.Mat4, model: za.Mat4) void {
+            c.glUseProgram(params.shader);
             c.glBindVertexArray(self.vao);
             if (params.texture) |texture| {
                 c.glBindTexture(c.GL_TEXTURE_2D, texture);
             }
-            GL.passUniform(shader, "view", view);
-            GL.passUniform(shader, "model", model);
+            GL.passUniform(params.shader, "view", view);
+            GL.passUniform(params.shader, "model", model);
 
             const prim: u32 = @intFromEnum(self.primitive_mode);
             if (batch_options.index_buffer) {

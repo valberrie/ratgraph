@@ -565,6 +565,7 @@ pub fn main() !void {
 
     var draw = graph.NewCtx.init(alloc, win.getDpi());
     defer draw.deinit();
+
     while (!win.should_exit) {
         try draw.begin(0x2f2f2fff);
         win.pumpEvents();
@@ -573,7 +574,11 @@ pub fn main() !void {
         draw.triangle(V2f.new(0, 0), V2f.new(250, 100), V2f.new(500, 0), 0xffff00ff);
 
         draw.triangle(V2f.new(500, 500), V2f.new(1000, 1000), V2f.new(1400, 700), 0xffffffff);
-        draw.rect(graph.Rec(0, 0, 10, 10), 0xffffffff);
+        draw.rect(graph.Rec(0, 0, 1000, 10), 0xffffffff);
+        draw.rectTex(graph.Rec(0, 0, 1000, 1000), font.texture.rect(), 0xffffffff, font.texture);
+
+        draw.text(win.mouse.pos, "hello", &font, 12, 0xffffffff);
+        draw.line(win.mouse.pos, V2f.new(0, 0), 0xffffffff);
 
         draw.end(win.screen_width, win.screen_height, graph.za.Mat4.identity());
         win.swap();
