@@ -1,7 +1,11 @@
 const std = @import("std");
-pub const za = @import("zalgebra");
 pub const c = @import("c.zig");
+pub const za = @import("zalgebra");
+
 pub const Tiled = @import("tiled.zig");
+
+const Alloc = std.mem.Allocator;
+const Dir = std.fs.Dir;
 
 const lcast = std.math.lossyCast;
 pub const Gui = @import("gui.zig");
@@ -33,8 +37,6 @@ pub const Ecs = @import("registry.zig");
 //TODO Write draw functions for both point and pixel usage
 //write function that takes a list of keybindings and draws a display documenting all keys and functions
 //Allow typeless entry of data for draw fn's. Support common vector and rectangle types with both integer and floating point
-
-const ini = @import("ini.zig");
 
 pub const glID = c.GLuint;
 
@@ -211,7 +213,7 @@ pub fn quadTex(pos: V3, w: f32, h: f32, plane: Plane, neg: bool, tr: Rect, tx_w:
     // zig fmt: on
 }
 
-pub const Camera2d = struct {
+pub const Camera2D = struct {
     const Self = @This();
 
     cam_area: Rect,
@@ -415,7 +417,6 @@ pub const SDL = struct {
         return @enumFromInt(c.SDL_GetScancodeFromKey(@intFromEnum(key)));
     }
 
-    //TODO check for ibus support on linux and log if not avail
     pub const Window = struct {
         const Self = @This();
         pub const KeyboardStateT = std.bit_set.IntegerBitSet(c.SDL_NUM_SCANCODES);
@@ -458,7 +459,7 @@ pub const SDL = struct {
             //_ = c.SDL_ShowCursor(if (!should) 1 else 0);
         }
 
-        //pub fn screenshotGL(self: *const Self,alloc: std.mem.Allocator,  )void{
+        //pub fn screenshotGL(self: *const Self,alloc: Alloc,  )void{
 
         //}
 
@@ -710,6 +711,13 @@ pub const SDL = struct {
     };
 };
 
+///Rectangle packing
+///Usage:
+///init()
+///appendRect()s
+///pack();
+///rects.items now contains the arranged rectangles.
+///deinit()
 pub const RectPack = struct {
     const Self = @This();
     const RectType = c.stbrp_rect;
@@ -721,7 +729,7 @@ pub const RectPack = struct {
     rects: std.ArrayList(RectType),
     nodes: std.ArrayList(NodeType),
 
-    pub fn init(alloc: std.mem.Allocator) Self {
+    pub fn init(alloc: Alloc) Self {
         return Self{
             .rects = std.ArrayList(RectType).init(alloc),
             .nodes = std.ArrayList(NodeType).init(alloc),
@@ -769,13 +777,6 @@ pub const RectPack = struct {
     }
 };
 
-//TODO just use alloc.dupe
-pub fn copyAlloc(comptime T: type, alloc: std.mem.Allocator, items: []T) ![]T {
-    const slice = try alloc.alloc(T, items.len);
-    std.mem.copy(T, slice, items);
-    return slice;
-}
-
 pub const MarioBgColor = 0x9290ffff;
 pub const MarioBgColor2 = 0x9494ffff;
 pub const MarioBgColor3 = 0x00298cff;
@@ -795,14 +796,14 @@ pub const BakedAtlas = struct {
     tilesets: std.ArrayList(SubTileset),
     tilesets_map: TsetT,
 
-    alloc: std.mem.Allocator,
+    alloc: Alloc,
 
     fn rectSortFnLessThan(ctx: u8, lhs: RectPack.RectType, rhs: RectPack.RectType) bool {
         _ = ctx;
         return (lhs.id >> ImgIdBitShift) < (rhs.id >> ImgIdBitShift);
     }
 
-    pub fn fromTiled(dir: std.fs.Dir, tiled_tileset_list: []const Tiled.TilesetRef, alloc: std.mem.Allocator) !Self {
+    pub fn fromTiled(dir: Dir, tiled_tileset_list: []const Tiled.TilesetRef, alloc: Alloc) !Self {
         var pack_ctx = RectPack.init(alloc);
         defer pack_ctx.deinit();
 
@@ -830,15 +831,9 @@ pub const BakedAtlas = struct {
 
         _ = bit;
         unreachable;
-        //for(pack_ctx.rects.items)|rect|{
-        //    //load the image,
-        //    //copy the image to atlas bitmap
-        //    //append the tileset
-        //    //
-        //}
     }
 
-    pub fn fromAtlas(dir: std.fs.Dir, data: Atlas.AtlasJson, alloc: std.mem.Allocator) !Self {
+    pub fn fromAtlas(dir: Dir, data: Atlas.AtlasJson, alloc: Alloc) !Self {
         const texture_size = null;
         const pad = 2;
 
@@ -894,7 +889,7 @@ pub const BakedAtlas = struct {
 
             //tilesets.items[set_index].start = .{ .x = rect.x, .y = rect.y };
             const ts = SubTileset{
-                .description = try copyAlloc(u8, alloc, set.description),
+                .description = try alloc.dupe(u8, set.description),
                 .start = .{ .x = rect.x, .y = rect.y },
                 .tw = set.tw,
                 .th = set.th,
@@ -968,7 +963,7 @@ pub const Atlas = struct {
         img_dir_path: []u8,
         sets: []SetJson,
 
-        pub fn initFromJsonFile(dir: std.fs.Dir, json_filename: []const u8, alloc: std.mem.Allocator) !AtlasJson {
+        pub fn initFromJsonFile(dir: Dir, json_filename: []const u8, alloc: Alloc) !AtlasJson {
             const json_slice = try dir.readFileAlloc(alloc, json_filename, std.math.maxInt(usize));
             defer alloc.free(json_slice);
 
@@ -988,7 +983,7 @@ pub const Atlas = struct {
                 cpy(u8, ret_j.sets[i].filename, item.filename);
                 for (item.tilesets, 0..) |ts, j| {
                     ret_j.sets[i].tilesets[j] = ts;
-                    ret_j.sets[i].tilesets[j].description = try copyAlloc(u8, alloc, ts.description);
+                    ret_j.sets[i].tilesets[j].description = try alloc.dupe(u8, ts.description);
                     //ret_j.sets[i].tilesets[j].description = try alloc.alloc(u8, ts.description.len);
                     //cpy(u8, ret_j.sets[i].tilesets[j].description, ts.description);
                 }
@@ -997,7 +992,7 @@ pub const Atlas = struct {
             return ret_j;
         }
 
-        pub fn deinit(m: AtlasJson, alloc: std.mem.Allocator) void {
+        pub fn deinit(m: AtlasJson, alloc: Alloc) void {
             alloc.free(m.img_dir_path);
             for (m.sets) |*s| {
                 alloc.free(s.filename);
@@ -1013,12 +1008,11 @@ pub const Atlas = struct {
     atlas_data: AtlasJson,
 
     textures: std.ArrayList(Texture),
-    img_dir: std.fs.Dir,
+    img_dir: Dir,
 
-    alloc: std.mem.Allocator,
+    alloc: Alloc,
 
-    //TODO determine optimal texture_size
-    pub fn initFromJsonFile(dir: std.fs.Dir, json_filename: []const u8, alloc: std.mem.Allocator) !Atlas {
+    pub fn initFromJsonFile(dir: Dir, json_filename: []const u8, alloc: Alloc) !Atlas {
         const json_slice = try dir.readFileAlloc(alloc, json_filename, std.math.maxInt(usize));
         defer alloc.free(json_slice);
         const json_p = try std.json.parseFromSlice(AtlasJson, alloc, json_slice, .{ .allocate = .alloc_always });
@@ -1078,7 +1072,7 @@ pub const Atlas = struct {
         try self.textures.append(texture);
     }
 
-    pub fn writeToTiled(dir: std.fs.Dir, json_filename: []const u8, out_dir: std.fs.Dir, alloc: std.mem.Allocator) !void {
+    pub fn writeToTiled(dir: Dir, json_filename: []const u8, out_dir: Dir, alloc: Alloc) !void {
         const json_slice = try dir.readFileAlloc(alloc, json_filename, std.math.maxInt(usize));
         defer alloc.free(json_slice);
         const json_p = try std.json.parseFromSlice(AtlasJson, alloc, json_slice, .{ .allocate = .alloc_always });
@@ -1191,7 +1185,6 @@ pub const SubTileset = struct {
 };
 
 ///A Fixed width bitmap font structure
-//TODO make this a part of Font. Functions that accept a font should accept this too
 pub const FixedBitmapFont = struct {
     const Self = @This();
 
@@ -1214,6 +1207,7 @@ pub const FixedBitmapFont = struct {
     }
 };
 
+//TODO actually support other image formats? or disallow.
 pub const Bitmap = struct {
     const Self = @This();
     pub const ImageFormat = enum {
@@ -1226,18 +1220,18 @@ pub const Bitmap = struct {
     w: u32,
     h: u32,
 
-    pub fn initBlank(alloc: std.mem.Allocator, width: anytype, height: anytype) !Self {
+    pub fn initBlank(alloc: Alloc, width: anytype, height: anytype) !Self {
         var ret = Self{ .data = std.ArrayList(u8).init(alloc), .w = lcast(u32, width), .h = lcast(u32, height) };
         try ret.data.appendNTimes(0, 4 * @as(usize, @intCast(width * height)));
         return ret;
     }
 
-    pub fn initFromBuffer(alloc: std.mem.Allocator, buffer: []const u8, width: anytype, height: anytype, format: ImageFormat) !Bitmap {
+    pub fn initFromBuffer(alloc: Alloc, buffer: []const u8, width: anytype, height: anytype, format: ImageFormat) !Bitmap {
         const copy = try alloc.dupe(u8, buffer);
         return Bitmap{ .data = std.ArrayList(u8).fromOwnedSlice(alloc, copy), .w = lcast(u32, width), .h = lcast(u32, height), .format = format };
     }
 
-    pub fn initFromPngFileBuffer(alloc: std.mem.Allocator, buffer: []const u8) !Bitmap {
+    pub fn initFromPngFileBuffer(alloc: Alloc, buffer: []const u8) !Bitmap {
         var pngctx = c.spng_ctx_new(0);
         defer c.spng_ctx_free(pngctx);
         _ = c.spng_set_png_buffer(pngctx, &buffer[0], buffer.len);
@@ -1255,7 +1249,7 @@ pub const Bitmap = struct {
         return Bitmap{ .w = ihdr.width, .h = ihdr.height, .data = std.ArrayList(u8).fromOwnedSlice(alloc, decoded_data) };
     }
 
-    pub fn initFromPngFile(alloc: std.mem.Allocator, dir: std.fs.Dir, sub_path: []const u8) !Bitmap {
+    pub fn initFromPngFile(alloc: Alloc, dir: Dir, sub_path: []const u8) !Bitmap {
         const file_slice = try dir.readFileAlloc(alloc, sub_path, std.math.maxInt(usize));
         defer alloc.free(file_slice);
 
@@ -1280,7 +1274,7 @@ pub const Bitmap = struct {
         }
     }
 
-    pub fn writeToBmpFile(self: *const Self, alloc: std.mem.Allocator, file_name: []const u8) !void {
+    pub fn writeToBmpFile(self: *const Self, alloc: Alloc, file_name: []const u8) !void {
         var null_str_buf = std.ArrayList(u8).init(alloc);
         defer null_str_buf.deinit();
         try null_str_buf.appendSlice(file_name);
@@ -1289,7 +1283,7 @@ pub const Bitmap = struct {
         _ = c.stbi_write_bmp(@as([*c]const u8, @ptrCast(null_str_buf.items)), @as(c_int, @intCast(self.w)), @as(c_int, @intCast(self.h)), 4, @as([*c]u8, @ptrCast(self.data.items[0..self.data.items.len])));
     }
 
-    pub fn writeToPngFile(self: *Self, dir: std.fs.Dir, sub_path: []const u8) !void {
+    pub fn writeToPngFile(self: *Self, dir: Dir, sub_path: []const u8) !void {
         var out_file = try dir.createFile(sub_path, .{});
         defer out_file.close();
         var pngctx = c.spng_ctx_new(c.SPNG_CTX_ENCODER);
@@ -1458,37 +1452,6 @@ pub const GL = struct {
         c.glBindBuffer(c.GL_ARRAY_BUFFER, 0);
     }
 
-    fn grayscaleTexture(w: u32, h: u32, data: []u8) glID {
-        var texid: glID = 0;
-
-        c.glPixelStorei(c.GL_UNPACK_ALIGNMENT, 1);
-        c.glGenTextures(1, &texid);
-        c.glBindTexture(c.GL_TEXTURE_2D, texid);
-        c.glTexImage2D(
-            c.GL_TEXTURE_2D,
-            0,
-            c.GL_RED,
-            @as(i32, @intCast(w)),
-            @as(i32, @intCast(h)),
-            0,
-            c.GL_RED,
-            c.GL_UNSIGNED_BYTE,
-            @as([*c]u8, @ptrCast(data[0..data.len])),
-        );
-        // set texture options
-        c.glGenerateMipmap(c.GL_TEXTURE_2D);
-        c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_WRAP_S, c.GL_CLAMP_TO_EDGE);
-        c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_WRAP_T, c.GL_CLAMP_TO_EDGE);
-        c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_MAG_FILTER, c.GL_LINEAR);
-        c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_MIN_FILTER, c.GL_LINEAR);
-
-        c.glEnable(c.GL_BLEND);
-        c.glBlendFunc(c.GL_SRC_ALPHA, c.GL_ONE_MINUS_SRC_ALPHA);
-        c.glBlendEquation(c.GL_FUNC_ADD);
-        return texid;
-    }
-
-    //TODO once our generateVertexAttributes function works, these functions should not deal with vao or vbo they should assume they have been bound already
     fn intVertexAttrib(vao: glID, vbo: glID, index: u32, num_elem: u32, comptime item: type, comptime starting_field: []const u8, int_type: c.GLenum) void {
         c.glBindVertexArray(vao);
         c.glBindBuffer(c.GL_ARRAY_BUFFER, vbo);
@@ -1543,6 +1506,8 @@ pub const GL = struct {
     }
 };
 
+//pub fn enumFromStructDecls(decls:type)type{ //const info = }
+
 //Handle dpi
 //More 3d primitives
 //TODO defer errors to end of frame. not drawing is not fatal, ergonomically much nicer to not "try draw.*"
@@ -1556,14 +1521,53 @@ pub const GL = struct {
 //  Don't mess with gl state to much so other drawing is easy
 pub const NewCtx = struct {
     const Self = @This();
-    pub const ColorTriVert = packed struct { pos: Vec2f, z: u16, color: u32 };
-    pub const Line3DVert = packed struct { pos: Vec3f, color: u32 };
-    pub const TexTriVert = packed struct { pos: Vec2f, uv: Vec2f, z: u16, color: u32 };
+    //Define Types of verticies
+    //
+    //Any given batch has the following attributes
+    //Vertex
+    //gl_primitive
+    //index buffer
+    //shader
+    //texture to bind
+    //camera matrix
+    //
+    pub const BatchData = struct {
+        //TODO look at BatchOptions struct, it is exactly what we need
+        //it is missing:
+        //camera?
+        primitive: GL.PrimitiveMode,
+        //vertex_format:
+    };
 
-    const ColorTriBatch = NewBatch(ColorTriVert, .{ .index_buffer = true, .primitive_mode = .triangles });
-    const ColorLine3DBatch = NewBatch(Line3DVert, .{ .index_buffer = false, .primitive_mode = .lines });
+    pub const Batches = union {};
+    //VertexFormat is type, so we need a enum or something
+    //NewBatch BatchOptions contains: hasindexbuf, primitive_mode
+    //drawParams for batch.draw contains: ?texture, shader, camera
+    //All of this data defines our batch.
+    //Drawing fonts or other transparency sensitive data requires specifing order of batches
+    //Batches are not exposed to the user by default, having an integer that specifies draw order
+
+    pub const VertexFormats = struct {
+        pub const ColorTriVert = packed struct { pos: Vec2f, z: u16, color: u32 };
+        pub const TexTriVert = packed struct { pos: Vec2f, uv: Vec2f, z: u16, color: u32 };
+        pub const Line2DVert = packed struct { pos: Vec2f, z: u16, color: u32 };
+        pub const Line3DVert = packed struct { pos: Vec3f, color: u32 };
+    };
+
+    pub const ColorTriVert = packed struct { pos: Vec2f, z: u16, color: u32 };
+    pub const TexTriVert = packed struct { pos: Vec2f, uv: Vec2f, z: u16, color: u32 };
+    pub const Line2DVert = packed struct { pos: Vec2f, z: u16, color: u32 };
+    pub const Line3DVert = packed struct { pos: Vec3f, color: u32 };
+    //Need a way to specify the vertex format
+    //We can't use a union because the memory layout of each vertex type must be packed?
+    //A union is as large as its largest member right
+    //Easy enough with comptime
+
+    pub const ColorTriBatch = NewBatch(ColorTriVert, .{ .index_buffer = true, .primitive_mode = .triangles });
+    pub const ColorLine3DBatch = NewBatch(Line3DVert, .{ .index_buffer = false, .primitive_mode = .lines });
+    pub const ColorLine2DBatch = NewBatch(Line2DVert, .{ .index_buffer = false, .primitive_mode = .lines });
     pub const TextureTriBatch = NewBatch(TexTriVert, .{ .index_buffer = true, .primitive_mode = .triangles });
-    const FontBatch = NewBatch(TexTriVert, .{ .index_buffer = true, .primitive_mode = .triangles });
+    pub const FontBatch = NewBatch(TexTriVert, .{ .index_buffer = true, .primitive_mode = .triangles });
 
     batch_colored_line3D: ColorLine3DBatch,
     batch_colored_tri: ColorTriBatch,
@@ -1580,7 +1584,7 @@ pub const NewCtx = struct {
 
     delete_me_font_tex: ?Texture = null,
 
-    alloc: std.mem.Allocator,
+    alloc: Alloc,
     //TODO comptime function where you specify the indicies or verticies you want to append to by a string name, handles setting error flags and everything
 
     //TODO actually check this and log or panic
@@ -1590,7 +1594,7 @@ pub const NewCtx = struct {
         yes,
     } = .no,
 
-    pub fn init(alloc: std.mem.Allocator, dpi: f32) Self {
+    pub fn init(alloc: Alloc, dpi: f32) Self {
         return Self{
             .alloc = alloc,
             .dpi = dpi,
@@ -1773,6 +1777,12 @@ pub const NewCtx = struct {
         }) catch return;
     }
 
+    //TODO
+    // fn line()
+    // fn fixedBitmapText?
+
+    //pub fn line(self: *Self, start:Vec2f, end:Vec2f, color:u32) void{ }
+
     pub fn end(self: *Self, screenW: i32, screenH: i32, camera: za.Mat4) void {
         const view = za.orthographic(0, @as(f32, @floatFromInt(screenW)), @as(f32, @floatFromInt(screenH)), 0, -100000, 1);
         const model = za.Mat4.identity();
@@ -1799,7 +1809,9 @@ pub const NewCtx = struct {
 pub const BatchOptions = struct {
     index_buffer: bool,
     primitive_mode: GL.PrimitiveMode,
+    //texture:
 };
+//TODO move vertex type into batch options?
 pub fn NewBatch(comptime vertex_type: type, comptime batch_options: BatchOptions) type {
     const IndexType = u32;
     return struct {
@@ -1815,7 +1827,7 @@ pub fn NewBatch(comptime vertex_type: type, comptime batch_options: BatchOptions
         indicies: if (batch_options.index_buffer) std.ArrayList(IndexType) else void,
         primitive_mode: GL.PrimitiveMode = batch_options.primitive_mode,
 
-        pub fn init(alloc: std.mem.Allocator) @This() {
+        pub fn init(alloc: Alloc) @This() {
             var ret = @This(){
                 .vertices = std.ArrayList(vertex_type).init(alloc),
                 .indicies = if (batch_options.index_buffer) std.ArrayList(IndexType).init(alloc) else {},
@@ -1861,12 +1873,12 @@ pub fn NewBatch(comptime vertex_type: type, comptime batch_options: BatchOptions
             GL.passUniform(shader, "view", view);
             GL.passUniform(shader, "model", model);
 
+            const prim: u32 = @intFromEnum(self.primitive_mode);
             if (batch_options.index_buffer) {
-                //TODO primitive generic
-                c.glDrawElements(c.GL_TRIANGLES, @as(c_int, @intCast(self.indicies.items.len)), c.GL_UNSIGNED_INT, null);
+                c.glDrawElements(prim, @as(c_int, @intCast(self.indicies.items.len)), c.GL_UNSIGNED_INT, null);
             } else {
                 c.glLineWidth(3.0);
-                c.glDrawArrays(c.GL_LINES, 0, @as(c_int, @intCast(self.vertices.items.len)));
+                c.glDrawArrays(prim, 0, @as(c_int, @intCast(self.vertices.items.len)));
             }
         }
     };
@@ -2280,7 +2292,6 @@ pub const Rect = struct {
         return Vec2f.new(self.w, self.h);
     }
 
-    //TODO remove in favor of topL()
     pub fn pos(self: Self) Vec2f {
         return .{ .x = self.x, .y = self.y };
     }
@@ -2584,8 +2595,7 @@ pub const Texture = struct {
         border_color: [4]f32 = .{ 0, 0, 0, 1.0 },
     };
 
-    //TODO assert gl context is initilized
-    pub fn initFromImgFile(alloc: std.mem.Allocator, dir: std.fs.Dir, sub_path: []const u8, o: Options) !Texture {
+    pub fn initFromImgFile(alloc: Alloc, dir: Dir, sub_path: []const u8, o: Options) !Texture {
         var bmp = try Bitmap.initFromPngFile(alloc, dir, sub_path);
         defer bmp.deinit();
 
@@ -2635,7 +2645,20 @@ pub const Texture = struct {
     pub fn initEmpty() Texture {
         return .{ .w = 0, .h = 0, .id = 0 };
     }
-    //TODO add deinit function to unload gl texture;
+
+    pub fn deinit(self: *Texture) void {
+        c.glDeleteTextures(1, self.id);
+    }
+};
+
+pub const OptionalFileWriter = struct {
+    writer: ?std.fs.File.Writer = null,
+
+    pub fn print(self: *OptionalFileWriter, comptime fmt: []const u8, args: anytype) !void {
+        if (self.writer) |wr| {
+            try wr.print(fmt, args);
+        }
+    }
 };
 
 //TODO Support multiple non scaled sizes
@@ -2666,8 +2689,6 @@ pub const Font = struct {
         unicode: u21, //A single codepoint
         list: []const u21,
         range: [2]u21, //A range of codepoints (inclusive)
-
-        //TODO how does comptime memory work? Is returning a comptime "stack" buffer ub
     };
 
     ///Define common character sets
@@ -2686,15 +2707,6 @@ pub const Font = struct {
             .{ .unicode = 0x1001B8 },
         };
     };
-
-    //pub const DrawIterator = struct {
-
-    //    unicode_it:std.unicode.Utf8Iterator,
-
-    //    pub fn init(str:[]const u8, pos:Vec2f, )DrawIterator{
-
-    //    }
-    //};
 
     font_size: f32, //Native size in points
 
@@ -2716,7 +2728,6 @@ pub const Font = struct {
     //const START_CHAR: usize = 32;
     const padding: usize = 10;
 
-    //Add zig errors for freetype errors along with correct error defers so init() catch err can be handled correctly
     fn freetypeLogErr(stream: anytype, error_code: c_int) !void {
         if (error_code == 0)
             return;
@@ -2739,20 +2750,15 @@ pub const Font = struct {
         return error.freetype;
     }
 
-    //TODO System for loading unicode chars on the fly
-    //This system would have to keep freetype or STBTT loaded during the lifetime of a Font. When a glyph isn't found attempt to load
-    //Baking glyphs in a fixed grid rather than rect packing simplifies this
-    //Store a list of glyphs unavailable in the current font to prevent repeated requests to bake a glyph
-    //
-    //
-    //TODO pass both dpix and dpiy, and specify argument units for more clarity.
-    //Better init functions, more default parameters
-    //Allow logging and debug to be disabled
-    pub fn init(filename: []const u8, alloc: std.mem.Allocator, point_size: f32, dpi: u32, codepoints_to_load: []const CharMapEntry, opt_pack_factor: ?f32) !Self {
+    pub fn init(alloc: Alloc, dir: Dir, filename: []const u8, point_size: f32, dpi: u32, options: struct {
+        codepoints_to_load: []const CharMapEntry = &(CharMaps.AsciiBasic),
+        pack_factor: f32 = 1.3,
+        debug_dir: ?Dir = null,
+    }) !Self {
         const codepoints: []Glyph = blk: {
             var codepoint_list = std.ArrayList(Glyph).init(alloc);
             try codepoint_list.append(.{ .i = std.unicode.replacement_character });
-            for (codepoints_to_load) |codepoint| {
+            for (options.codepoints_to_load) |codepoint| {
                 switch (codepoint) {
                     .list => |list| {
                         for (list) |cp| {
@@ -2774,17 +2780,21 @@ pub const Font = struct {
         };
         const dump_bitmaps = false;
 
-        //TODO move to using a passed in dir and filename
-        const dir = std.fs.cwd();
-        dir.makeDir("debug") catch |err| switch (err) {
-            error.PathAlreadyExists => {},
-            else => return err,
-        };
-        const font_log = try dir.createFile("debug/fontgen.log", .{ .truncate = true });
-        const log = font_log.writer();
-        defer font_log.close();
-        try log.print("zig: Init font with arguments:\nfilename: \"{s}\"\npoint_size: {d}\ndpi: {d}\n", .{ filename, point_size, dpi });
-
+        var log = OptionalFileWriter{};
+        if (options.debug_dir) |ddir| {
+            ddir.makeDir("debug") catch |err| switch (err) {
+                error.PathAlreadyExists => {},
+                else => return err,
+            };
+            ddir.makeDir("debug/bitmaps") catch |err| switch (err) {
+                error.PathAlreadyExists => {},
+                else => return err,
+            };
+            const font_log = try ddir.createFile("debug/fontgen.log", .{ .truncate = true });
+            log.writer = font_log.writer();
+            //defer font_log.close();
+            try log.print("zig: Init font with arguments:\nfilename: \"{s}\"\npoint_size: {d}\ndpi: {d}\n", .{ filename, point_size, dpi });
+        }
         var result = Font{
             .dpi = @as(f32, @floatFromInt(dpi)),
             .max_advance = 0,
@@ -2798,7 +2808,6 @@ pub const Font = struct {
         errdefer result.glyph_set.deinit();
 
         //TODO switch to using a grid rather than rect packing
-        const pack_factor = opt_pack_factor orelse 1.3;
 
         const stderr = std.io.getStdErr().writer();
 
@@ -2807,16 +2816,14 @@ pub const Font = struct {
 
         var face: c.FT_Face = undefined;
         {
-            var strbuf = std.ArrayList(u8).init(alloc);
-            defer strbuf.deinit();
-
-            try strbuf.appendSlice(filename);
-            try strbuf.append(0);
+            var path = std.ArrayList(u8).fromOwnedSlice(alloc, try dir.realpathAlloc(alloc, filename));
+            defer path.deinit();
+            try path.append(0);
 
             //FT_New_Face loads font file from filepathname
             //the face pointer should be destroyed with FT_Done_Face()
             {
-                const err_code = c.FT_New_Face(ftlib, @as([*:0]const u8, @ptrCast(strbuf.items)), 0, &face);
+                const err_code = c.FT_New_Face(ftlib, @as([*:0]const u8, @ptrCast(path.items)), 0, &face);
                 switch (err_code) {
                     c.FT_Err_Cannot_Open_Resource => return error.fucked,
                     else => try freetypeLogErr(stderr, err_code),
@@ -2921,18 +2928,12 @@ pub const Font = struct {
                 bitmap.deinit();
             bitmaps.deinit();
         }
-        if (dump_bitmaps) {
-            dir.makeDir("debug/bitmaps") catch |err| switch (err) {
-                error.PathAlreadyExists => {},
-                else => return err,
-            };
-        }
 
         var timer = try std.time.Timer.start();
         for (result.glyph_set.dense.items) |*codepoint| {
             const glyph_i = c.FT_Get_Char_Index(face, codepoint.i);
             if (glyph_i == 0) {
-                std.debug.print("Undefined char index: {d} {x}\n", .{ codepoint.i, codepoint.i });
+                //std.debug.print("Undefined char index: {d} {x}\n", .{ codepoint.i, codepoint.i });
                 continue;
             }
 
@@ -2943,7 +2944,7 @@ pub const Font = struct {
             const bitmap = &(face.*.glyph.*.bitmap);
 
             if (bitmap.width != 0 and bitmap.rows != 0) {
-                if (dump_bitmaps) {
+                if (options.debug_dir != null) {
                     var buf: [255]u8 = undefined;
                     var fbs = std.io.FixedBufferStream([]u8){ .buffer = &buf, .pos = 0 };
                     try fbs.writer().print("debug/bitmaps/{d}.bmp", .{glyph_i});
@@ -2991,8 +2992,8 @@ pub const Font = struct {
             for (pack_ctx.rects.items) |r| {
                 num_pixels += (@as(usize, @intCast(r.w)) * @as(usize, @intCast(r.h)));
             }
-            result.texture.w = @as(i32, @intFromFloat(@sqrt(@as(f32, @floatFromInt(num_pixels)) * pack_factor)));
-            result.texture.h = @as(i32, @intFromFloat(@sqrt(@as(f32, @floatFromInt(num_pixels)) * pack_factor)));
+            result.texture.w = @as(i32, @intFromFloat(@sqrt(@as(f32, @floatFromInt(num_pixels)) * options.pack_factor)));
+            result.texture.h = @as(i32, @intFromFloat(@sqrt(@as(f32, @floatFromInt(num_pixels)) * options.pack_factor)));
             try log.print("Texture size: {d} x {d}\n", .{ result.texture.w, result.texture.h });
 
             try pack_ctx.pack(@intCast(result.texture.w), @intCast(result.texture.h));
@@ -3031,7 +3032,6 @@ pub const Font = struct {
                     .internal_format = c.GL_RED,
                     .pixel_format = c.GL_RED,
                     .min_filter = c.GL_LINEAR,
-                    //TODO provide options for these params
                     .mag_filter = c.GL_LINEAR,
                 });
                 //result.texture.id = GL.grayscaleTexture(result.texture.w, result.texture.h, texture_bitmap.items);
@@ -3191,7 +3191,7 @@ pub const GraphicsContext = struct {
     last_batch: ?*Batch = null,
 
     batches: std.ArrayList(Batch),
-    alloc: std.mem.Allocator,
+    alloc: Alloc,
 
     z_st: f32 = 0,
 
@@ -3216,7 +3216,7 @@ pub const GraphicsContext = struct {
 
     screen_bounds: IRect,
 
-    pub fn init(alloc: std.mem.Allocator, dpi: f32) !Self {
+    pub fn init(alloc: Alloc, dpi: f32) !Self {
         var ret: Self = .{
             .screen_bounds = IRect.new(0, 0, 0, 0),
             .dpi = dpi,
@@ -3686,6 +3686,7 @@ pub fn vertexTextured(x: f32, y: f32, z: f32, u: f32, v: f32, col: Color) Vertex
     return .{ .x = x, .y = y, .z = z, .u = u, .v = v, .r = col[0], .g = col[1], .b = col[2], .a = col[3] };
 }
 
+//TODO destroy this
 pub const NewTri = struct {
     const Self = @This();
     const shader_test_frag = @embedFile("shader/colorquad.frag");
@@ -3704,7 +3705,7 @@ pub const NewTri = struct {
     vbo: c_uint,
     ebo: c_uint,
 
-    pub fn init(alloc: std.mem.Allocator) @This() {
+    pub fn init(alloc: Alloc) @This() {
         const Vertu = Vert;
         var ret = Self{
             .vertices = std.ArrayList(Vertu).init(alloc),
@@ -3795,7 +3796,7 @@ pub const Cubes = struct {
         c.glDrawElements(c.GL_TRIANGLES, @as(c_int, @intCast(b.indicies.items.len)), c.GL_UNSIGNED_INT, null);
     }
 
-    pub fn init(alloc: std.mem.Allocator, texture: glID, shader: glID) @This() {
+    pub fn init(alloc: Alloc, texture: glID, shader: glID) @This() {
         var ret = Self{
             .vertices = std.ArrayList(VertexTextured).init(alloc),
             .indicies = std.ArrayList(u32).init(alloc),
@@ -3842,7 +3843,7 @@ const TriangleBatchTex = struct {
     vbo: c_uint = undefined,
     ebo: c_uint = undefined,
 
-    pub fn init(alloc: std.mem.Allocator, texture: glID, shader: glID) @This() {
+    pub fn init(alloc: Alloc, texture: glID, shader: glID) @This() {
         var ret = Self{
             .vertices = std.ArrayList(VertexTextured).init(alloc),
             .indicies = std.ArrayList(u32).init(alloc),
@@ -3880,7 +3881,7 @@ const TriangleBatch = struct {
     vbo: c_uint = undefined,
     ebo: c_uint = undefined,
 
-    pub fn init(alloc: std.mem.Allocator, shader: glID) @This() {
+    pub fn init(alloc: Alloc, shader: glID) @This() {
         var ret = Self{
             .vertices = std.ArrayList(Vertex).init(alloc),
             .indicies = std.ArrayList(u32).init(alloc),
@@ -3909,7 +3910,7 @@ const LineBatch = struct {
     vao: c_uint = undefined,
     vbo: c_uint = undefined,
 
-    pub fn init(alloc: std.mem.Allocator, shader: glID) @This() {
+    pub fn init(alloc: Alloc, shader: glID) @This() {
         var ret = Self{ .vertices = std.ArrayList(Vertex).init(alloc), .shader = shader };
         c.glGenVertexArrays(1, &ret.vao);
         c.glGenBuffers(1, &ret.vbo);
@@ -4020,9 +4021,8 @@ const Batch = union(enum) {
 pub const BindType = [2][]const u8;
 pub const BindList = []const BindType;
 
-//Takes a list of bindings{"name", "key_name"} and generates an enum
-//can be used with BindingMap and a switch() to map key input events to actions
-//
+///Takes a list of bindings{"name", "key_name"} and generates an enum
+///can be used with BindingMap and a switch() to map key input events to actions
 pub fn GenerateBindingEnum(comptime map: BindList) type {
     const TypeInfo = std.builtin.Type;
     var fields: [map.len + 1]TypeInfo.EnumField = undefined;
@@ -4081,48 +4081,3 @@ pub fn Bind(comptime map: BindList) type {
         //pub fn draw(self: *const Self, ctx: *NewCtx)
     };
 }
-//TODO Write tests for everything
-
-//Use case:
-//Drawing 2d graphics using the painters algorithm without having to worry about anything
-//IE Raylib
-//
-//GL Problems:
-//Seperate draw modes and shaders etc require different batches.
-//The painters algorithm requires us to draw a batch whenever we change that state.
-//States:
-//  Shader (colored tri, textured tri.
-//  Primitive type (triangles, lines, points
-
-////const TriangleBatch = struct {
-//    vertices: []VertexTextured,
-//    indicies: []u32,
-//
-//    texture: usize,
-//};
-
-//BUFFER TYPES
-// trianglesBuffer
-// linesBuffer
-// pointsBuffer
-
-//VERTEX TYPES
-// Textured:
-// xyz uv rgba
-// 12  8  4
-//
-// Plain:
-// xyz rgba
-
-//OK so new GraphicsContext
-//Since our z coordinate is only used for depth, see if a u16 could be used rather than a f32
-//triangleBatch, xyz, uv, rgba | xyz, rgba | maybe xyz uv
-//xyz: 10
-//uv: 8
-//rgba: 4
-//
-//Tris
-//Lines
-//
-
-//loadTexture()

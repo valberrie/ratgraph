@@ -32,10 +32,6 @@ pub fn quadForm(a: f32, b: f32, C: f32) ?[2]f32 {
     return if (discrim < 0) null else .{ (-b + std.math.sqrt(discrim)) / (2 * a), (-b - std.math.sqrt(discrim)) / (2 * a) };
 }
 
-fn intVel(accel: f32, dt: f32, v0: f32) f32 {
-    return (std.math.pow(f32, dt, 2) * accel / 2) + v0 * dt;
-}
-
 pub fn printSlice(slice: anytype, comptime fmt: ?[]const u8) void {
     const fmt_str = if (fmt) |f| "i: {d} " ++ f else "i: {d} {any}\n";
     for (slice, 0..) |item, i| {
