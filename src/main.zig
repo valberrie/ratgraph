@@ -19,10 +19,17 @@ pub fn printSlice(slice: anytype, comptime fmt: ?[]const u8) void {
     }
 }
 
+const gui_app = @import("gui_app.zig");
+
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.detectLeaks();
     const alloc = gpa.allocator();
+
+    if (true) {
+        try gui_app.main();
+        return;
+    }
 
     var win = try graph.SDL.Window.createWindow("zig-game-engine", .{});
     defer win.destroyWindow();

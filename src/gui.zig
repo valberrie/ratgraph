@@ -144,6 +144,9 @@ pub const my_map = EnumMap(Justify, u8);
 
 pub const InputState = struct {
     pub const DefaultKeyboardState = graph.SDL.Window.KeyboardStateT.initEmpty();
+    //TODO switch to using new graphics.zig MouseState
+    //make clickwidget support rightClicks, double click etc
+    //Figure out textinput
     mouse_pos: Vec2f = .{ .x = 0, .y = 0 },
     mouse_delta: Vec2f = .{ .x = 0, .y = 0 },
     mouse_left_held: bool = false,
@@ -1086,7 +1089,7 @@ pub const Context = struct {
         x_max: ?f32 = null,
         y_min: ?f32 = null,
         y_max: ?f32 = null,
-    }) void {
+    }) ClickState {
         const Helper = struct {
             const Type = std.builtin.Type;
 
@@ -1138,6 +1141,7 @@ pub const Context = struct {
         }
         Helper.setVal(xinfo, x_val, val.x, opts.x_min, opts.x_max);
         Helper.setVal(yinfo, y_val, val.y, opts.y_min, opts.y_max);
+        return click;
     }
 
     pub fn beginLayout(self: *Self, comptime Layout_T: type, layout_data: Layout_T, opts: struct { bg: Color = itc(0x222222ff) }) !*Layout_T {
