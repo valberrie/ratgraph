@@ -505,9 +505,7 @@ pub fn main() !void {
 
     //var testmap = graph.Bind(&.{.{ "fuck", "a" }}).init();
 
-    var win = try graph.SDL.Window.createWindow("zig-game-engine", .{ .window_flags = &.{
-        c.SDL_WINDOW_BORDERLESS,
-    } });
+    var win = try graph.SDL.Window.createWindow("zig-game-engine", .{});
     defer win.destroyWindow();
 
     var ctx = try graph.GraphicsContext.init(alloc, 163);
@@ -515,6 +513,9 @@ pub fn main() !void {
 
     //const mc_atlas = try mcBlockAtlas.buildAtlas(alloc);
     //defer mc_atlas.deinit(alloc);
+
+    var asset_dir = try std.fs.cwd().openDir("mario_assets", .{});
+    defer asset_dir.close();
 
     const SaveData = struct {
         fps_posx: f32 = 0,
@@ -534,7 +535,7 @@ pub fn main() !void {
     var dpix: u32 = @as(u32, @intFromFloat(win.getDpi()));
     std.debug.print("DPI: {d}\n", .{dpix});
     const init_size = 72;
-    var font = try graph.Font.init("fonts/sfmono.otf", alloc, init_size, dpix, &(graph.Font.CharMaps.AsciiBasic ++ graph.Font.CharMaps.Apple), null);
+    var font = try graph.Font.init(alloc, std.fs.cwd(), "fonts/sfmono.otf", init_size, dpix, .{});
     defer font.deinit();
 
     var prng = std.rand.DefaultPrng.init(0);
