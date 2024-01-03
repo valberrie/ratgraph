@@ -1,6 +1,7 @@
 const std = @import("std");
 const graph = @import("graphics.zig");
 const Rect = graph.Rect;
+const Rec = graph.Rec;
 const itc = graph.itc;
 const Pad = graph.Padding;
 
@@ -1048,6 +1049,58 @@ pub const AtlasEditor = struct {
     }
 };
 
+/// Attempting to make a nextStep style gui
+pub const TestWindow = struct {
+    const Self = @This();
+    const border = itc(0xff);
+    const wbg = itc(0xaaaaaaff);
+    const shadow = itc(0x555555ff);
+    const light = itc(0xffffffff);
+
+    ref_img: graph.Texture,
+
+    pub fn init(alloc: std.mem.Allocator) !Self {
+        const dir = std.fs.cwd();
+        return .{
+            .ref_img = try graph.Texture.initFromImgFile(alloc, dir, "nextgui.png", .{ .mag_filter = graph.c.GL_NEAREST }),
+        };
+    }
+    pub fn deinit(self: *Self) void {
+        _ = self;
+        //self.ref_img.deinit();
+    }
+
+    pub fn update(self: *Self, gui: *Gui.Context) !void {
+        const size = self.ref_img.rect();
+        const scale: f32 = 2.0;
+        const pos = Vec2f.new(40, 40);
+        _ = try gui.beginLayout(Gui.SubRectLayout, .{ .rect = size.mul(scale).addVec(pos) }, .{});
+        defer gui.endLayout();
+        const area = gui.getArea() orelse return;
+        gui.drawRectFilled(area, border);
+        gui.drawRectTextured(area.addVec(.{ .x = area.w + 10, .y = 0 }), itc(0xffffffff), self.ref_img.rect(), self.ref_img);
+        const inside = area.inset(scale * 1.0);
+        gui.drawRectFilled(inside, wbg);
+        const header_box = Rect.newV(inside.pos(), Vec2f.new(inside.w, 21 * scale));
+        { //Draw the top bar
+            gui.drawRectFilled(header_box, wbg);
+            const of = Vec2f.new(scale, scale);
+            gui.drawRectFilled(Rect.newV(header_box.pos().add(of), header_box.dim().sub(of)), shadow);
+            gui.drawRectFilled(header_box.inset(1.0 * scale), border);
+            gui.drawRectFilled(Rect.new(header_box.x, header_box.y + header_box.h, header_box.w, scale), border);
+        }
+        const main_h = 63 * scale;
+        const title_r = Rect.newV(header_box.botL().add(Vec2f.new(0, scale)), Vec2f.new(inside.w, main_h));
+        gui.drawRectFilled(Rect.newV(title_r.botL(), Vec2f.new(inside.w, scale)), shadow);
+        gui.drawRectFilled(Rect.newV(title_r.botL(), Vec2f.new(inside.w, scale)).addV(0, scale), light);
+
+        const text_b = Rect.newV(title_r.pos(), Vec2f.new(title_r.w, 14 * scale));
+        gui.drawRectFilled(text_b, itc(0xff00ffff));
+        gui.drawRectFilled(text_b.addV(0, text_b.h), itc(0x0fffffff));
+        gui.drawText("Hello Worldg this Text should have \nmany ascend and descendGGggy", text_b.pos(), text_b.h, border);
+    }
+};
+
 pub fn main() anyerror!void {
     //_ = graph.MarioData.dd;
     var gpa = std.heap.GeneralPurposeAllocator(.{ .retain_metadata = true, .never_unmap = true, .verbose_log = false }){};
@@ -1065,7 +1118,8 @@ pub fn main() anyerror!void {
     graph.c.glLineWidth(3);
 
     var dpix: u32 = @as(u32, @intFromFloat(win.getDpi()));
-    const init_size = graph.pxToPt(win.getDpi(), 100);
+    //const init_size = graph.pxToPt(win.getDpi(), 100);
+    const init_size = 15;
     var font = try graph.Font.init(alloc, std.fs.cwd(), "fonts/roboto.ttf", init_size, dpix, .{});
     defer font.deinit();
     const icon_list = comptime blk: {
@@ -1127,6 +1181,10 @@ pub fn main() anyerror!void {
 
     var atlas_editor = AtlasEditor.init(alloc);
     defer atlas_editor.deinit();
+
+    var test_win = try TestWindow.init(alloc);
+    defer test_win.deinit();
+
     //var file_browser = try FileBrowser.init(alloc);
     //defer file_browser.deinit();
 
@@ -1198,12 +1256,14 @@ pub fn main() anyerror!void {
         rbuf.put(gui_time);
 
         {
-            const r = graph.Rec(0, 0, win.screen_width, win.screen_height);
+            const r = graph.Rec(0, 0, win.screen_width, win.screen_height).inset(@as(f32, @floatFromInt(win.screen_height)) / 8);
             parent_area = r;
             //parent_area = graph.Rec(r.x + r.w / 4, r.y + r.h / 4, r.w / 2, r.h / 2);
-            _ = try gui.beginLayout(Gui.SubRectLayout, .{ .rect = parent_area }, .{});
+            //_ = try gui.beginLayout(Gui.SubRectLayout, .{ .rect = parent_area }, .{});
+            _ = try gui.beginLayout(Gui.SubRectLayout, .{ .rect = graph.Rec(20, 20, 505, 368).mul(2) }, .{});
             defer gui.endLayout();
-            try fb.update(&gui);
+            //try fb.update(&gui);
+            try test_win.update(&gui);
             //try editor.update(&gui);
             //try atlas_editor.update(&gui);
             //try map_editor.update(&gui);

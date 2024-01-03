@@ -2591,6 +2591,7 @@ pub const Texture = struct {
     };
 
     pub fn initFromImgFile(alloc: Alloc, dir: Dir, sub_path: []const u8, o: Options) !Texture {
+        //TODO check if png file
         var bmp = try Bitmap.initFromPngFile(alloc, dir, sub_path);
         defer bmp.deinit();
 
@@ -2642,7 +2643,8 @@ pub const Texture = struct {
     }
 
     pub fn deinit(self: *Texture) void {
-        c.glDeleteTextures(1, self.id);
+        _ = self;
+        //c.glDeleteTextures(1, self.id);
     }
 };
 
@@ -2907,7 +2909,8 @@ pub const Font = struct {
         result.ascent = @as(f32, @floatFromInt(fr.size.*.metrics.ascender)) / 64;
         result.descent = @as(f32, @floatFromInt(fr.size.*.metrics.descender)) / 64;
         result.max_advance = @as(f32, @floatFromInt(fr.size.*.metrics.max_advance)) / 64;
-        result.line_gap = @as(f32, @floatFromInt(fr.size.*.metrics.height)) / 64;
+        //result.line_gap = @as(f32, @floatFromInt(fr.size.*.metrics.height)) / 64;
+        result.line_gap = result.ascent;
 
         try log.print("Freetype face: ascender:  {d}px\n", .{result.ascent});
         try log.print("Freetype face: descender:  {d}px\n", .{result.descent});
@@ -3499,7 +3502,8 @@ pub const GraphicsContext = struct {
     //TODO Split this off into a function that draws a single unicode codepoint
     //TODO have a function that takes pts and one that takes pixels,(this one takes pixels)
     pub fn drawText(self: *Self, x: f32, y: f32, str: []const u8, font: *Font, size: f32, col: CharColor) void {
-        const SF = (size / self.dpi * 72) / font.font_size;
+        const SF = size / font.ascent;
+        //const SF = (size / self.dpi * 72) / font.font_size;
         const fac = 1;
 
         const batch = (self.getBatch(.{ .mode = .triangles, .texture = font.texture.id, .shader = self.font_shad }) catch unreachable);
@@ -3511,18 +3515,16 @@ pub const GraphicsContext = struct {
         var it = std.unicode.Utf8Iterator{ .bytes = str, .i = 0 };
 
         var vx = x * fac;
-        var vy = y * fac + ((font.ascent + font.descent) * SF);
+        var vy = y + (size + font.descent * SF);
         var cho = it.nextCodepoint();
         while (cho != null) : (cho = it.nextCodepoint()) {
             const ch = cho orelse unreachable;
-            //for (str) |ch| {
             switch (ch) {
                 '\t' => {
                     vx += 4 * font.max_advance * SF;
                     continue;
                 },
                 '\n' => {
-                    //vy += (font.ascent - font.descent + font.line_gap) * SF * font.scale_factor;
                     vy += font.line_gap * SF;
                     vx = x * fac;
                     continue;
