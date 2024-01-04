@@ -2129,8 +2129,8 @@ pub const Hsva = struct {
 
 pub fn colorToHsva(color: CharColor) Hsva {
     const fl = charColorToFloat(color);
-    const max = std.math.max3(fl[0], fl[1], fl[2]);
-    const min = std.math.min3(fl[0], fl[1], fl[2]);
+    const max = @max(fl[0], fl[1], fl[2]);
+    const min = @max(fl[0], fl[1], fl[2]);
     const C = max - min;
 
     const r = fl[0];
@@ -4193,8 +4193,8 @@ pub fn Bind(comptime map: BindList) type {
             return self.bind_table[@intFromEnum(key)];
         }
 
-        pub fn get(self: *const @This(), scancode: usize) bind_enum {
-            return self.scancode_table[scancode];
+        pub fn get(self: *const @This(), scancode: keycodes.Scancode) bind_enum {
+            return self.scancode_table[@intFromEnum(scancode)];
         }
 
         //pub fn draw(self: *const Self, ctx: *NewCtx)

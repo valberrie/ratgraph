@@ -1069,6 +1069,22 @@ pub const AtlasEditor = struct {
 /// table with scroll area
 pub const TestWindow = struct {
     const Self = @This();
+
+    const SampleEnum = enum {
+        val1,
+        val2,
+        what,
+        more_value,
+    };
+
+    const SampleStruct = struct {
+        en: SampleEnum = .what,
+        float: f32 = 123,
+        flag: bool = false,
+        my_int: i32 = 1222,
+        my_struct: Rect = Rec(4, 5, 6, 7),
+    };
+
     const border = itc(0xff);
     const wbg = itc(0xaaaaaaff);
     const shadow = itc(0x555555ff);
@@ -1088,10 +1104,25 @@ pub const TestWindow = struct {
     const os9btn = Rec(12, 0, 12, 12);
     const os9nurl = Rec(24, 0, 6, 12);
     const os9dropbtn = Rec(31, 0, 20, 16);
+    const os9slider = Rec(0, 24, 3, 3);
+    const os9shuttle = Rec(0, 30, 19, 14);
+    const os9checkbox = Rec(12, 12, 12, 12);
+    const os9check = Rec(24, 24, 12, 12);
+
+    const os9tabstart = Rec(55, 0, 11, 21);
+    const os9tabend = Rec(72, 0, 11, 21);
+    const os9tabmid = Rec(66, 0, 6, 21);
+
+    const os9tabstart_active = Rec(55, 24, 11, 21);
+    const os9tabend_active = Rec(72, 24, 11, 21);
+    const os9tabmid_active = Rec(66, 24, 6, 21);
+
+    const os9tabborder = Rec(42, 24, 9, 9);
 
     ref_img: graph.Texture,
     texture: graph.Texture,
     scale: f32,
+    sample_data: SampleStruct = .{},
 
     pub fn init(alloc: std.mem.Allocator, scale: f32) !Self {
         const dir = std.fs.cwd();
@@ -1120,14 +1151,25 @@ pub const TestWindow = struct {
         _ = try gui.beginLayout(Gui.SubRectLayout, .{ .rect = inside.inset(4 * scale) }, .{});
         defer gui.endLayout();
         {
-            var vl = try gui.beginLayout(Gui.VerticalLayout, .{ .item_height = 21 * scale, .padding = .{ .bottom = 6 * scale } }, .{});
+            var vl = try gui.beginLayout(Gui.VerticalLayout, .{ .item_height = 20 * scale, .padding = .{ .bottom = 6 * scale } }, .{});
             defer gui.endLayout();
             self.hLabelTextbox(gui, "Local_Name:", "New_Printer", scale);
             self.hLabelTextbox(gui, "Remote:", "", scale);
             self.hLabelTextbox(gui, "Note:", "This is a new printer", scale);
             vl.current_h += vl.padding.bottom;
             _ = self.button(gui, "Click me", scale);
-            self.dropDown(gui, scale);
+            vl.pushHeight(vl.item_height * 4);
+            _ = try gui.beginLayout(Gui.HorizLayout, .{ .count = 2 }, .{});
+            const buttons = [_][]const u8{ "Opt 1", "two", "Just save", "Load It" };
+            for (0..2) |_| {
+                _ = try gui.beginLayout(Gui.VerticalLayout, .{ .item_height = 20 * scale }, .{});
+                for (buttons) |btn| {
+                    _ = self.button(gui, btn, scale);
+                }
+                gui.endLayout();
+            }
+
+            gui.endLayout();
 
             const a = gui.getArea() orelse return;
             const mt = "My Area";
@@ -1136,7 +1178,60 @@ pub const TestWindow = struct {
             const bx = bounds.x * 1.2;
             gui.draw9Border(a, os9line, self.texture, scale, a.w / 2 - bx / 2, a.w / 2 + bx / 2);
             gui.drawText(mt, Vec2f.new(a.x + a.w / 2 - bounds.x / 2, a.y - ts / 2), ts, Color.Black);
+            var val: f32 = 44;
+            gui.spinner(&val);
+            self.checkbox(gui, "Checkbox", &self.sample_data.flag);
+            vl.pushHeight(os9tabstart.h * scale);
+            _ = try self.tabs(gui, SampleEnum, &self.sample_data.en);
+            try self.enumDropDown(gui, SampleEnum, &self.sample_data.en);
+            try self.sliderOpts(gui, &self.sample_data.float, -10, 200);
         }
+    }
+
+    pub fn tabs(win: *Self, self: *Gui.Context, comptime list_type: type, selected: *list_type) !list_type {
+        const info = @typeInfo(list_type);
+        const fields = info.Enum.fields;
+        _ = try self.beginLayout(Gui.HorizLayout, .{ .count = fields.len, .paddingh = 0 }, .{});
+        defer self.endLayout();
+        inline for (fields) |field| {
+            const active = @as(info.Enum.tag_type, @intFromEnum(selected.*)) == field.value;
+            const area = self.getArea() orelse return selected.*;
+            const click = self.clickWidget(area, .{});
+            if (click == .click)
+                selected.* = @as(list_type, @enumFromInt(field.value));
+            const sta = if (active) os9tabstart_active else os9tabstart;
+            const end = if (active) os9tabend_active else os9tabend;
+            const mid = if (active) os9tabmid_active else os9tabmid;
+            self.drawRectTextured(
+                Rec(area.x, area.y, sta.w * win.scale, area.h),
+                Color.White,
+                sta,
+                win.texture,
+            );
+            self.drawRectTextured(
+                Rec(area.x + area.w - end.w * win.scale, area.y, end.w * win.scale, area.h),
+                Color.White,
+                end,
+                win.texture,
+            );
+            const mida = Rec(area.x + sta.w * win.scale, area.y, area.w - (end.w + sta.w) * win.scale, area.h);
+            self.drawRectTextured(
+                mida,
+                Color.White,
+                mid,
+                win.texture,
+            );
+            //const tbounds = self.font.textBounds(field.name);
+            self.drawText(field.name, mida.pos().add(.{ .x = 0, .y = 4 * win.scale }), mida.h - 4 * win.scale, Color.Black);
+
+            //if (self.buttonEx(.{
+            //    .name = field.name,
+            //})) {
+            //    selected.* = @as(list_type, @enumFromInt(field.value));
+            //}
+        }
+
+        return selected.*;
     }
 
     pub fn button(self: *Self, gui: *Gui.Context, label: []const u8, scale: f32) bool {
@@ -1144,7 +1239,8 @@ pub const TestWindow = struct {
         const click = gui.clickWidget(area, .{});
         const sl = switch (click) {
             .none, .hover => os9btn,
-            else => inset9,
+            .click, .held => inset9,
+            else => os9btn,
         };
         gui.draw9Slice(area, sl, self.texture, scale);
         const texta = area.inset(3 * scale);
@@ -1154,13 +1250,160 @@ pub const TestWindow = struct {
         return click == .click;
     }
 
-    pub fn dropDown(self: *Self, gui: *Gui.Context, scale: f32) void {
+    pub fn sliderOpts(win: *Self, self: *Gui.Context, value: anytype, min: anytype, max: anytype) !void {
+        const lmin = std.math.lossyCast(f32, min);
+        const lmax = std.math.lossyCast(f32, max);
+        //const lval = std.math.lossyCast(f32, value.*);
+        const ptrinfo = @typeInfo(@TypeOf(value));
+        const child_type = ptrinfo.Pointer.child;
+        if (ptrinfo != .Pointer) @compileError("slider requires a pointer for value");
+        const info = @typeInfo(child_type);
+
+        const rec = self.getArea() orelse return;
+
+        const handle_w = os9shuttle.w * win.scale;
+        const mdel = self.input_state.mouse_delta.x;
+        const mpos = self.input_state.mouse_pos.x;
+        const scale = (rec.w - handle_w) / (lmax - lmin);
+
+        var val: f32 = switch (info) {
+            .Float => @as(f32, @floatCast(value.*)),
+            .Int => @as(f32, @floatFromInt(value.*)),
+            else => @compileError("invalid type"),
+        };
+
+        var handle = Rect{
+            .x = rec.x + (val - min) * scale,
+            .y = rec.y + (os9slider.h / 3) * win.scale,
+            .w = handle_w,
+            .h = rec.h - (os9slider.h / 3) * 2 * win.scale,
+        };
+        const clicked = self.clickWidget(handle, .{});
+
+        if (clicked == .click) {
+            self.focused_slider_state = 0;
+        }
+
+        if (clicked == .held or clicked == .click) {
+            val += self.focused_slider_state;
+            val += mdel / scale;
+            val = std.math.clamp(val, lmin, lmax);
+
+            //Prevents slider moving oddly when mouse has been moved far outside of slider bounds
+            if (mpos > rec.x + rec.w)
+                val = max;
+            if (mpos < rec.x)
+                val = min;
+
+            if (info == .Int)
+                self.focused_slider_state = (val - @trunc(val));
+            handle.x = rec.x + (val - lmin) * scale;
+        }
+
+        if (self.mouse_grabbed_by_hash == null and !self.scroll_claimed_mouse and graph.rectContainsPoint(rec, self.input_state.mouse_pos)) {
+            self.scroll_claimed_mouse = true;
+            switch (info) {
+                .Float => {},
+                .Int => {
+                    val += self.input_state.mouse_wheel_delta.y;
+                    val = std.math.clamp(val, lmin, lmax);
+                },
+                else => {},
+            }
+            //scroll_data.offset.y = std.math.clamp(scroll_data.offset.y + self.input_state.mouse_wheel_delta * -40, vbounds.x, vbounds.y);
+        }
+
+        switch (info) {
+            .Float => {
+                value.* = val;
+            },
+            .Int => {
+                value.* = @as(ptrinfo.Pointer.child, @intFromFloat(@trunc(val)));
+                handle.x = rec.x + (@trunc(val) - min) * scale;
+            },
+            else => @compileError("invalid type"),
+        }
+
+        self.draw9Slice(rec, os9slider, win.texture, win.scale);
+        self.draw9Slice(handle, os9shuttle, win.texture, win.scale);
+        //if (!opts.draw_text) return;
+        //const tt = if (opts.label_text) |t| t else "";
+        //if (info == .Float) {
+        //    self.drawTextFmt("{s}{d:.2}", .{ tt, val }, rec, rec.h, Color.White, .{ .justify = .center });
+        //} else {
+        //    self.drawTextFmt("{s}{d:.0}", .{ tt, @trunc(val) }, arec, arec.h, Color.White, .{ .justify = .center });
+        //}
+    }
+
+    pub fn checkbox(self: *Self, gui: *Gui.Context, label: []const u8, checked: *bool) void {
         const area = gui.getArea() orelse return;
-        gui.draw9Slice(area, os9drop, self.texture, scale);
-        const ow = scale * os9drop.w / 3;
-        const oh = scale * os9drop.h / 3;
-        const btn_rec = Rec(area.x + area.w - ow - os9dropbtn.w * scale, area.y + oh, os9dropbtn.w * scale, os9dropbtn.h * scale);
-        gui.drawRectTextured(btn_rec, Color.White, os9dropbtn, self.texture);
+        const click = gui.clickWidget(area, .{});
+        if (click == .click or click == .double) {
+            checked.* = !checked.*;
+        }
+        const br = Rect.newV(area.pos(), .{ .x = 12 * self.scale, .y = 12 * self.scale });
+        gui.drawRectTextured(
+            br,
+            Color.White,
+            os9checkbox,
+            self.texture,
+        );
+        gui.drawText(label, area.pos().add(.{ .x = area.h * 1.5, .y = 0 }), area.h, Color.Black);
+        if (checked.*)
+            gui.drawRectTextured(br.addV(2 * self.scale, 0), Color.White, os9check, self.texture);
+    }
+
+    pub fn enumDropDown(win: *Self, self: *Gui.Context, comptime enumT: type, enum_val: *enumT) !void {
+        const rec = self.getArea() orelse return;
+        const ld = self.current_layout_cache_data.?;
+        const index = self.getTransientIndex();
+        const h = rec.h;
+
+        const click = self.clickWidget(rec, .{});
+        const wstate = self.getWidgetState(.{ .c = click, .r = rec, .v = enum_val.* });
+
+        if (self.popup_index) |ind| {
+            if (self.popup_hash) |hash| {
+                if (hash == ld.hash and ind == index) {
+                    var done = false;
+                    const info = @typeInfo(enumT);
+                    const lrq = self.layout.last_requested_bounds orelse graph.Rec(0, 0, 0, 0);
+                    const popup_rec = graph.Rec(lrq.x, lrq.y, lrq.w, h * 5);
+                    try self.beginPopup(popup_rec);
+                    if (try self.beginVLayoutScroll(&self.enum_drop_down_scroll, .{ .item_height = h })) |scroll| {
+                        inline for (info.Enum.fields) |field| {
+                            if (self.button(field.name)) {
+                                if (!done) {
+                                    enum_val.* = @as(enumT, @enumFromInt(field.value));
+                                    self.popup_index = null;
+                                    self.popup_hash = null;
+                                    done = true;
+                                }
+                            }
+                        }
+                        try self.endVLayoutScroll(scroll);
+                    }
+                    self.endPopup();
+                }
+            }
+        } else {
+            if (click == .click) {
+                self.enum_drop_down_scroll = .{ .x = 0, .y = 0 };
+                self.popup_index = index;
+                self.popup_hash = ld.hash;
+                self.last_frame_had_popup = true;
+                //try self.enumDropDown(enumT, enum_val);
+            }
+        }
+
+        if (wstate != .no_change) {
+            self.draw9Slice(rec, os9drop, win.texture, win.scale);
+            self.drawText(@tagName(enum_val.*), .{ .x = rec.x, .y = rec.y }, rec.h, Color.Black);
+            const ow = win.scale * os9drop.w / 3;
+            const oh = win.scale * os9drop.h / 3;
+            const btn_rec = Rec(rec.x + rec.w - ow - os9dropbtn.w * win.scale, rec.y + oh, os9dropbtn.w * win.scale, os9dropbtn.h * win.scale);
+            self.drawRectTextured(btn_rec, Color.White, os9dropbtn, win.texture);
+        }
     }
 
     pub fn hLabelTextbox(self: *Self, gui: *Gui.Context, label: []const u8, disp: []const u8, scale: f32) void {
@@ -1187,10 +1430,10 @@ pub fn main() anyerror!void {
     defer _ = gpa.detectLeaks();
     const alloc = gpa.allocator();
 
-    const scale = 2;
+    const scale = 1.0;
     var win = try graph.SDL.Window.createWindow("My window", .{
         .window_flags = &.{ graph.c.SDL_WINDOW_BORDERLESS, graph.c.SDL_WINDOW_UTILITY },
-        .window_size = .{ .x = @intFromFloat(273 * scale), .y = @intFromFloat(330 * scale) },
+        .window_size = .{ .x = @intFromFloat(273 * scale), .y = @intFromFloat(630 * scale) },
     });
     defer win.destroyWindow();
 
@@ -1211,8 +1454,8 @@ pub fn main() anyerror!void {
 
     var dpix: u32 = @as(u32, @intFromFloat(win.getDpi()));
     //const init_size = graph.pxToPt(win.getDpi(), 100);
-    const init_size = 14;
-    var font = try graph.Font.init(alloc, std.fs.cwd(), "fonts/din.otf", init_size, dpix, .{
+    const init_size = 8;
+    var font = try graph.Font.init(alloc, std.fs.cwd(), "fonts/roboto.ttf", init_size, dpix, .{
         .debug_dir = std.fs.cwd(),
     });
     defer font.deinit();

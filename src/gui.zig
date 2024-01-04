@@ -264,7 +264,7 @@ pub const VerticalLayout = struct {
 
 pub const HorizLayout = struct {
     const floating_pixel_error = 0.3; //If we switch to ints this won't be a problem. but doing math will be annoying
-    paddingh: f32 = 10,
+    paddingh: f32 = 20,
     index: usize = 0,
     count: usize,
     current_w: f32 = 0,
@@ -277,8 +277,11 @@ pub const HorizLayout = struct {
     pub fn getArea(bounds: Rect, anyself: *anyopaque) ?Rect {
         const self = opaqueSelf(@This(), anyself);
         defer self.index += 1;
+        const fc: f32 = @floatFromInt(self.count);
 
-        const w = (bounds.w - self.paddingh) / @as(f32, @floatFromInt(self.count));
+        const w = (bounds.w - self.paddingh * (fc - 1)) / fc;
+        //const w = (bounds.w - self.paddingh) / @as(f32, @floatFromInt(self.count));
+        //defer self.current_w += w + self.paddingh;
         defer self.current_w += w + self.paddingh;
 
         return .{ .x = bounds.x + self.current_w, .y = bounds.y, .w = w, .h = bounds.h };
@@ -1677,6 +1680,10 @@ pub const Context = struct {
         const scr_dist = dl.current_h - data.data.vertical.?.h;
         try self.endScrollN(data.data, .{ .x = 0, .y = if (scr_dist < 0) 1 else scr_dist }, .{ .x = 0, .y = 1 });
     }
+
+    //TODO types of sliders
+    //Desktop Gui like slider than you slide a shuttle around
+    //spinner kind
 
     pub fn sliderOpts(self: *Self, value: anytype, min: anytype, max: anytype, opts: struct {
         orientation: Orientation = .horizontal,
