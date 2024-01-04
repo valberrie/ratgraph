@@ -1050,6 +1050,23 @@ pub const AtlasEditor = struct {
 };
 
 /// Attempting to make a nextStep style gui
+///
+/// For now, reimplement all the elments in gui within this
+///
+/// Elements we need
+/// inset rect
+/// title bar
+/// Partition lines
+///
+/// Widgets:
+/// Button
+/// Drop down
+/// Text label
+/// text box with label
+/// scrollable list with selection
+/// checkbox
+/// header
+/// table with scroll area
 pub const TestWindow = struct {
     const Self = @This();
     const border = itc(0xff);
@@ -1057,11 +1074,30 @@ pub const TestWindow = struct {
     const shadow = itc(0x555555ff);
     const light = itc(0xffffffff);
 
-    ref_img: graph.Texture,
+    //Define the different 9slices in "texture"
+    const inset9 = Rec(0, 0, 6, 6);
+    const outset9 = Rec(0, 6, 6, 6);
+    const window9 = Rec(6, 6, 6, 6);
+    const title9 = Rec(6, 0, 6, 6);
+    const divider = Rec(12, 0, 1, 2);
 
-    pub fn init(alloc: std.mem.Allocator) !Self {
+    const os9win = Rec(0, 12, 6, 6);
+    const os9in = Rec(6, 12, 6, 6);
+    const os9line = Rec(0, 18, 6, 6);
+    const os9drop = Rec(6, 18, 6, 6);
+    const os9btn = Rec(12, 0, 12, 12);
+    const os9nurl = Rec(24, 0, 6, 12);
+    const os9dropbtn = Rec(31, 0, 20, 16);
+
+    ref_img: graph.Texture,
+    texture: graph.Texture,
+    scale: f32,
+
+    pub fn init(alloc: std.mem.Allocator, scale: f32) !Self {
         const dir = std.fs.cwd();
         return .{
+            .scale = scale,
+            .texture = try graph.Texture.initFromImgFile(alloc, dir, "next_step.png", .{ .mag_filter = graph.c.GL_NEAREST }),
             .ref_img = try graph.Texture.initFromImgFile(alloc, dir, "nextgui.png", .{ .mag_filter = graph.c.GL_NEAREST }),
         };
     }
@@ -1070,34 +1106,78 @@ pub const TestWindow = struct {
         //self.ref_img.deinit();
     }
 
+    //TODO remove scale variable and scale using GuiDrawContext
     pub fn update(self: *Self, gui: *Gui.Context) !void {
-        const size = self.ref_img.rect();
-        const scale: f32 = 2.0;
-        const pos = Vec2f.new(40, 40);
-        _ = try gui.beginLayout(Gui.SubRectLayout, .{ .rect = size.mul(scale).addVec(pos) }, .{});
-        defer gui.endLayout();
+        const scale = self.scale;
         const area = gui.getArea() orelse return;
-        gui.drawRectFilled(area, border);
-        gui.drawRectTextured(area.addVec(.{ .x = area.w + 10, .y = 0 }), itc(0xffffffff), self.ref_img.rect(), self.ref_img);
-        const inside = area.inset(scale * 1.0);
-        gui.drawRectFilled(inside, wbg);
-        const header_box = Rect.newV(inside.pos(), Vec2f.new(inside.w, 21 * scale));
-        { //Draw the top bar
-            gui.drawRectFilled(header_box, wbg);
-            const of = Vec2f.new(scale, scale);
-            gui.drawRectFilled(Rect.newV(header_box.pos().add(of), header_box.dim().sub(of)), shadow);
-            gui.drawRectFilled(header_box.inset(1.0 * scale), border);
-            gui.drawRectFilled(Rect.new(header_box.x, header_box.y + header_box.h, header_box.w, scale), border);
-        }
-        const main_h = 63 * scale;
-        const title_r = Rect.newV(header_box.botL().add(Vec2f.new(0, scale)), Vec2f.new(inside.w, main_h));
-        gui.drawRectFilled(Rect.newV(title_r.botL(), Vec2f.new(inside.w, scale)), shadow);
-        gui.drawRectFilled(Rect.newV(title_r.botL(), Vec2f.new(inside.w, scale)).addV(0, scale), light);
+        gui.draw9Slice(area, os9win, self.texture, scale);
+        //const title = "Keyboard";
+        const title_h = 20 * scale;
+        const s4 = scale * 4;
+        const inside = Rect.new(area.x + s4, area.y + title_h, area.w - s4 * 2, area.h - title_h - s4);
+        gui.draw9Slice(inside, os9in, self.texture, scale);
 
-        const text_b = Rect.newV(title_r.pos(), Vec2f.new(title_r.w, 14 * scale));
-        gui.drawRectFilled(text_b, itc(0xff00ffff));
-        gui.drawRectFilled(text_b.addV(0, text_b.h), itc(0x0fffffff));
-        gui.drawText("Hello Worldg this Text should have \nmany ascend and descendGGggy", text_b.pos(), text_b.h, border);
+        _ = try gui.beginLayout(Gui.SubRectLayout, .{ .rect = inside.inset(4 * scale) }, .{});
+        defer gui.endLayout();
+        {
+            var vl = try gui.beginLayout(Gui.VerticalLayout, .{ .item_height = 21 * scale, .padding = .{ .bottom = 6 * scale } }, .{});
+            defer gui.endLayout();
+            self.hLabelTextbox(gui, "Local_Name:", "New_Printer", scale);
+            self.hLabelTextbox(gui, "Remote:", "", scale);
+            self.hLabelTextbox(gui, "Note:", "This is a new printer", scale);
+            vl.current_h += vl.padding.bottom;
+            _ = self.button(gui, "Click me", scale);
+            self.dropDown(gui, scale);
+
+            const a = gui.getArea() orelse return;
+            const mt = "My Area";
+            const ts = 12 * scale;
+            const bounds = gui.font.textBounds(mt, ts);
+            const bx = bounds.x * 1.2;
+            gui.draw9Border(a, os9line, self.texture, scale, a.w / 2 - bx / 2, a.w / 2 + bx / 2);
+            gui.drawText(mt, Vec2f.new(a.x + a.w / 2 - bounds.x / 2, a.y - ts / 2), ts, Color.Black);
+        }
+    }
+
+    pub fn button(self: *Self, gui: *Gui.Context, label: []const u8, scale: f32) bool {
+        const area = gui.getArea() orelse return false;
+        const click = gui.clickWidget(area, .{});
+        const sl = switch (click) {
+            .none, .hover => os9btn,
+            else => inset9,
+        };
+        gui.draw9Slice(area, sl, self.texture, scale);
+        const texta = area.inset(3 * scale);
+        const bounds = gui.font.textBounds(label, texta.h);
+        gui.drawText(label, texta.pos().add(.{ .x = (texta.w - bounds.x) / 2, .y = 0 }), texta.h, Color.Black);
+
+        return click == .click;
+    }
+
+    pub fn dropDown(self: *Self, gui: *Gui.Context, scale: f32) void {
+        const area = gui.getArea() orelse return;
+        gui.draw9Slice(area, os9drop, self.texture, scale);
+        const ow = scale * os9drop.w / 3;
+        const oh = scale * os9drop.h / 3;
+        const btn_rec = Rec(area.x + area.w - ow - os9dropbtn.w * scale, area.y + oh, os9dropbtn.w * scale, os9dropbtn.h * scale);
+        gui.drawRectTextured(btn_rec, Color.White, os9dropbtn, self.texture);
+    }
+
+    pub fn hLabelTextbox(self: *Self, gui: *Gui.Context, label: []const u8, disp: []const u8, scale: f32) void {
+        {
+            const bw = scale * 184;
+            const tba = gui.getArea() orelse return;
+            const texta = Rec(tba.x, tba.y, tba.w - bw, tba.h);
+            const ba = Rect.new(tba.x + texta.w, tba.y, bw, tba.h);
+            gui.draw9Slice(ba, inset9, self.texture, scale);
+            //const bounds =
+            const ts = 3;
+            const trect = texta.inset(ts * scale);
+            const bounds = gui.font.textBounds(label, trect.h);
+            gui.drawText(label, trect.pos().add(.{ .x = trect.w - bounds.x, .y = 0 }), trect.h, Color.Black);
+            const dispa = ba.inset(ts * scale);
+            gui.drawText(disp, dispa.pos(), dispa.h, Color.Black);
+        }
     }
 };
 
@@ -1107,7 +1187,11 @@ pub fn main() anyerror!void {
     defer _ = gpa.detectLeaks();
     const alloc = gpa.allocator();
 
-    var win = try graph.SDL.Window.createWindow("My window", .{});
+    const scale = 2;
+    var win = try graph.SDL.Window.createWindow("My window", .{
+        .window_flags = &.{ graph.c.SDL_WINDOW_BORDERLESS, graph.c.SDL_WINDOW_UTILITY },
+        .window_size = .{ .x = @intFromFloat(273 * scale), .y = @intFromFloat(330 * scale) },
+    });
     defer win.destroyWindow();
 
     var ctx = try graph.GraphicsContext.init(
@@ -1115,12 +1199,22 @@ pub fn main() anyerror!void {
         163,
     );
     defer ctx.deinit();
-    graph.c.glLineWidth(3);
+    graph.c.glLineWidth(1);
+
+    //TODO
+    //load multiple 9 slices into a single texture
+    //An easy way to manage it would be, a directory called "gui_asset", all pngs in this dir will be loaded and packed into a single texture.
+    //Can be referenced by name in program
+    //
+    //const fna = "h9.png";
+    //var t9 = try graph.Texture.initFromImgFile(alloc, std.fs.cwd(), fna, .{ .mag_filter = graph.c.GL_NEAREST });
 
     var dpix: u32 = @as(u32, @intFromFloat(win.getDpi()));
     //const init_size = graph.pxToPt(win.getDpi(), 100);
-    const init_size = 15;
-    var font = try graph.Font.init(alloc, std.fs.cwd(), "fonts/roboto.ttf", init_size, dpix, .{});
+    const init_size = 14;
+    var font = try graph.Font.init(alloc, std.fs.cwd(), "fonts/din.otf", init_size, dpix, .{
+        .debug_dir = std.fs.cwd(),
+    });
     defer font.deinit();
     const icon_list = comptime blk: {
         const info = @typeInfo(Icons);
@@ -1182,7 +1276,7 @@ pub fn main() anyerror!void {
     var atlas_editor = AtlasEditor.init(alloc);
     defer atlas_editor.deinit();
 
-    var test_win = try TestWindow.init(alloc);
+    var test_win = try TestWindow.init(alloc, scale);
     defer test_win.deinit();
 
     //var file_browser = try FileBrowser.init(alloc);
@@ -1256,26 +1350,15 @@ pub fn main() anyerror!void {
         rbuf.put(gui_time);
 
         {
-            const r = graph.Rec(0, 0, win.screen_width, win.screen_height).inset(@as(f32, @floatFromInt(win.screen_height)) / 8);
+            const r = graph.Rec(0, 0, win.screen_width, win.screen_height);
             parent_area = r;
             //parent_area = graph.Rec(r.x + r.w / 4, r.y + r.h / 4, r.w / 2, r.h / 2);
             //_ = try gui.beginLayout(Gui.SubRectLayout, .{ .rect = parent_area }, .{});
-            _ = try gui.beginLayout(Gui.SubRectLayout, .{ .rect = graph.Rec(20, 20, 505, 368).mul(2) }, .{});
+            _ = try gui.beginLayout(Gui.SubRectLayout, .{ .rect = parent_area }, .{});
             defer gui.endLayout();
-            //try fb.update(&gui);
             try test_win.update(&gui);
-            //try editor.update(&gui);
-            //try atlas_editor.update(&gui);
-            //try map_editor.update(&gui);
-
-            //try atlas_editor.update(&gui, parent_area);
         }
 
-        //if (gui.custom_cursor) |curs| {
-        //    win.setCursor(curs);
-        //} else {
-        //    win.setCursor(.arrow);
-        //}
         try gui_draw_context.draw(&ctx, &font, parent_area, &gui, win.screen_width, win.screen_height);
         const fs = 40;
         var cy = struct {

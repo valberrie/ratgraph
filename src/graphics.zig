@@ -1536,8 +1536,13 @@ pub const NewCtx = struct {
 
     pub const VtxFmt = struct {
         pub const Color_2D = packed struct { pos: Vec2f, z: u16, color: u32 };
-        pub const Color_Texture_2D = packed struct { pos: Vec2f, uv: Vec2f, z: u16, color: u32 };
+        pub const Color_Texture_2D = packed struct { pos: Vec2f, uv: Vec2f, z: u16, color: u32 }; // 22 bytes
         pub const Color_3D = packed struct { pos: Vec3f, color: u32 };
+
+        //idea for a small vertex, xy are 14.2 or 13.3 fixed point. 2^13 allows for up to 8k with 8 subpixel positions
+        //uv are also some fixed point maybe 13.3. These would not be normalized?
+        pub const SmallTex = packed struct { x: u16, y: u16, u: u16, v: u16, z: u16 };
+        //Total size: 10bytes
     };
 
     pub const Batches = union(enum) {
@@ -2221,10 +2226,10 @@ pub const IRect = struct {
 
 pub const Padding = struct {
     const Self = @This();
-    top: f32,
-    bottom: f32,
-    left: f32,
-    right: f32,
+    top: f32 = 0,
+    bottom: f32 = 0,
+    left: f32 = 0,
+    right: f32 = 0,
 
     pub fn new(t: f32, b: f32, l: f32, r: f32) Self {
         return .{ .top = t, .bottom = b, .left = l, .right = r };
@@ -2711,6 +2716,7 @@ pub const Font = struct {
     glyph_set: SparseSet(Glyph, u21),
 
     //The units for all of these is pixels
+    height: i32,
     ascent: f32, //Farthest the font ascends above baseline
     descent: f32, //Farthest the font descends below baseline
     line_gap: f32, //Distance between one rows descent and next rows ascent
@@ -2723,7 +2729,7 @@ pub const Font = struct {
 
     const Self = @This();
     //const START_CHAR: usize = 32;
-    const padding: usize = 10;
+    const padding: i32 = 2;
 
     fn freetypeLogErr(stream: anytype, error_code: c_int) !void {
         if (error_code == 0)
@@ -2789,9 +2795,15 @@ pub const Font = struct {
             const font_log = try ddir.createFile("debug/fontgen.log", .{ .truncate = true });
             log.writer = font_log.writer();
             //defer font_log.close();
-            try log.print("zig: Init font with arguments:\nfilename: \"{s}\"\npoint_size: {d}\ndpi: {d}\n", .{ filename, point_size, dpi });
+            try log.print("zig: Init font with arguments:\nfilename: \"{s}\"\npoint_size: {d}\ndpi: {d}\n", .{
+                filename,
+                point_size,
+                dpi,
+            });
+            try log.print("px_size: {d}\n", .{point_size * (@as(f32, @floatFromInt(dpi)) / 72)});
         }
         var result = Font{
+            .height = 0,
             .dpi = @as(f32, @floatFromInt(dpi)),
             .max_advance = 0,
             .glyph_set = try (SparseSet(Glyph, u21).fromOwnedDenseSlice(alloc, codepoints)),
@@ -2909,12 +2921,15 @@ pub const Font = struct {
         result.ascent = @as(f32, @floatFromInt(fr.size.*.metrics.ascender)) / 64;
         result.descent = @as(f32, @floatFromInt(fr.size.*.metrics.descender)) / 64;
         result.max_advance = @as(f32, @floatFromInt(fr.size.*.metrics.max_advance)) / 64;
-        //result.line_gap = @as(f32, @floatFromInt(fr.size.*.metrics.height)) / 64;
-        result.line_gap = result.ascent;
+        result.line_gap = @as(f32, @floatFromInt(fr.size.*.metrics.height)) / 64;
+        result.height = @intFromFloat(result.ascent - result.descent);
+        //result.line_gap = result.ascent;
 
         try log.print("Freetype face: ascender:  {d}px\n", .{result.ascent});
         try log.print("Freetype face: descender:  {d}px\n", .{result.descent});
         try log.print("Freetype face: line_gap:  {d}px\n", .{result.line_gap});
+        try log.print("Freetype face: x_ppem: {d}px\n", .{@as(f32, @floatFromInt(fr.size.*.metrics.x_ppem))});
+        try log.print("Freetype face: y_ppem: {d}px\n", .{@as(f32, @floatFromInt(fr.size.*.metrics.y_ppem))});
 
         var pack_ctx = RectPack.init(alloc);
         defer pack_ctx.deinit();
@@ -2960,7 +2975,8 @@ pub const Font = struct {
             }
             const metrics = &face.*.glyph.*.metrics;
             {
-                try log.print("Freetype glyph: {u}\n", .{@as(u21, @intCast(codepoint.i))});
+                const g: u21 = @intCast(codepoint.i);
+                try log.print("Freetype glyph: {u} 0x{x}\n", .{ g, g });
                 try log.print("\twidth:  {d} (1/64 px), {d} px\n", .{ metrics.width, @divFloor(metrics.width, 64) });
                 try log.print("\theight: {d} (1/64 px), {d} px\n", .{ metrics.height, @divFloor(metrics.height, 64) });
                 try log.print("\tbearingX: {d} (1/64 px), {d} px\n", .{ metrics.horiBearingX, @divFloor(metrics.horiBearingX, 64) });
@@ -2984,7 +3000,7 @@ pub const Font = struct {
 
         const elapsed = timer.read();
         try log.print("Rendered {d} glyphs in {d} ms, {d} ms avg\n", .{ result.glyph_set.dense.items.len, @as(f32, @floatFromInt(elapsed)) / std.time.ns_per_ms, @as(f32, @floatFromInt(elapsed)) / std.time.ns_per_ms / @as(f32, @floatFromInt(result.glyph_set.dense.items.len)) });
-        {
+        if (false) {
             var num_pixels: usize = 0;
             for (pack_ctx.rects.items) |r| {
                 num_pixels += (@as(usize, @intCast(r.w)) * @as(usize, @intCast(r.h)));
@@ -3032,6 +3048,40 @@ pub const Font = struct {
                     .mag_filter = c.GL_LINEAR,
                 });
             }
+        } else {
+            //Each glyph takes up result.max_advance x result.line_gap + padding
+            const w_c: i32 = @intFromFloat(@ceil(@sqrt(@as(f32, @floatFromInt(pack_ctx.rects.items.len)))));
+            const g_width: i32 = @intFromFloat(result.max_advance);
+            const g_height = result.height;
+            result.texture.w = w_c * (padding + @as(i32, @intFromFloat(result.max_advance)));
+            result.texture.h = w_c * (padding + g_height);
+            var texture_bitmap = try Bitmap.initBlank(alloc, result.texture.w, result.texture.h, .g_8);
+            defer texture_bitmap.deinit();
+
+            //var xi:u32 = 0;
+            //var yi:u32 = 0;
+            const w_ci: i32 = @intCast(w_c);
+            for (pack_ctx.rects.items, 0..) |rect, i| {
+                const ii: i32 = @intCast(i);
+                const gbmp = &bitmaps.items[i];
+                const cx: u32 = @intCast(@mod(ii, w_ci) * (g_width + padding));
+                const cy: u32 = @intCast(@divFloor(ii, w_ci) * (g_height + padding));
+                const g = try result.glyph_set.getPtr(@as(u21, @intCast(rect.id)));
+                g.tr.x = @floatFromInt(cx);
+                g.tr.y = @floatFromInt(cy);
+                Bitmap.copySubR(1, &texture_bitmap, cx, cy, gbmp, 0, 0, gbmp.w, gbmp.h);
+            }
+            if (options.debug_dir) |ddir| {
+                try texture_bitmap.writeToPngFile(ddir, "debug/freetype.png");
+            }
+
+            result.texture = Texture.initFromBitmap(texture_bitmap, .{
+                .pixel_store_alignment = 1,
+                .internal_format = c.GL_RED,
+                .pixel_format = c.GL_RED,
+                .min_filter = c.GL_LINEAR,
+                .mag_filter = c.GL_LINEAR,
+            });
         }
 
         return result;
@@ -3078,8 +3128,9 @@ pub const Font = struct {
         return null;
     }
 
-    pub fn textBounds(self: *Self, string: []const u8, size_px: f32) Vec2f {
-        const scale = (size_px / self.dpi * 72) / self.font_size;
+    pub fn textBounds(self: *Self, string: []const u8, size_px: anytype) Vec2f {
+        //const scale = (lcast(f32, size_px) / self.dpi * 72) / self.font_size;
+        const scale = size_px / @as(f32, @floatFromInt(self.height));
 
         var x_bound: f32 = 0;
         var bounds = Vec2f{ .x = 0, .y = self.line_gap * scale };
@@ -3491,18 +3542,91 @@ pub const GraphicsContext = struct {
         self.z_st += 0.1;
     }
 
-    pub fn drawTextFmt(self: *Self, x: f32, y: f32, comptime fmt: []const u8, args: anytype, font: *Font, size: f32, col: CharColor) void {
+    pub fn drawTextFmt(self: *Self, x: f32, y: f32, comptime fmt: []const u8, args: anytype, font: *Font, size: anytype, col: CharColor) void {
         var buf: [256]u8 = undefined;
         var fbs = std.io.FixedBufferStream([]u8){ .pos = 0, .buffer = &buf };
         fbs.writer().print(fmt, args) catch unreachable;
         const slice = fbs.getWritten();
-        self.drawText(x, y, slice, font, size, col);
+        self.drawText(x, y, slice, font, lcast(f32, size), col);
+    }
+
+    pub fn draw9Border(self: *Self, r: Rect, tr: Rect, texture: Texture, scale: f32, cutout_start: f32, cutout_end: f32) !void {
+        //Similar to a 9 slice but we don't draw the center and draw two halves for the top middle peice.
+        //This creates a cutout to put a text label
+
+        const W = CharColor.White;
+        const w: f32 = tr.w / 3;
+        const h: f32 = tr.h / 3;
+        const sw = w * scale;
+        const sh = h * scale;
+
+        const t = Rect.new(tr.x, tr.y, w, h);
+
+        try self.drawRectTex(Rect.newV(r.pos(), .{ .x = sw, .y = sh }), t, W, texture);
+
+        //Cutout lines:
+        try self.drawRectTex(Rect.new(r.x + sw, r.y, cutout_start, sh), t.addV(w, 0), W, texture);
+        try self.drawRectTex(Rect.new(r.x + sw + cutout_end, r.y, r.w - sw - cutout_end, sh), t.addV(w, 0), W, texture);
+
+        //try self.drawRectTex(Rect.new(r.x + sw, r.y, r.w - sw * 2, sh), t.addV(w, 0), W, texture);
+        try self.drawRectTex(Rect.new(r.x + r.w - sw, r.y, sw, sh), t.addV(w * 2, 0), W, texture);
+
+        const mh = r.h - sh * 2;
+        try self.drawRectTex(Rect.new(r.x, r.y + sh, sw, mh), t.addV(0, h), W, texture);
+        //try self.drawRectTex(Rect.new(r.x + sw, r.y + sh, r.w - sw * 2, mh), t.addV(w, h), W, texture);
+        try self.drawRectTex(Rect.new(r.x + r.w - sw, r.y + sh, sw, mh), t.addV(w * 2, h), W, texture);
+
+        const yy = r.y + r.h - sh;
+        try self.drawRectTex(Rect.new(r.x, yy, sw, sh), t.addV(0, h * 2), W, texture);
+        try self.drawRectTex(Rect.new(r.x + sw, yy, r.w - sw * 2, sh), t.addV(w, h * 2), W, texture);
+        try self.drawRectTex(Rect.new(r.x + r.w - sw, yy, sw, sh), t.addV(w * 2, h * 2), W, texture);
+    }
+
+    pub fn draw9Slice(self: *Self, r: Rect, tr: Rect, texture: Texture, scale: f32) !void {
+        const W = CharColor.White;
+        const w: f32 = tr.w / 3;
+        const h: f32 = tr.h / 3;
+        const sw = w * scale;
+        const sh = h * scale;
+
+        const xv = [4]f32{ r.x, r.x + w, r.x + r.w - w, r.x + r.w };
+        const yv = [4]f32{ r.y, r.y + h, r.y + r.h - h, r.y + r.h };
+        const x_uv = [4]f32{ 0, w, w * 2, w * 3 };
+        const y_uv = [4]f32{ 0, h, h * 2, h * 3 };
+        _ = yv;
+        _ = xv;
+        _ = x_uv;
+        _ = y_uv;
+        //TODO draw this more efficently by exploiting the common verts
+        //A vertex is 9 * 4 bytes = 36
+        //Naive implementation uses 9 rects or 36 verts and 54 indices, (36 * 36) bytes + 4 * 54, 1512 bytes
+        //Using 16 common verts: (16 * 36) + 54 * 4 = 792. Almost half reduction
+        //
+        //Newctx uses 22bytes per vertex. 568 bytes per, 2.66 times smaller.
+        //In theory we could get it to 10 bytes per vertex. so 160 + 216 = 376 bytes per 9slice
+        //if we limit ourselves to a 16bit index. 108 + 160 268 bytes. 5.68 times smaller
+        const t = Rect.new(tr.x, tr.y, w, h);
+
+        try self.drawRectTex(Rect.newV(r.pos(), .{ .x = sw, .y = sh }), t, W, texture);
+        try self.drawRectTex(Rect.new(r.x + sw, r.y, r.w - sw * 2, sh), t.addV(w, 0), W, texture);
+        try self.drawRectTex(Rect.new(r.x + r.w - sw, r.y, sw, sh), t.addV(w * 2, 0), W, texture);
+
+        const mh = r.h - sh * 2;
+        try self.drawRectTex(Rect.new(r.x, r.y + sh, sw, mh), t.addV(0, h), W, texture);
+        try self.drawRectTex(Rect.new(r.x + sw, r.y + sh, r.w - sw * 2, mh), t.addV(w, h), W, texture);
+        try self.drawRectTex(Rect.new(r.x + r.w - sw, r.y + sh, sw, mh), t.addV(w * 2, h), W, texture);
+
+        const yy = r.y + r.h - sh;
+        try self.drawRectTex(Rect.new(r.x, yy, sw, sh), t.addV(0, h * 2), W, texture);
+        try self.drawRectTex(Rect.new(r.x + sw, yy, r.w - sw * 2, sh), t.addV(w, h * 2), W, texture);
+        try self.drawRectTex(Rect.new(r.x + r.w - sw, yy, sw, sh), t.addV(w * 2, h * 2), W, texture);
     }
 
     //TODO Split this off into a function that draws a single unicode codepoint
     //TODO have a function that takes pts and one that takes pixels,(this one takes pixels)
     pub fn drawText(self: *Self, x: f32, y: f32, str: []const u8, font: *Font, size: f32, col: CharColor) void {
-        const SF = size / font.ascent;
+        const fh: f32 = @floatFromInt(font.height);
+        const SF = size / @as(f32, @floatFromInt(font.height));
         //const SF = (size / self.dpi * 72) / font.font_size;
         const fac = 1;
 
@@ -3515,7 +3639,7 @@ pub const GraphicsContext = struct {
         var it = std.unicode.Utf8Iterator{ .bytes = str, .i = 0 };
 
         var vx = x * fac;
-        var vy = y + (size + font.descent * SF);
+        var vy = y + (font.ascent * SF);
         var cho = it.nextCodepoint();
         while (cho != null) : (cho = it.nextCodepoint()) {
             const ch = cho orelse unreachable;
@@ -3525,7 +3649,7 @@ pub const GraphicsContext = struct {
                     continue;
                 },
                 '\n' => {
-                    vy += font.line_gap * SF;
+                    vy += fh * SF;
                     vx = x * fac;
                     continue;
                 },
@@ -3540,10 +3664,10 @@ pub const GraphicsContext = struct {
                 switch (err) {
                 error.invalidIndex => font.glyph_set.get(std.unicode.replacement_character) catch unreachable,
             };
-            //if (ch == ' ') {
-            //    vx += g.advance_x * SF;
-            //    continue;
-            //}
+            if (ch == ' ') {
+                vx += g.advance_x * SF;
+                continue;
+            }
             const fpad = @as(f32, @floatFromInt(Font.padding)) / 2;
             const pad = @as(f32, @floatFromInt(Font.padding));
 

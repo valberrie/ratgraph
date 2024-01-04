@@ -51,6 +51,21 @@ const Color = graph.CharColor;
 const itc = graph.itc;
 
 pub const DrawCommand = union(enum) {
+    rect_9border: struct {
+        r: Rect,
+        uv: Rect,
+        scale: f32,
+        texture: graph.Texture,
+        cutout_start: f32,
+        cutout_end: f32,
+    },
+    rect_9slice: struct {
+        r: Rect,
+        uv: Rect,
+        scale: f32,
+        texture: graph.Texture,
+    },
+
     rect_filled: struct {
         r: Rect,
         color: Color,
@@ -96,8 +111,6 @@ pub const DrawCommand = union(enum) {
         offset: Vec2f = .{ .x = 0, .y = 0 },
         win_area: ?Rect = null,
     },
-
-    extra: void,
 };
 
 //TODO bitset type that takes an enum and gives each field a mask bit. see github.com/emekoi/bitset-zig
@@ -1237,6 +1250,7 @@ pub const Context = struct {
     }
 
     pub fn scissor(self: *Self, r: ?Rect) void {
+        self.draw(.{ .scissor = .{ .area = r } });
         //if (self.command_list.items.len > 0) {
         //    const last = &self.command_list.items[self.command_list.items.len - 1];
         //    switch (last.*) {
@@ -1252,7 +1266,7 @@ pub const Context = struct {
         //    }
         //}
         //self.draw(.{ .scissor = .{ .area = r } });
-        self.command_list.append(.{ .scissor = .{ .area = r } }) catch unreachable;
+        //self.command_list.append(.{ .scissor = .{ .area = r } }) catch unreachable;
     }
 
     pub fn drawText(self: *Self, string: []const u8, pos: Vec2f, size: f32, color: Color) void {
@@ -1283,6 +1297,26 @@ pub const Context = struct {
 
     pub fn drawRectMultiColor(self: *Self, r: Rect, colors: [4]Color) void {
         self.draw(.{ .rect_filled_multi_color = .{ .r = r, .colors = colors } });
+    }
+
+    pub fn draw9Border(self: *Self, r: Rect, tr: Rect, texture: graph.Texture, scale: f32, cutout_start: f32, cutout_end: f32) void {
+        self.draw(.{ .rect_9border = .{
+            .r = r,
+            .uv = tr,
+            .texture = texture,
+            .scale = scale,
+            .cutout_start = cutout_start,
+            .cutout_end = cutout_end,
+        } });
+    }
+
+    pub fn draw9Slice(self: *Self, r: Rect, tr: Rect, texture: graph.Texture, scale: f32) void {
+        self.draw(.{ .rect_9slice = .{
+            .r = r,
+            .uv = tr,
+            .texture = texture,
+            .scale = scale,
+        } });
     }
 
     pub fn drawTextFmt(
@@ -1469,8 +1503,13 @@ pub const Context = struct {
         }
 
         if (wstate != .no_change) {
-            self.drawRectFilled(rec, Color.White);
-            self.drawText(@tagName(enum_val.*), rec.pos(), rec.h, Color.Black);
+            self.drawRectFilled(rec, Color.Black);
+            const scale = h / 20;
+            self.drawRectFilled(Rect.newV(rec.pos(), rec.dim().sub(.{ .x = scale, .y = scale })), Color.White);
+            const inner = rec.inset(scale);
+            self.drawRectFilled(inner, itc(0xaaaaaaff));
+
+            self.drawText(@tagName(enum_val.*), .{ .x = inner.x + scale * 6, .y = inner.y }, inner.h, Color.Black);
         }
     }
 
@@ -1480,7 +1519,7 @@ pub const Context = struct {
         label_size: ?f32 = null,
     }) bool {
         const arec = self.getArea() orelse return false;
-        const rec = arec.inset(5);
+        const rec = arec.inset(1);
         const click = self.clickWidget(rec, .{});
         const wstate = self.getWidgetState(.{
             .t = WidgetTypes.button,
@@ -2306,7 +2345,12 @@ pub const GuiDrawContext = struct {
             .rect_filled_multi_color => |rf| {
                 ctx.drawRectCol(rf.r, rf.colors);
             },
-            else => {},
+            .rect_9slice => |s| {
+                try ctx.draw9Slice(s.r, s.uv, s.texture, s.scale);
+            },
+            .rect_9border => |s| {
+                try ctx.draw9Border(s.r, s.uv, s.texture, s.scale, s.cutout_start, s.cutout_end);
+            },
         }
     }
 };
