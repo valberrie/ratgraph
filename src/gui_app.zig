@@ -1070,12 +1070,7 @@ pub const AtlasEditor = struct {
 pub const TestWindow = struct {
     const Self = @This();
 
-    const SampleEnum = enum {
-        val1,
-        val2,
-        what,
-        more_value,
-    };
+    const SampleEnum = enum { val1, val2, what, tabs };
 
     const SampleStruct = struct {
         en: SampleEnum = .what,
@@ -1151,7 +1146,8 @@ pub const TestWindow = struct {
         _ = try gui.beginLayout(Gui.SubRectLayout, .{ .rect = inside.inset(4 * scale) }, .{});
         defer gui.endLayout();
         {
-            var vl = try gui.beginLayout(Gui.VerticalLayout, .{ .item_height = 20 * scale, .padding = .{ .bottom = 6 * scale } }, .{});
+            const nh = 20 * scale;
+            var vl = try gui.beginLayout(Gui.VerticalLayout, .{ .item_height = nh, .padding = .{ .bottom = 6 * scale } }, .{});
             defer gui.endLayout();
             self.hLabelTextbox(gui, "Local_Name:", "New_Printer", scale);
             self.hLabelTextbox(gui, "Remote:", "", scale);
@@ -1162,7 +1158,7 @@ pub const TestWindow = struct {
             _ = try gui.beginLayout(Gui.HorizLayout, .{ .count = 2 }, .{});
             const buttons = [_][]const u8{ "Opt 1", "two", "Just save", "Load It" };
             for (0..2) |_| {
-                _ = try gui.beginLayout(Gui.VerticalLayout, .{ .item_height = 20 * scale }, .{});
+                _ = try gui.beginLayout(Gui.VerticalLayout, .{ .item_height = nh }, .{});
                 for (buttons) |btn| {
                     _ = self.button(gui, btn, scale);
                 }
@@ -1178,14 +1174,42 @@ pub const TestWindow = struct {
             const bx = bounds.x * 1.2;
             gui.draw9Border(a, os9line, self.texture, scale, a.w / 2 - bx / 2, a.w / 2 + bx / 2);
             gui.drawText(mt, Vec2f.new(a.x + a.w / 2 - bounds.x / 2, a.y - ts / 2), ts, Color.Black);
-            var val: f32 = 44;
-            gui.spinner(&val);
+            //gui.spinner(&val);
             self.checkbox(gui, "Checkbox", &self.sample_data.flag);
             vl.pushHeight(os9tabstart.h * scale);
             _ = try self.tabs(gui, SampleEnum, &self.sample_data.en);
+            vl.current_h -= (vl.padding.top + vl.padding.bottom + scale * 1);
+            vl.pushHeight(vl.item_height * 5);
+            const taba = gui.getArea() orelse return;
+            const tabb = tabsBorderCalc(SampleEnum, self.sample_data.en, taba.w);
+            gui.drawRectFilled(taba, itc(0xeeeeeeff));
+            gui.draw9Border(
+                taba,
+                os9tabborder,
+                self.texture,
+                scale,
+                tabb[0] - 2 * scale,
+                tabb[1] - 4 * scale,
+            );
+            _ = self.button(gui, "hello", scale);
+            _ = self.button(gui, "hello", scale);
+
             try self.enumDropDown(gui, SampleEnum, &self.sample_data.en);
             try self.sliderOpts(gui, &self.sample_data.float, -10, 200);
         }
+    }
+
+    pub fn tabsBorderCalc(comptime list_type: type, selected: list_type, w: f32) struct { f32, f32 } {
+        const info = @typeInfo(list_type);
+        const item_w = w / @as(f32, @floatFromInt(info.Enum.fields.len));
+        inline for (info.Enum.fields, 0..) |field, i| {
+            const active = @as(info.Enum.tag_type, @intFromEnum(selected)) == field.value;
+            const fi: f32 = @floatFromInt(i);
+            if (active) {
+                return .{ fi * item_w, (fi + 1) * item_w };
+            }
+        }
+        unreachable;
     }
 
     pub fn tabs(win: *Self, self: *Gui.Context, comptime list_type: type, selected: *list_type) !list_type {
@@ -1284,7 +1308,8 @@ pub const TestWindow = struct {
             self.focused_slider_state = 0;
         }
 
-        if (clicked == .held or clicked == .click) {
+        // Only moving the slider until after our initial .click state prevents the slider from teleporting when used with a touch screen or other input method that teleports the cursor like a drawing tablet.
+        if (clicked == .held) {
             val += self.focused_slider_state;
             val += mdel / scale;
             val = std.math.clamp(val, lmin, lmax);
@@ -1398,7 +1423,8 @@ pub const TestWindow = struct {
 
         if (wstate != .no_change) {
             self.draw9Slice(rec, os9drop, win.texture, win.scale);
-            self.drawText(@tagName(enum_val.*), .{ .x = rec.x, .y = rec.y }, rec.h, Color.Black);
+            const text = rec.inset(3 * win.scale);
+            self.drawText(@tagName(enum_val.*), text.pos(), text.h, Color.Black);
             const ow = win.scale * os9drop.w / 3;
             const oh = win.scale * os9drop.h / 3;
             const btn_rec = Rec(rec.x + rec.w - ow - os9dropbtn.w * win.scale, rec.y + oh, os9dropbtn.w * win.scale, os9dropbtn.h * win.scale);
@@ -1430,10 +1456,13 @@ pub fn main() anyerror!void {
     defer _ = gpa.detectLeaks();
     const alloc = gpa.allocator();
 
-    const scale = 1.0;
+    const scale = 2.0;
     var win = try graph.SDL.Window.createWindow("My window", .{
-        .window_flags = &.{ graph.c.SDL_WINDOW_BORDERLESS, graph.c.SDL_WINDOW_UTILITY },
-        .window_size = .{ .x = @intFromFloat(273 * scale), .y = @intFromFloat(630 * scale) },
+        .window_flags = &.{
+            graph.c.SDL_WINDOW_BORDERLESS,
+            //graph.c.SDL_WINDOW_UTILITY,
+        },
+        .window_size = .{ .x = @intFromFloat(273 * scale), .y = @intFromFloat(430 * scale) },
     });
     defer win.destroyWindow();
 
@@ -1600,6 +1629,7 @@ pub fn main() anyerror!void {
             _ = try gui.beginLayout(Gui.SubRectLayout, .{ .rect = parent_area }, .{});
             defer gui.endLayout();
             try test_win.update(&gui);
+            //try fb.update(&gui);
         }
 
         try gui_draw_context.draw(&ctx, &font, parent_area, &gui, win.screen_width, win.screen_height);

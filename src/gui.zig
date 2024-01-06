@@ -50,6 +50,9 @@ const Hsva = graph.Hsva;
 const Color = graph.CharColor;
 const itc = graph.itc;
 
+//TODO reduce memory footprint of these structs?
+//Colors could be aliased.
+//A Rect could probably be represented by 4 shorts
 pub const DrawCommand = union(enum) {
     rect_9border: struct {
         r: Rect,
@@ -514,11 +517,6 @@ pub const ClickStateColors = EnumMap(ClickState, Color);
 //  Context
 //  Tooltip
 //  Menu
-pub const UnicodeCompose = struct {
-    buffer: [6]u8 = undefined,
-    pos: u8 = 0,
-    active: bool = false,
-};
 
 pub var hash_time: u64 = 0;
 pub var hash_timer: std.time.Timer = undefined;
@@ -561,6 +559,7 @@ pub var bstyle: ButtonStyle = .{
     .bot = graph.colorToHsva(Color.Black),
 };
 
+//TODO Is hashing the type name really a good idea
 pub const OpaqueDataStore = struct {
     const Self = @This();
     const DataStoreMapT = std.StringHashMap(DataItem);
@@ -652,6 +651,8 @@ pub const Console = struct {
         try self.lines.append(try line.toOwnedSlice());
     }
 };
+//TODO Seperate context into two structs.
+// A core struct for the low level gui stuff and a basic widgets struct other things can compose
 
 //Instead of seperating layout hashes and widget hashes, can we just give each item a hash that depends on the parent hash
 pub const Context = struct {
@@ -771,10 +772,7 @@ pub const Context = struct {
     stack_alloc: *std.heap.FixedBufferAllocator,
     alloc: std.mem.Allocator,
     layout_stack: LayoutStackT = .{},
-    allowed_implementation_status: ImplementationStatus = .requires_additional_features,
     command_list: std.ArrayList(DrawCommand),
-    draw_state_is_scissor: bool = false,
-    draw_state_scissor_parent: ?Rect = null,
 
     command_list_popup: std.ArrayList(DrawCommand),
 
@@ -855,10 +853,6 @@ pub const Context = struct {
     //    try self.retained_data_key_store.append(mem);
     //    try self.retained_data.putNoClobber(mem, data);
     //}
-
-    pub fn checkImpStatus(self: *Self, function_status: ImplementationStatus) void {
-        if (@intFromEnum(function_status) < @intFromEnum(self.allowed_implementation_status)) unreachable;
-    }
 
     pub fn isKeyDown(self: *Self, scancode: graph.keycodes.Scancode) bool {
         return self.input_state.keyboard_state.isSet(@intFromEnum(scancode));
@@ -970,7 +964,6 @@ pub const Context = struct {
 
         self.layout.reset();
         self.click_timer += 1;
-        //self.draw_state_is_scissor = false;
 
         if (self.popup) |p| {
             if (self.input_state.mouse_left_clicked and !graph.rectContainsPoint(p.area, self.input_state.mouse_pos)) {
@@ -1347,9 +1340,6 @@ pub const Context = struct {
     }
 
     pub fn spinner(self: *Self, val: *f32) void {
-        self.checkImpStatus(.proof_of_concept);
-        //TODO proof of concept
-        //TODO specific layout size rathar than nextArea
         //TODO add way of timing how long left mouse has been held
         //on click value changes by a user provided inc value. After held_time has been exceeded start applying inc at a fixed rate
         //Add support for ints and floats
@@ -1400,8 +1390,6 @@ pub const Context = struct {
     pub fn checkbox(self: *Self, label: []const u8, checked: *bool) void {
         _ = self.checkboxNotify(label, checked);
     }
-
-    //pub fn enum_ribbon(self: *Self, comptime enumT:type )void{}
 
     pub fn tabs(self: *Self, comptime list_type: type, selected: *list_type) !list_type {
         const info = @typeInfo(list_type);
