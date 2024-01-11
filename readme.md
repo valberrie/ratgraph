@@ -6,10 +6,10 @@
         zig build run
 
 ## Depends on
-[zalgebra](https://github.com/kooparse/zalgebra)
-[stb](https://github.com/nothings/stb)
-[libsbng](https://github.com/randy408/libspng)
-[freetype](https://freetype.org/)
+* [zalgebra](https://github.com/kooparse/zalgebra)
+* [stb](https://github.com/nothings/stb)
+* [libsbng](https://github.com/randy408/libspng)
+* [freetype](https://freetype.org/)
 
 ### History
 Started as a cpp project that used SDL and opengl to draw 2d primitives. 
@@ -25,3 +25,7 @@ Whenever I have written something I think is usefull I add it to this repository
 * A unfinished Imgui
 * A basic ecs used in a mario clone
 * Helper functions and structures for texture atlas generation
+
+### Todo
+* Finish a basic GUI
+* Remove the old `Context` from graphics.zig and replace with `NewCtx`
