@@ -45,6 +45,7 @@ pub const Icons = enum(u21) {
     txt_file = 0xED0F,
     drop_up = 0xEA56,
     drop_down = 0xEA50,
+    drop_right = 0xEA54,
 
     check = 0xEB7B,
     erasor = 0xEC9F,
@@ -1078,6 +1079,7 @@ pub const TestWindow = struct {
         flag: bool = false,
         my_int: i32 = 1222,
         my_struct: Rect = Rec(4, 5, 6, 7),
+        ar_str: std.ArrayList(u8),
     };
 
     const border = itc(0xff);
@@ -1117,18 +1119,19 @@ pub const TestWindow = struct {
     ref_img: graph.Texture,
     texture: graph.Texture,
     scale: f32,
-    sample_data: SampleStruct = .{},
+    sample_data: SampleStruct,
 
     pub fn init(alloc: std.mem.Allocator, scale: f32) !Self {
         const dir = std.fs.cwd();
         return .{
+            .sample_data = .{ .ar_str = std.ArrayList(u8).init(alloc) },
             .scale = scale,
             .texture = try graph.Texture.initFromImgFile(alloc, dir, "next_step.png", .{ .mag_filter = graph.c.GL_NEAREST }),
             .ref_img = try graph.Texture.initFromImgFile(alloc, dir, "nextgui.png", .{ .mag_filter = graph.c.GL_NEAREST }),
         };
     }
     pub fn deinit(self: *Self) void {
-        _ = self;
+        self.sample_data.ar_str.deinit();
         //self.ref_img.deinit();
     }
 
@@ -1196,6 +1199,8 @@ pub const TestWindow = struct {
 
             try self.enumDropDown(gui, SampleEnum, &self.sample_data.en);
             try self.sliderOpts(gui, &self.sample_data.float, -10, 200);
+            try self.textbox(gui, &self.sample_data.ar_str);
+            try self.textbox(gui, &self.sample_data.ar_str);
         }
     }
 
@@ -1425,7 +1430,52 @@ pub const TestWindow = struct {
         }
     }
 
-    //pub fn textbox(self: *Self, gui:*Gui.Context, buffer: *[]u8, buffer_alloc)
+    pub fn textbox(self: *Self, gui: *Gui.Context, contents: *std.ArrayList(u8)) !void {
+        const area = gui.getArea() orelse return;
+        const id = gui.getId();
+        const click = gui.clickWidget(area, .{});
+        const trect = area.inset(3 * self.scale);
+        gui.draw9Slice(area, inset9, self.texture, self.scale);
+        var is_drawn = false;
+        const tc = Color.Black;
+
+        if (gui.isActiveTextinput(id)) {
+            const tb = &gui.textbox_state;
+            gui.text_input_state.advanceStateActive();
+            try tb.handleEventsOpts(
+                gui.text_input_state.buffer,
+                gui.input_state,
+                .{},
+            );
+            const sl = gui.textbox_state.getSlice();
+            gui.drawText(sl, trect.pos(), trect.h, tc);
+            const caret_x = gui.font.textBounds(sl[0..@as(usize, @intCast(tb.head))], trect.h).x;
+            gui.drawRectFilled(Rect.new(caret_x + trect.x, trect.y + 2, 3, trect.h - 4), Color.Black);
+            is_drawn = true;
+
+            if (!std.mem.eql(u8, sl, contents.items)) {
+                try contents.resize(sl.len);
+                std.mem.copy(u8, contents.items, sl);
+            }
+        }
+        if (!is_drawn) {
+            gui.drawText(contents.items, trect.pos(), trect.h, tc);
+        }
+        if (click == .click) {
+            if (gui.isActiveTextinput(id)) {
+                const cin = gui.font.nearestGlyphX(gui.textbox_state.getSlice(), trect.h, gui.input_state.mouse_pos.sub(trect.pos()));
+                if (cin) |cc| {
+                    gui.textbox_state.setCaret(cc - 1);
+                }
+            } else {
+                gui.text_input_state.active_id = id;
+                try gui.textbox_state.reset("");
+                try gui.textbox_state.codepoints.writer().print("{s}", .{contents.items});
+                gui.textbox_state.head = @as(i32, @intCast(gui.textbox_state.codepoints.items.len));
+                gui.textbox_state.tail = gui.textbox_state.head;
+            }
+        }
+    }
 
     pub fn hLabelTextbox(self: *Self, gui: *Gui.Context, label: []const u8, disp: []const u8, scale: f32) void {
         {
@@ -1592,10 +1642,10 @@ pub fn main() anyerror!void {
         defer dcall_count = ctx.call_count;
         win.pumpEvents(); //Important that this is called after beginDraw for input lag reasons
 
-        switch (gui.text_input_state) {
+        switch (gui.text_input_state.state) {
             .start => win.startTextInput(),
             .stop => win.stopTextInput(),
-            ._continue => gui.text_input = win.text_input,
+            .cont => gui.text_input_state.buffer = win.text_input,
             .disabled => {},
         }
 

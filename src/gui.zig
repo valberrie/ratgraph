@@ -777,7 +777,26 @@ pub const Context = struct {
             disabled,
         };
 
+        state: States = .disabled,
         buffer: []const u8 = "",
+        active_id: ?WidgetId = null,
+
+        pub fn advanceStateReset(self: *TextInputState) void {
+            self.state = switch (self.state) {
+                .disabled => .disabled,
+                .stop => .disabled,
+                .cont => .stop,
+                .start => .stop,
+            };
+        }
+
+        pub fn advanceStateActive(self: *TextInputState) void {
+            self.state = switch (self.state) {
+                .start => .cont,
+                .disabled => .start,
+                .cont, .stop => .cont,
+            };
+        }
     };
 
     no_caching: bool = true,
@@ -820,14 +839,7 @@ pub const Context = struct {
     draggable_state: Vec2f = .{ .x = 0, .y = 0 },
 
     //TODO a better system to deal with compose edits and returning a text_editing_rect to SDL for proper rendering of ibus compose editor
-    text_input_state: enum {
-        start,
-        stop,
-        _continue,
-        disabled,
-    } = .disabled,
-    text_input: []const u8 = "",
-    text_input_id: ?WidgetId = null,
+    text_input_state: TextInputState = .{},
     textbox_state: RetainedState.TextInput,
     textbox_number: ?*u8 = null,
 
@@ -905,7 +917,7 @@ pub const Context = struct {
     }
 
     pub fn isActiveTextinput(self: *Self, id: WidgetId) bool {
-        if (self.text_input_id) |t_id| {
+        if (self.text_input_state.active_id) |t_id| {
             return t_id.eql(id);
         }
         return false;
@@ -970,12 +982,7 @@ pub const Context = struct {
             return error.unmatchedBeginLayout;
         self.command_list.deinit();
         self.command_list_popup.deinit();
-        self.text_input_state = switch (self.text_input_state) {
-            .disabled => .disabled,
-            .stop => .disabled,
-            ._continue => .stop,
-            .start => .stop,
-        };
+        self.text_input_state.advanceStateReset();
         self.stack_alloc.reset();
         self.command_list = std.ArrayList(DrawCommand).init(self.alloc);
         self.command_list_popup = std.ArrayList(DrawCommand).init(self.alloc);
@@ -1771,11 +1778,7 @@ pub const Context = struct {
         var is_drawn = false;
         if (self.isActiveTextinput(id)) {
             const tb = &self.textbox_state;
-            self.text_input_state = switch (self.text_input_state) {
-                .start => ._continue,
-                .disabled => .start,
-                ._continue, .stop => ._continue,
-            };
+            self.text_input_state.advanceStateActive();
             try tb.handleEventsOpts(
                 self.text_input,
                 self.input_state,
@@ -1808,7 +1811,7 @@ pub const Context = struct {
                     self.textbox_state.setCaret(cc - 1);
                 }
             } else {
-                self.text_input_id = id;
+                self.text_input_state.active_id = id;
                 try self.textbox_state.reset("");
                 try self.textbox_state.codepoints.writer().print("{d}", .{number.*});
                 self.textbox_state.head = @as(i32, @intCast(self.textbox_state.codepoints.items.len));
@@ -1825,11 +1828,7 @@ pub const Context = struct {
         var is_drawn = false;
         if (self.isActiveTextinput(id)) {
             const tb = &self.textbox_state;
-            self.text_input_state = switch (self.text_input_state) {
-                .start => ._continue,
-                .disabled => .start,
-                ._continue, .stop => ._continue,
-            };
+            self.text_input_state.advanceStateActive();
             try tb.handleEventsOpts(
                 self.text_input,
                 self.input_state,
@@ -1857,81 +1856,13 @@ pub const Context = struct {
                     self.textbox_state.setCaret(cc - 1);
                 }
             } else {
-                self.text_input_id = id;
+                self.text_input_state.active_id = id;
                 try self.textbox_state.reset("");
                 try self.textbox_state.codepoints.writer().print("{s}", .{buffer.*});
                 self.textbox_state.head = @as(i32, @intCast(self.textbox_state.codepoints.items.len));
                 self.textbox_state.tail = self.textbox_state.head;
             }
         }
-    }
-
-    pub fn textBoxOpts(self: *Self, name: []const u8, opts: struct { fully_qualified: bool = false, label: ?[]const u8 = null }) !void {
-        //TODO fix textbox handleEvents;
-        _ = self;
-        _ = name;
-        _ = opts;
-        return;
-        // const qualified_name = if (opts.fully_qualified) name else try self.qualifyName(name);
-        // const label = if (opts.label) |lab| lab else name;
-
-        // const rec = self.getArea() orelse return;
-
-        // const text_height = rec.h / 5.0;
-        // const title_rec = Rect.new(rec.x, rec.y + text_height / 2, rec.w, rec.h / 5.0 * 2.0);
-        // const box_rect = Rect{ .x = rec.x, .y = rec.y + title_rec.h, .w = rec.w, .h = rec.h / 5.0 * 3 };
-        // const inner_rect = box_rect.inset(5);
-
-        // if (self.retained_data.getEntry(qualified_name)) |entr| {
-        //     const tb = &entr.value_ptr.data.text_box;
-        //     const hovered = graph.rectContainsPoint(box_rect, self.input_state.mouse_pos);
-
-        //     const clicked = hovered and self.input_state.mouse_left_clicked;
-        //     if (clicked) {
-        //         self.focused_element = entr.key_ptr.*;
-        //     }
-        //     const focused = blk: {
-        //         if (std.mem.eql(u8, self.focused_element, qualified_name)) {
-        //             self.text_input_state = switch (self.text_input_state) {
-        //                 .start => ._continue,
-        //                 .disabled => .start,
-        //                 ._continue, .stop => ._continue,
-        //             };
-        //             try tb.handleEvents(
-        //                 self.text_input,
-        //                 self.input_state,
-        //             );
-        //             break :blk true;
-        //         }
-        //         break :blk false;
-        //     };
-
-        //     self.drawRectFilled(box_rect, Color.White);
-        //     self.drawRectFilled(inner_rect, Color.Black);
-
-        //     const text_height_ = box_rect.h / 3.0;
-        //     const text_x_offset = text_height / 2;
-        //     const text_rect = Rect.new(inner_rect.x + text_x_offset, box_rect.y + text_height, text_height, inner_rect.x - text_x_offset);
-        //     self.drawText(tb.chars.items, text_rect.pos(), text_height_, Color.White);
-        //     self.drawText(label, title_rec.pos(), text_height, Color.Gray);
-        //     if (focused) {
-        //         const caret_x = self.font.textBounds(tb.chars.items[0..@intCast(usize, tb.head)], text_height_).x;
-        //         self.drawRectFilled(Rect.new(caret_x + text_rect.x + 6, text_rect.y + 2, 3, text_height_ - 4), Color.White);
-        //     }
-        // } else {
-        //     //TODO don't have this single frame delay, draw on the first invocation of textBoxOpts
-        //     const qf = try self.retained_alloc.alloc(u8, qualified_name.len);
-        //     std.mem.copy(u8, qf, qualified_name);
-        //     try self.retained_data_key_store.append(qf);
-
-        //     var arr = std.ArrayList(u8).init(self.retained_alloc);
-
-        //     try self.retained_data.put(qf, .{ .data = .{ .text_box = .{ .chars = arr, .head = 0, .tail = 0 } } });
-        // }
-    }
-
-    pub fn textBox(self: *Self, name: []const u8) !void {
-        try self.textBoxOpts(name, .{});
     }
 
     pub fn colorPicker(self: *Self, color: *Hsva) void {
