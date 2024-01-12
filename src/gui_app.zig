@@ -1325,7 +1325,7 @@ pub const TestWindow = struct {
             handle.x = rec.x + (val - lmin) * scale;
         }
 
-        if (self.mouse_grabbed_by_hash == null and !self.scroll_claimed_mouse and graph.rectContainsPoint(rec, self.input_state.mouse_pos)) {
+        if (self.mouse_grab_id == null and !self.scroll_claimed_mouse and graph.rectContainsPoint(rec, self.input_state.mouse_pos)) {
             self.scroll_claimed_mouse = true;
             switch (info) {
                 .Float => {},
@@ -1380,42 +1380,35 @@ pub const TestWindow = struct {
 
     pub fn enumDropDown(win: *Self, self: *Gui.Context, comptime enumT: type, enum_val: *enumT) !void {
         const rec = self.getArea() orelse return;
-        const ld = self.current_layout_cache_data.?;
-        const index = self.getTransientIndex();
+        const id = self.getId();
         const h = rec.h;
 
         const click = self.clickWidget(rec, .{});
         const wstate = self.getWidgetState(.{ .c = click, .r = rec, .v = enum_val.* });
 
-        if (self.popup_index) |ind| {
-            if (self.popup_hash) |hash| {
-                if (hash == ld.hash and ind == index) {
-                    var done = false;
-                    const info = @typeInfo(enumT);
-                    const lrq = self.layout.last_requested_bounds orelse graph.Rec(0, 0, 0, 0);
-                    const popup_rec = graph.Rec(lrq.x, lrq.y, lrq.w, h * 5);
-                    try self.beginPopup(popup_rec);
-                    if (try self.beginVLayoutScroll(&self.enum_drop_down_scroll, .{ .item_height = h })) |scroll| {
-                        inline for (info.Enum.fields) |field| {
-                            if (self.button(field.name)) {
-                                if (!done) {
-                                    enum_val.* = @as(enumT, @enumFromInt(field.value));
-                                    self.popup_index = null;
-                                    self.popup_hash = null;
-                                    done = true;
-                                }
-                            }
+        if (self.isActivePopup(id)) {
+            var done = false;
+            const info = @typeInfo(enumT);
+            const lrq = self.layout.last_requested_bounds orelse graph.Rec(0, 0, 0, 0);
+            const popup_rec = graph.Rec(lrq.x, lrq.y, lrq.w, h * 5);
+            try self.beginPopup(popup_rec);
+            if (try self.beginVLayoutScroll(&self.enum_drop_down_scroll, .{ .item_height = h })) |scroll| {
+                inline for (info.Enum.fields) |field| {
+                    if (self.button(field.name)) {
+                        if (!done) {
+                            enum_val.* = @as(enumT, @enumFromInt(field.value));
+                            self.popup_id = null;
+                            done = true;
                         }
-                        try self.endVLayoutScroll(scroll);
                     }
-                    self.endPopup();
                 }
+                try self.endVLayoutScroll(scroll);
             }
+            self.endPopup();
         } else {
             if (click == .click) {
                 self.enum_drop_down_scroll = .{ .x = 0, .y = 0 };
-                self.popup_index = index;
-                self.popup_hash = ld.hash;
+                self.popup_id = id;
                 self.last_frame_had_popup = true;
                 //try self.enumDropDown(enumT, enum_val);
             }
@@ -1431,6 +1424,8 @@ pub const TestWindow = struct {
             self.drawRectTextured(btn_rec, Color.White, os9dropbtn, win.texture);
         }
     }
+
+    //pub fn textbox(self: *Self, gui:*Gui.Context, buffer: *[]u8, buffer_alloc)
 
     pub fn hLabelTextbox(self: *Self, gui: *Gui.Context, label: []const u8, disp: []const u8, scale: f32) void {
         {
@@ -1659,7 +1654,7 @@ pub fn main() anyerror!void {
             var y: f32 = cy.get();
             var it = gui.layout_cache.first;
             while (it != null) : (it = it.?.next) {
-                const color = if (gui.mouse_grabbed_by_hash) |h| if (h == it.?.data.hash) Color.Blue else Color.White else Color.White;
+                const color = if (gui.mouse_grab_id) |h| if (h.layout_hash == it.?.data.hash) Color.Blue else Color.White else Color.White;
                 if (it.?.data.was_init) {
                     ctx.drawRect(graph.Rec(0, y, fs, fs), Color.Red);
                 }

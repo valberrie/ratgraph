@@ -651,10 +651,16 @@ pub const Console = struct {
         try self.lines.append(try line.toOwnedSlice());
     }
 };
+//Textinput
 //TODO Seperate context into two structs.
 // A core struct for the low level gui stuff and a basic widgets struct other things can compose
-
-//Instead of seperating layout hashes and widget hashes, can we just give each item a hash that depends on the parent hash
+// core  would include:
+// Layout functions
+// draw functions
+// click widget etc
+// text input state
+// popup state
+//
 pub const Context = struct {
     pub var dealloc_count: u32 = 0;
     pub var alloc_count: u32 = 0;
@@ -735,13 +741,6 @@ pub const Context = struct {
         area: Rect,
     };
 
-    pub const ImplementationStatus = enum(u8) {
-        not_to_be_used,
-        requires_additional_features,
-        proof_of_concept,
-        complete,
-    };
-
     pub const Scroll = struct {
         virtual_bounds: Rect,
         layout: *VerticalLayout,
@@ -759,6 +758,26 @@ pub const Context = struct {
     pub const VLayoutScrollData = struct {
         data: ScrollData,
         layout: *VerticalLayout,
+    };
+
+    pub const WidgetId = struct {
+        layout_hash: u64,
+        index: u32,
+
+        pub fn eql(a: WidgetId, b: WidgetId) bool {
+            return (a.layout_hash == b.layout_hash and a.index == b.index);
+        }
+    };
+
+    pub const TextInputState = struct {
+        pub const States = enum {
+            start,
+            stop,
+            cont,
+            disabled,
+        };
+
+        buffer: []const u8 = "",
     };
 
     no_caching: bool = true,
@@ -801,10 +820,14 @@ pub const Context = struct {
     draggable_state: Vec2f = .{ .x = 0, .y = 0 },
 
     //TODO a better system to deal with compose edits and returning a text_editing_rect to SDL for proper rendering of ibus compose editor
-    text_input_state: enum { start, stop, _continue, disabled } = .disabled,
+    text_input_state: enum {
+        start,
+        stop,
+        _continue,
+        disabled,
+    } = .disabled,
     text_input: []const u8 = "",
-    text_input_index: ?u32 = null,
-    text_input_hash: ?u64 = null,
+    text_input_id: ?WidgetId = null,
     textbox_state: RetainedState.TextInput,
     textbox_number: ?*u8 = null,
 
@@ -812,20 +835,22 @@ pub const Context = struct {
 
     //State for clickWidget()
     // The hash of the layout that has grabbed the mouse. Gets reset when mouse != held
-    mouse_grabbed_by_hash: ?u64 = null,
+    mouse_grab_id: ?WidgetId = null,
     mouse_released: bool = false,
-    mouse_widget_index: u64 = 0,
 
+    //TODO look into using sdl double click functionality
     click_timer: u64 = 0,
-    last_clicked: ?struct { hash: u64, index: u64 } = null,
+    //TODO this field is for clickWidget, label or move to something
+    last_clicked: ?WidgetId = null,
 
     popup: ?Popup = null,
     popup_scroll_bounds: ?Rect = null,
     //TODO there can only ever be one beginPopup call in a layout. Ensure this
 
-    popup_hash: ?u64 = null,
-    popup_index: ?u32 = null,
+    popup_id: ?WidgetId = null,
+    /// This is set true on beginPopup and set false on endPopup
     in_popup: bool = false,
+
     /// Represents the screen space area of the current scroll area, when a nested scroll section is created,
     /// it is always clipped to exist inside the parent scroll_bounds
     scroll_bounds: ?Rect = null,
@@ -847,13 +872,6 @@ pub const Context = struct {
         return sl;
     }
 
-    //pub fn loadRetainedData(self: *Self, fully_qualified_name: []const u8, data: RetainedState) !void {
-    //    const mem = try self.retained_alloc.alloc(u8, fully_qualified_name.len);
-    //    std.mem.copy(u8, mem, fully_qualified_name);
-    //    try self.retained_data_key_store.append(mem);
-    //    try self.retained_data.putNoClobber(mem, data);
-    //}
-
     pub fn isKeyDown(self: *Self, scancode: graph.keycodes.Scancode) bool {
         return self.input_state.keyboard_state.isSet(@intFromEnum(scancode));
     }
@@ -871,27 +889,28 @@ pub const Context = struct {
         return new_area;
     }
 
-    pub fn getTransientIndex(self: *Self) u32 {
+    pub fn getId(self: *Self) WidgetId {
         if (self.current_layout_cache_data) |ld| {
             ld.widget_index += 1;
-            return ld.widget_index;
+            return .{ .layout_hash = ld.hash, .index = ld.widget_index };
         }
         unreachable;
     }
 
-    pub fn isCurrentTextInput(self: *Self, hash: u64, index: usize) bool {
-        if (self.text_input_hash) |h| {
-            if (self.text_input_index) |ind| {
-                return (hash == h and ind == index);
-            }
+    pub fn isActivePopup(self: *Self, id: WidgetId) bool {
+        if (self.popup_id) |pop_id| {
+            return pop_id.eql(id);
         }
         return false;
     }
 
-    //TODO multi hash!!
-    //Data common to all widgets:
-    //area
-    //a widget_type
+    pub fn isActiveTextinput(self: *Self, id: WidgetId) bool {
+        if (self.text_input_id) |t_id| {
+            return t_id.eql(id);
+        }
+        return false;
+    }
+
     pub fn getWidgetState(self: *Self, dependent_data: anytype) WidgetState {
         const result: WidgetState = blk: {
             const hash = dhash(dependent_data);
@@ -968,19 +987,15 @@ pub const Context = struct {
         if (self.popup) |p| {
             if (self.input_state.mouse_left_clicked and !graph.rectContainsPoint(p.area, self.input_state.mouse_pos)) {
                 self.popup = null;
-                self.popup_hash = null;
-                self.popup_index = null;
+                self.popup_id = null;
             }
         }
         if (self.mouse_released) {
-            self.mouse_grabbed_by_hash = null;
+            self.mouse_grab_id = null;
             self.mouse_released = false;
         }
-        if (!self.input_state.mouse_left_held and self.mouse_grabbed_by_hash != null) {
-            //ld.mouse_focus_widget_index = null;
-
+        if (!self.input_state.mouse_left_held and self.mouse_grab_id != null) {
             self.mouse_released = true;
-            //self.mouse_grabbed_by_hash = null;
         }
         //if (self.popup_area) |area| {
         //    if (self.input_state.mouse_left_clicked) {
@@ -994,24 +1009,12 @@ pub const Context = struct {
 
         if (!self.last_frame_had_popup) {
             self.popup = null;
-            self.popup_hash = null;
-            self.popup_index = null;
+            self.popup_id = null;
         }
         self.last_frame_had_popup = false;
     }
 
     pub fn deinit(self: *Self) void {
-        //for (self.retained_data_key_store.items) |item| {
-        //    self.retained_alloc.free(item);
-        //}
-        //var vit = self.retained_data.valueIterator();
-        //var item = vit.next();
-        //while (item != null) : (item = vit.next()) {
-        //    item.?.data.deinit();
-        //}
-
-        //self.retained_data_key_store.deinit();
-        //self.retained_data.deinit();
         self.layout_cache.deinit();
         self.console.deinit();
         self.textbox_state.deinit();
@@ -1038,8 +1041,7 @@ pub const Context = struct {
     pub fn clickWidget(self: *Self, rec: Rect, opts: struct {
         teleport_area: ?Rect = null,
     }) ClickState {
-        const ld = self.current_layout_cache_data.?;
-        const index = self.getTransientIndex();
+        const id = self.getId();
 
         if (self.popup) |p| {
             //TODO this will fail sometimes because we can't garantee popup has been called before this click widget
@@ -1050,17 +1052,15 @@ pub const Context = struct {
         const containsCursor = graph.rectContainsPoint(rec, self.input_state.mouse_pos);
         const clicked = self.input_state.mouse_left_clicked;
 
-        if (self.mouse_grabbed_by_hash) |hash| {
-            if (hash == ld.hash) {
-                if (self.mouse_widget_index == index) {
-                    if (self.mouse_released) {
-                        self.click_timer = 0;
-                        self.last_clicked = .{ .hash = hash, .index = index };
-                        self.mouse_grabbed_by_hash = null;
-                        return .click_release;
-                    }
-                    return .held;
+        if (self.mouse_grab_id) |grab_id| {
+            if (grab_id.eql(id)) {
+                if (self.mouse_released) {
+                    self.click_timer = 0;
+                    self.last_clicked = id;
+                    self.mouse_grab_id = null;
+                    return .click_release;
                 }
+                return .held;
             }
         } else {
             if (self.scroll_bounds) |sb| {
@@ -1069,21 +1069,18 @@ pub const Context = struct {
             }
             if (opts.teleport_area) |parent_area| {
                 if (clicked and !containsCursor and graph.rectContainsPoint(parent_area, self.input_state.mouse_pos)) {
-                    self.mouse_widget_index = index;
-                    self.mouse_grabbed_by_hash = ld.hash;
+                    self.mouse_grab_id = id;
                     return .click_teleport;
                 }
             }
             const ret: ClickState = if (containsCursor) (if (clicked) .click else .hover) else .none;
             if (ret == .click) {
-                self.mouse_widget_index = index;
-                self.mouse_grabbed_by_hash = ld.hash;
+                self.mouse_grab_id = id;
                 const double_click_time = 10;
                 if (self.click_timer < double_click_time) {
                     if (self.last_clicked) |lc| {
-                        if (lc.hash == ld.hash and lc.index == index) {
+                        if (lc.eql(id))
                             return .double;
-                        }
                     }
                 }
             }
@@ -1224,7 +1221,7 @@ pub const Context = struct {
 
     pub fn endPopup(self: *Self) void {
         self.in_popup = false;
-        if (self.popup_hash == null)
+        if (self.popup_id == null)
             self.popup = null;
         self.endLayout();
     }
@@ -1247,22 +1244,6 @@ pub const Context = struct {
 
     pub fn scissor(self: *Self, r: ?Rect) void {
         self.draw(.{ .scissor = .{ .area = r } });
-        //if (self.command_list.items.len > 0) {
-        //    const last = &self.command_list.items[self.command_list.items.len - 1];
-        //    switch (last.*) {
-        //        .scissor => |sc| {
-        //            if (sc.area != null) {
-        //                if (r == null) { //delete both
-        //                }
-        //                last.*.scissor.area = r;
-        //                return;
-        //            }
-        //        },
-        //        else => {},
-        //    }
-        //}
-        //self.draw(.{ .scissor = .{ .area = r } });
-        //self.command_list.append(.{ .scissor = .{ .area = r } }) catch unreachable;
     }
 
     pub fn drawText(self: *Self, string: []const u8, pos: Vec2f, size: f32, color: Color) void {
@@ -1408,30 +1389,23 @@ pub const Context = struct {
     }
 
     pub fn colorInline(self: *Self, color: *Hsva) !void {
-        //TODO the following 4 fields could be moved into a single struct for convience with a single function call
         const rec = self.getArea() orelse return;
-        const ld = self.current_layout_cache_data.?;
-        const index = self.getTransientIndex();
+        const id = self.getId();
 
         const click = self.clickWidget(rec, .{});
         const wstate = self.getWidgetState(.{ .c = click, .r = rec, .cc = color.* });
 
-        if (self.popup_index) |ind| {
-            if (self.popup_hash) |hash| {
-                if (hash == ld.hash and ind == index) {
-                    const lrq = self.layout.last_requested_bounds orelse graph.Rec(0, 0, 0, 0);
-                    const pr = graph.Rec(lrq.x, lrq.y, 700, 700);
-                    try self.beginPopup(pr);
-                    //_ = try self.beginLayout(SubRectLayout, .{ .rect = pr });
-                    //defer self.endLayout();
-                    defer self.endPopup();
-                    self.colorPicker(color);
-                }
-            }
+        if (self.isActivePopup(id)) {
+            const lrq = self.layout.last_requested_bounds orelse graph.Rec(0, 0, 0, 0);
+            const pr = graph.Rec(lrq.x, lrq.y, 700, 700);
+            try self.beginPopup(pr);
+            //_ = try self.beginLayout(SubRectLayout, .{ .rect = pr });
+            //defer self.endLayout();
+            defer self.endPopup();
+            self.colorPicker(color);
         } else {
             if (click == .click) {
-                self.popup_index = index;
-                self.popup_hash = ld.hash;
+                self.popup_id = id;
                 self.last_frame_had_popup = true;
             }
         }
@@ -1443,51 +1417,35 @@ pub const Context = struct {
     //Should typing and autocompleting a value be a function
     pub fn enumDropDown(self: *Self, comptime enumT: type, enum_val: *enumT) !void {
         const rec = self.getArea() orelse return;
-        const ld = self.current_layout_cache_data.?;
-        const index = self.getTransientIndex();
+        const id = self.getId();
         const h = rec.h;
 
         const click = self.clickWidget(rec, .{});
         const wstate = self.getWidgetState(.{ .c = click, .r = rec, .v = enum_val.* });
 
-        if (self.popup_index) |ind| {
-            if (self.popup_hash) |hash| {
-                if (hash == ld.hash and ind == index) {
-                    var done = false;
-                    const info = @typeInfo(enumT);
-                    const lrq = self.layout.last_requested_bounds orelse graph.Rec(0, 0, 0, 0);
-                    //try self.beginPopup(graph.Rec(lrq.x, lrq.y, lrq.w, h * @intToFloat(f32, num_field)));
-                    const popup_rec = graph.Rec(lrq.x, lrq.y, lrq.w, h * 5);
-                    try self.beginPopup(popup_rec);
-                    if (try self.beginVLayoutScroll(&self.enum_drop_down_scroll, .{ .item_height = h })) |scroll| {
-
-                        //if (try self.beginScroll(&self.enum_drop_down_scroll, .{ .item_height = h }, .{})) |scroll| {
-                        //    defer self.endScroll(scroll);
-                        //_ = try self.beginLayout(VerticalLayout, .{ .item_height = h, .paddingv = 0 });
-
-                        inline for (info.Enum.fields) |field| {
-                            if (self.button(field.name)) {
-                                if (!done) {
-                                    enum_val.* = @as(enumT, @enumFromInt(field.value));
-                                    self.popup_index = null;
-                                    self.popup_hash = null;
-                                    done = true;
-                                }
-                            }
-                            //self.drawText(field.name, arec.pos(), arec.h, Color.Black);
+        if (self.isActivePopup(id)) {
+            var done = false;
+            const info = @typeInfo(enumT);
+            const lrq = self.layout.last_requested_bounds orelse graph.Rec(0, 0, 0, 0);
+            const popup_rec = graph.Rec(lrq.x, lrq.y, lrq.w, h * 5);
+            try self.beginPopup(popup_rec);
+            if (try self.beginVLayoutScroll(&self.enum_drop_down_scroll, .{ .item_height = h })) |scroll| {
+                inline for (info.Enum.fields) |field| {
+                    if (self.button(field.name)) {
+                        if (!done) {
+                            enum_val.* = @as(enumT, @enumFromInt(field.value));
+                            self.popup_id = null;
+                            done = true;
                         }
-                        try self.endVLayoutScroll(scroll);
                     }
-
-                    //self.endLayout();
-                    self.endPopup();
                 }
+                try self.endVLayoutScroll(scroll);
             }
+            self.endPopup();
         } else {
             if (click == .click) {
                 self.enum_drop_down_scroll = .{ .x = 0, .y = 0 };
-                self.popup_index = index;
-                self.popup_hash = ld.hash;
+                self.popup_id = id;
                 self.last_frame_had_popup = true;
                 //try self.enumDropDown(enumT, enum_val);
             }
@@ -1628,7 +1586,7 @@ pub const Context = struct {
     pub fn endScrollN(self: *Self, scroll_data: ScrollData, vbounds: Vec2f, hbounds: Vec2f) !void {
         self.endLayout(); //SubRectLayout
 
-        if (self.mouse_grabbed_by_hash == null and !self.scroll_claimed_mouse and graph.rectContainsPoint(self.scroll_bounds.?, self.input_state.mouse_pos)) {
+        if (self.mouse_grab_id == null and !self.scroll_claimed_mouse and graph.rectContainsPoint(self.scroll_bounds.?, self.input_state.mouse_pos)) {
             self.scroll_claimed_mouse = true;
             scroll_data.offset.y = std.math.clamp(scroll_data.offset.y + self.input_state.mouse_wheel_delta * -40, vbounds.x, vbounds.y);
         }
@@ -1752,7 +1710,7 @@ pub const Context = struct {
             (if (horiz) handle.x else handle.y) = rec.x + (val - lmin) * scale;
         }
 
-        if (self.mouse_grabbed_by_hash == null and !self.scroll_claimed_mouse and graph.rectContainsPoint(rec, self.input_state.mouse_pos)) {
+        if (self.mouse_grab_id == null and !self.scroll_claimed_mouse and graph.rectContainsPoint(rec, self.input_state.mouse_pos)) {
             self.scroll_claimed_mouse = true;
             switch (info) {
                 .Float => {},
@@ -1799,8 +1757,7 @@ pub const Context = struct {
         const number_type = info.Pointer.child;
         const rec = self.getArea() orelse return;
 
-        const ld = self.current_layout_cache_data.?;
-        const index = self.getTransientIndex();
+        const id = self.getId();
         const click = self.clickWidget(rec, .{});
         const state = self.getWidgetState(.{
             .rec = rec.toIntRect(i16, SRect),
@@ -1812,51 +1769,46 @@ pub const Context = struct {
         });
 
         var is_drawn = false;
-        if (self.text_input_hash) |hash| {
-            if (self.text_input_index) |ind| {
-                if (hash == ld.hash and ind == index) {
-                    const tb = &self.textbox_state;
-                    self.text_input_state = switch (self.text_input_state) {
-                        .start => ._continue,
-                        .disabled => .start,
-                        ._continue, .stop => ._continue,
-                    };
-                    try tb.handleEventsOpts(
-                        self.text_input,
-                        self.input_state,
-                        .{ .numbers_only = true },
-                    );
-                    const sl = self.textbox_state.getSlice();
-                    if (state != .no_change) {
-                        self.drawTextFmt("{s}", .{sl}, rec, rec.h, Color.Black, .{});
-                        const caret_x = self.font.textBounds(sl[0..@as(usize, @intCast(tb.head))], rec.h).x;
-                        self.drawRectFilled(Rect.new(caret_x + rec.x, rec.y + 2, 3, rec.h - 4), Color.Black);
-                    }
-
-                    number.* = switch (@typeInfo(number_type)) {
-                        .Int => std.fmt.parseInt(number_type, sl, 10) catch blk: {
-                            //TODO disallow non numeric chars from being entered in the first place
-                            break :blk number.*;
-                        },
-                        .Float => std.fmt.parseFloat(number_type, sl) catch number.*,
-                        else => @compileError("unsupported type: " ++ @typeName(number_type)),
-                    };
-
-                    is_drawn = true;
-                }
+        if (self.isActiveTextinput(id)) {
+            const tb = &self.textbox_state;
+            self.text_input_state = switch (self.text_input_state) {
+                .start => ._continue,
+                .disabled => .start,
+                ._continue, .stop => ._continue,
+            };
+            try tb.handleEventsOpts(
+                self.text_input,
+                self.input_state,
+                .{ .numbers_only = true },
+            );
+            const sl = self.textbox_state.getSlice();
+            if (state != .no_change) {
+                self.drawTextFmt("{s}", .{sl}, rec, rec.h, Color.Black, .{});
+                const caret_x = self.font.textBounds(sl[0..@as(usize, @intCast(tb.head))], rec.h).x;
+                self.drawRectFilled(Rect.new(caret_x + rec.x, rec.y + 2, 3, rec.h - 4), Color.Black);
             }
+
+            number.* = switch (@typeInfo(number_type)) {
+                .Int => std.fmt.parseInt(number_type, sl, 10) catch blk: {
+                    //TODO disallow non numeric chars from being entered in the first place
+                    break :blk number.*;
+                },
+                .Float => std.fmt.parseFloat(number_type, sl) catch number.*,
+                else => @compileError("unsupported type: " ++ @typeName(number_type)),
+            };
+
+            is_drawn = true;
         }
         if (!is_drawn and state != .no_change)
             self.drawTextFmt("{d}", .{number.*}, rec, rec.h, Color.Black, .{});
         if (click == .click) {
-            if (self.isCurrentTextInput(ld.hash, index)) {
+            if (self.isActiveTextinput(id)) {
                 const cin = self.font.nearestGlyphX(self.textbox_state.getSlice(), rec.h, self.input_state.mouse_pos.sub(rec.pos()));
                 if (cin) |cc| {
                     self.textbox_state.setCaret(cc - 1);
                 }
             } else {
-                self.text_input_hash = ld.hash;
-                self.text_input_index = index;
+                self.text_input_id = id;
                 try self.textbox_state.reset("");
                 try self.textbox_state.codepoints.writer().print("{d}", .{number.*});
                 self.textbox_state.head = @as(i32, @intCast(self.textbox_state.codepoints.items.len));
@@ -1868,11 +1820,10 @@ pub const Context = struct {
     pub fn textbox(self: *Self, buffer: *[]u8, buffer_alloc: std.mem.Allocator) !void {
         const area = self.getArea() orelse return;
         self.drawRectFilled(area, Color.Gray);
-        const ld = self.current_layout_cache_data.?;
-        const index = self.getTransientIndex();
+        const id = self.getId();
         const click = self.clickWidget(area, .{});
         var is_drawn = false;
-        if (self.isCurrentTextInput(ld.hash, index)) {
+        if (self.isActiveTextinput(id)) {
             const tb = &self.textbox_state;
             self.text_input_state = switch (self.text_input_state) {
                 .start => ._continue,
@@ -1900,14 +1851,13 @@ pub const Context = struct {
             self.drawText(buffer.*, area.pos(), area.h, Color.White);
         }
         if (click == .click) {
-            if (self.isCurrentTextInput(ld.hash, index)) {
+            if (self.isActiveTextinput(id)) {
                 const cin = self.font.nearestGlyphX(self.textbox_state.getSlice(), area.h, self.input_state.mouse_pos.sub(area.pos()));
                 if (cin) |cc| {
                     self.textbox_state.setCaret(cc - 1);
                 }
             } else {
-                self.text_input_hash = ld.hash;
-                self.text_input_index = index;
+                self.text_input_id = id;
                 try self.textbox_state.reset("");
                 try self.textbox_state.codepoints.writer().print("{s}", .{buffer.*});
                 self.textbox_state.head = @as(i32, @intCast(self.textbox_state.codepoints.items.len));
@@ -2082,16 +2032,6 @@ pub const Context = struct {
         }
     }
 
-    fn isThisCurrentPopup(self: *Self, popup_index: u32) bool {
-        const ld = self.current_layout_cache_data.?;
-        if (self.popup_index) |ind| {
-            if (self.popup_hash) |hash| {
-                return (hash == ld.hash and ind == popup_index);
-            }
-        }
-        return false;
-    }
-
     fn editProperty(self: *Self, comptime propertyT: type, property: *propertyT) !void {
         const child_info = @typeInfo(propertyT);
         switch (child_info) {
@@ -2104,10 +2044,9 @@ pub const Context = struct {
                         //self.drawText("Struct", .{ .x = rec.x + rec.w / 2, .y = rec.y + fi * item_height }, item_height, Color.Black);
                         const rec = self.getArea() orelse return;
                         const wstate = self.getWidgetState(.{ .p = rec });
-                        const ld = self.current_layout_cache_data.?;
-                        const index = self.getTransientIndex();
+                        const id = self.getId();
                         const click = self.clickWidget(rec, .{});
-                        if (self.isThisCurrentPopup(index)) {
+                        if (self.isActivePopup(id)) {
                             const lrq = self.layout.last_requested_bounds orelse return;
                             const pr = graph.Rec(lrq.x, lrq.y, 900, 700);
                             try self.beginPopup(pr);
@@ -2119,8 +2058,7 @@ pub const Context = struct {
                             //}
                         } else {
                             if (click == .click) {
-                                self.popup_index = index;
-                                self.popup_hash = ld.hash;
+                                self.popup_id = id;
                                 self.last_frame_had_popup = true;
                             }
                         }
