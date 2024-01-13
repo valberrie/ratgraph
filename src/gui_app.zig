@@ -1071,7 +1071,20 @@ pub const AtlasEditor = struct {
 pub const TestWindow = struct {
     const Self = @This();
 
-    const SampleEnum = enum { val1, val2, what, tabs };
+    const SampleEnum = enum {
+        first_one,
+        val1,
+        val2,
+        what,
+        tabs,
+        lots,
+        of,
+        values,
+        to,
+        choose,
+        from,
+        last_one,
+    };
 
     const SampleStruct = struct {
         en: SampleEnum = .what,
@@ -1118,16 +1131,21 @@ pub const TestWindow = struct {
     const os9tabmid_active = Rec(66, 24, 6, 21);
 
     const os9tabborder = Rec(42, 24, 9, 9);
+    const os9scrollinner = Rec(0, 44, 6, 6);
+    const os9scrollhandle = Rec(9, 44, 14, 15);
 
     ref_img: graph.Texture,
     texture: graph.Texture,
     scale: f32,
     sample_data: SampleStruct,
+    scroll_offset: Vec2f = .{ .x = 0, .y = 0 },
+    gui: *Gui.Context,
 
-    pub fn init(alloc: std.mem.Allocator, scale: f32) !Self {
+    pub fn init(alloc: std.mem.Allocator, scale: f32, gui: *Gui.Context) !Self {
         const dir = std.fs.cwd();
         return .{
             .sample_data = .{ .ar_str = std.ArrayList(u8).init(alloc) },
+            .gui = gui,
             .scale = scale,
             .texture = try graph.Texture.initFromImgFile(alloc, dir, "next_step.png", .{ .mag_filter = graph.c.GL_NEAREST }),
             .ref_img = try graph.Texture.initFromImgFile(alloc, dir, "nextgui.png", .{ .mag_filter = graph.c.GL_NEAREST }),
@@ -1139,7 +1157,8 @@ pub const TestWindow = struct {
     }
 
     //TODO remove scale variable and scale using GuiDrawContext
-    pub fn update(self: *Self, gui: *Gui.Context) !void {
+    pub fn update(self: *Self) !void {
+        const gui = self.gui;
         const scale = self.scale;
         const area = gui.getArea() orelse return;
         gui.draw9Slice(area, os9win, self.texture, scale);
@@ -1155,18 +1174,15 @@ pub const TestWindow = struct {
             const nh = 20 * scale;
             var vl = try gui.beginLayout(Gui.VerticalLayout, .{ .item_height = nh, .padding = .{ .bottom = 6 * scale } }, .{});
             defer gui.endLayout();
-            self.hLabelTextbox(gui, "Local_Name:", "New_Printer", scale);
-            self.hLabelTextbox(gui, "Remote:", "", scale);
-            self.hLabelTextbox(gui, "Note:", "This is a new printer", scale);
             vl.current_h += vl.padding.bottom;
-            _ = self.button(gui, "Click me", scale);
+            _ = self.button("Click me");
             vl.pushHeight(vl.item_height * 4);
             _ = try gui.beginLayout(Gui.HorizLayout, .{ .count = 2 }, .{});
             const buttons = [_][]const u8{ "Opt 1", "two", "Just save", "Load It" };
             for (0..2) |_| {
                 _ = try gui.beginLayout(Gui.VerticalLayout, .{ .item_height = nh }, .{});
                 for (buttons) |btn| {
-                    _ = self.button(gui, btn, scale);
+                    _ = self.button(btn);
                 }
                 gui.endLayout();
             }
@@ -1181,9 +1197,9 @@ pub const TestWindow = struct {
             gui.draw9Border(a, os9line, self.texture, scale, a.w / 2 - bx / 2, a.w / 2 + bx / 2);
             gui.drawText(mt, Vec2f.new(a.x + a.w / 2 - bounds.x / 2, a.y - ts / 2), ts, Color.Black);
             //gui.spinner(&val);
-            self.checkbox(gui, "Checkbox", &self.sample_data.flag);
+            self.checkbox("Checkbox", &self.sample_data.flag);
             vl.pushHeight(os9tabstart.h * scale);
-            _ = try self.tabs(gui, SampleEnum, &self.sample_data.en);
+            _ = try self.tabs(SampleEnum, &self.sample_data.en);
             vl.current_h -= (vl.padding.top + vl.padding.bottom + scale * 1);
             vl.pushHeight(vl.item_height * 5);
             const taba = gui.getArea() orelse return;
@@ -1197,21 +1213,49 @@ pub const TestWindow = struct {
                 tabb[0] - 2 * scale,
                 tabb[1] - 4 * scale,
             );
-            _ = self.button(gui, "hello", scale);
-            _ = self.button(gui, "hello", scale);
+            _ = self.button("hello");
+            _ = self.button("hello");
 
-            try self.enumDropDown(gui, SampleEnum, &self.sample_data.en);
-            try self.sliderOpts(gui, &self.sample_data.float, -10, 200);
-            try self.textbox(gui, &self.sample_data.ar_str);
-            try self.textbox(gui, &self.sample_data.ar_str);
-            try self.textboxNumber(gui, &self.sample_data.int_edit);
-            try self.textboxNumber(gui, &self.sample_data.uint_edit);
+            try self.enumDropdown(SampleEnum, &self.sample_data.en);
+            self.sliderOpts(&self.sample_data.float, -10, 200);
+            //self.scrollBar(&self.sample_data.float, -100, 200, .horizontal);
+            try self.textbox(&self.sample_data.ar_str);
+            try self.textbox(&self.sample_data.ar_str);
+            try self.textboxNumber(&self.sample_data.int_edit);
+            try self.textboxNumber(&self.sample_data.float);
+            try self.textboxNumber(&self.sample_data.uint_edit);
             {
                 _ = try gui.beginLayout(Gui.HorizLayout, .{ .count = 2 }, .{});
                 defer gui.endLayout();
                 const aa = (gui.getArea() orelse return).inset(3 * self.scale);
                 gui.drawTextFmt("My float", .{}, aa, aa.h, Color.Black, .{});
-                try self.textboxNumber(gui, &self.sample_data.float_edit);
+                try self.textboxNumber(&self.sample_data.float_edit);
+            }
+            vl.pushHeight(100 * scale);
+            const hhh = 100 * scale;
+            if (try gui.beginScroll(&self.scroll_offset, .{ .bar_w = 14 * scale, .scroll_area_w = 100 * scale, .scroll_area_h = hhh })) |scroll| {
+                {
+                    gui.drawRectFilled(gui.scroll_bounds.?, Color.Gray);
+                    defer gui.endScroll();
+                    _ = try gui.beginLayout(Gui.VerticalLayout, .{ .item_height = 20 * scale }, .{});
+                    defer gui.endLayout();
+                    _ = self.button("hello button");
+                }
+                {
+                    const sd = scroll;
+                    if (sd.vertical_slider_area) |va| {
+                        _ = try gui.beginLayout(Gui.SubRectLayout, .{ .rect = va }, .{});
+                        defer gui.endLayout();
+                        const smax = hhh;
+                        self.scrollBar(&sd.offset.y, 0, smax, .vertical);
+                    }
+                    if (sd.horiz_slider_area) |ha| {
+                        _ = try gui.beginLayout(Gui.SubRectLayout, .{ .rect = ha }, .{});
+                        defer gui.endLayout();
+                        const smax = hhh;
+                        self.scrollBar(&sd.offset.x, 0, smax, .horizontal);
+                    }
+                }
             }
         }
     }
@@ -1229,41 +1273,42 @@ pub const TestWindow = struct {
         unreachable;
     }
 
-    pub fn tabs(win: *Self, self: *Gui.Context, comptime list_type: type, selected: *list_type) !list_type {
+    pub fn tabs(self: *Self, comptime list_type: type, selected: *list_type) !list_type {
+        const gui = self.gui;
         const info = @typeInfo(list_type);
         const fields = info.Enum.fields;
-        _ = try self.beginLayout(Gui.HorizLayout, .{ .count = fields.len, .paddingh = 0 }, .{});
-        defer self.endLayout();
+        _ = try gui.beginLayout(Gui.HorizLayout, .{ .count = fields.len, .paddingh = 0 }, .{});
+        defer gui.endLayout();
         inline for (fields) |field| {
             const active = @as(info.Enum.tag_type, @intFromEnum(selected.*)) == field.value;
-            const area = self.getArea() orelse return selected.*;
-            const click = self.clickWidget(area, .{});
+            const area = gui.getArea() orelse return selected.*;
+            const click = gui.clickWidget(area, .{});
             if (click == .click)
                 selected.* = @as(list_type, @enumFromInt(field.value));
             const sta = if (active) os9tabstart_active else os9tabstart;
             const end = if (active) os9tabend_active else os9tabend;
             const mid = if (active) os9tabmid_active else os9tabmid;
-            self.drawRectTextured(
-                Rec(area.x, area.y, sta.w * win.scale, area.h),
+            gui.drawRectTextured(
+                Rec(area.x, area.y, sta.w * self.scale, area.h),
                 Color.White,
                 sta,
-                win.texture,
+                self.texture,
             );
-            self.drawRectTextured(
-                Rec(area.x + area.w - end.w * win.scale, area.y, end.w * win.scale, area.h),
+            gui.drawRectTextured(
+                Rec(area.x + area.w - end.w * self.scale, area.y, end.w * self.scale, area.h),
                 Color.White,
                 end,
-                win.texture,
+                self.texture,
             );
-            const mida = Rec(area.x + sta.w * win.scale, area.y, area.w - (end.w + sta.w) * win.scale, area.h);
-            self.drawRectTextured(
+            const mida = Rec(area.x + sta.w * self.scale, area.y, area.w - (end.w + sta.w) * self.scale, area.h);
+            gui.drawRectTextured(
                 mida,
                 Color.White,
                 mid,
-                win.texture,
+                self.texture,
             );
             //const tbounds = self.font.textBounds(field.name);
-            self.drawText(field.name, mida.pos().add(.{ .x = 0, .y = 4 * win.scale }), mida.h - 4 * win.scale, Color.Black);
+            gui.drawText(field.name, mida.pos().add(.{ .x = 0, .y = 4 * self.scale }), mida.h - 4 * self.scale, Color.Black);
 
             //if (self.buttonEx(.{
             //    .name = field.name,
@@ -1275,109 +1320,52 @@ pub const TestWindow = struct {
         return selected.*;
     }
 
-    pub fn button(self: *Self, gui: *Gui.Context, label: []const u8, scale: f32) bool {
-        const area = gui.getArea() orelse return false;
-        const click = gui.clickWidget(area, .{});
-        const sl = switch (click) {
+    pub fn button(self: *Self, label: []const u8) bool {
+        const gui = self.gui;
+        const d = gui.buttonGeneric();
+        const sl = switch (d.state) {
             .none, .hover => os9btn,
             .click, .held => inset9,
             else => os9btn,
         };
-        gui.draw9Slice(area, sl, self.texture, scale);
-        const texta = area.inset(3 * scale);
+        gui.draw9Slice(d.area, sl, self.texture, self.scale);
+        const texta = d.area.inset(3 * self.scale);
         const bounds = gui.font.textBounds(label, texta.h);
         gui.drawText(label, texta.pos().add(.{ .x = (texta.w - bounds.x) / 2, .y = 0 }), texta.h, Color.Black);
 
-        return click == .click;
+        return d.state == .click;
     }
 
-    pub fn sliderOpts(win: *Self, self: *Gui.Context, value: anytype, min: anytype, max: anytype) !void {
-        const lmin = std.math.lossyCast(f32, min);
-        const lmax = std.math.lossyCast(f32, max);
-        //const lval = std.math.lossyCast(f32, value.*);
-        const ptrinfo = @typeInfo(@TypeOf(value));
-        const child_type = ptrinfo.Pointer.child;
-        if (ptrinfo != .Pointer) @compileError("slider requires a pointer for value");
-        const info = @typeInfo(child_type);
-
-        const rec = self.getArea() orelse return;
-
-        const handle_w = os9shuttle.w * win.scale;
-        const mdel = self.input_state.mouse_delta.x;
-        const mpos = self.input_state.mouse_pos.x;
-        const scale = (rec.w - handle_w) / (lmax - lmin);
-
-        var val: f32 = switch (info) {
-            .Float => @as(f32, @floatCast(value.*)),
-            .Int => @as(f32, @floatFromInt(value.*)),
-            else => @compileError("invalid type"),
-        };
-
-        var handle = Rect{
-            .x = rec.x + (val - min) * scale,
-            .y = rec.y + (os9slider.h / 3) * win.scale,
-            .w = handle_w,
-            .h = rec.h - (os9slider.h / 3) * 2 * win.scale,
-        };
-        const clicked = self.clickWidget(handle, .{});
-
-        if (clicked == .click) {
-            self.focused_slider_state = 0;
+    pub fn scrollBar(self: *Self, pos: *f32, min: f32, max: f32, orientation: Gui.Orientation) void {
+        const gui = self.gui;
+        if (gui.sliderGeneric(pos, min, max, .{
+            .handle_w = os9scrollhandle.h * self.scale,
+            .handle_h = os9scrollhandle.w * self.scale,
+            .orientation = orientation,
+        })) |d| {
+            gui.draw9Slice(d.area, os9scrollinner, self.texture, self.scale);
+            gui.drawRectTextured(
+                d.handle,
+                Color.White,
+                os9scrollhandle,
+                self.texture,
+            );
         }
-
-        // Only moving the slider until after our initial .click state prevents the slider from teleporting when used with a touch screen or other input method that teleports the cursor like a drawing tablet.
-        if (clicked == .held) {
-            val += self.focused_slider_state;
-            val += mdel / scale;
-            val = std.math.clamp(val, lmin, lmax);
-
-            //Prevents slider moving oddly when mouse has been moved far outside of slider bounds
-            if (mpos > rec.x + rec.w)
-                val = max;
-            if (mpos < rec.x)
-                val = min;
-
-            if (info == .Int)
-                self.focused_slider_state = (val - @trunc(val));
-            handle.x = rec.x + (val - lmin) * scale;
-        }
-
-        if (self.mouse_grab_id == null and !self.scroll_claimed_mouse and graph.rectContainsPoint(rec, self.input_state.mouse_pos)) {
-            self.scroll_claimed_mouse = true;
-            switch (info) {
-                .Float => {},
-                .Int => {
-                    val += self.input_state.mouse_wheel_delta.y;
-                    val = std.math.clamp(val, lmin, lmax);
-                },
-                else => {},
-            }
-            //scroll_data.offset.y = std.math.clamp(scroll_data.offset.y + self.input_state.mouse_wheel_delta * -40, vbounds.x, vbounds.y);
-        }
-
-        switch (info) {
-            .Float => {
-                value.* = val;
-            },
-            .Int => {
-                value.* = @as(ptrinfo.Pointer.child, @intFromFloat(@trunc(val)));
-                handle.x = rec.x + (@trunc(val) - min) * scale;
-            },
-            else => @compileError("invalid type"),
-        }
-
-        self.draw9Slice(rec, os9slider, win.texture, win.scale);
-        self.draw9Slice(handle, os9shuttle, win.texture, win.scale);
-        //if (!opts.draw_text) return;
-        //const tt = if (opts.label_text) |t| t else "";
-        //if (info == .Float) {
-        //    self.drawTextFmt("{s}{d:.2}", .{ tt, val }, rec, rec.h, Color.White, .{ .justify = .center });
-        //} else {
-        //    self.drawTextFmt("{s}{d:.0}", .{ tt, @trunc(val) }, arec, arec.h, Color.White, .{ .justify = .center });
-        //}
     }
 
-    pub fn checkbox(self: *Self, gui: *Gui.Context, label: []const u8, checked: *bool) void {
+    pub fn sliderOpts(self: *Self, value: anytype, min: anytype, max: anytype) void {
+        const gui = self.gui;
+        if (gui.sliderGeneric(value, min, max, .{
+            .handle_w = os9shuttle.w * self.scale,
+            .handle_h = os9shuttle.h * self.scale,
+        })) |d| {
+            gui.draw9Slice(d.area, os9slider, self.texture, self.scale);
+            gui.draw9Slice(d.handle, os9shuttle, self.texture, self.scale);
+        }
+    }
+
+    pub fn checkbox(self: *Self, label: []const u8, checked: *bool) void {
+        const gui = self.gui;
         const area = gui.getArea() orelse return;
         const click = gui.clickWidget(area, .{});
         if (click == .click or click == .double) {
@@ -1395,56 +1383,39 @@ pub const TestWindow = struct {
             gui.drawRectTextured(br.addV(2 * self.scale, 0), Color.White, os9check, self.texture);
     }
 
-    pub fn enumDropDown(win: *Self, self: *Gui.Context, comptime enumT: type, enum_val: *enumT) !void {
-        const rec = self.getArea() orelse return;
-        const id = self.getId();
-        const h = rec.h;
-
-        const click = self.clickWidget(rec, .{});
-        const wstate = self.getWidgetState(.{ .c = click, .r = rec, .v = enum_val.* });
-
-        if (self.isActivePopup(id)) {
-            var done = false;
-            const info = @typeInfo(enumT);
-            const lrq = self.layout.last_requested_bounds orelse graph.Rec(0, 0, 0, 0);
-            const popup_rec = graph.Rec(lrq.x, lrq.y, lrq.w, h * 5);
-            try self.beginPopup(popup_rec);
-            if (try self.beginVLayoutScroll(&self.enum_drop_down_scroll, .{ .item_height = h })) |scroll| {
-                inline for (info.Enum.fields) |field| {
-                    if (self.button(field.name)) {
-                        if (!done) {
-                            enum_val.* = @as(enumT, @enumFromInt(field.value));
-                            self.popup_id = null;
-                            done = true;
-                        }
+    pub fn enumDropdown(self: *Self, comptime enumT: type, enum_val: *enumT) !void {
+        const gui = self.gui;
+        if (try gui.enumDropdownGeneric(enumT, enum_val, .{
+            .max_items = 4,
+            .scroll_bar_w = 14 * self.scale,
+        })) |d| {
+            var dd = d;
+            if (d.popup_active) {
+                gui.drawRectFilled(d.area, Color.Black);
+                while (dd.next(enumT)) |field| {
+                    if (self.button(@tagName(field))) {
+                        dd.set(gui, enum_val, field);
                     }
                 }
-                try self.endVLayoutScroll(scroll);
+                try d.endFieldList(gui);
+                self.scrollBar(dd.slider_ptr.?, d.slider_range.x, d.slider_range.y, .vertical);
+            } else {
+                gui.draw9Slice(d.area, os9drop, self.texture, self.scale);
+                const text = d.area.inset(3 * self.scale);
+                gui.drawText(@tagName(enum_val.*), text.pos(), text.h, Color.Black);
+                const ow = self.scale * os9drop.w / 3;
+                const oh = self.scale * os9drop.h / 3;
+                const btn_rec = Rec(d.area.x + d.area.w - ow - os9dropbtn.w * self.scale, d.area.y + oh, os9dropbtn.w * self.scale, os9dropbtn.h * self.scale);
+                gui.drawRectTextured(btn_rec, Color.White, os9dropbtn, self.texture);
             }
-            self.endPopup();
-        } else {
-            if (click == .click) {
-                self.enum_drop_down_scroll = .{ .x = 0, .y = 0 };
-                self.popup_id = id;
-                self.last_frame_had_popup = true;
-                //try self.enumDropDown(enumT, enum_val);
-            }
-        }
-
-        if (wstate != .no_change) {
-            self.draw9Slice(rec, os9drop, win.texture, win.scale);
-            const text = rec.inset(3 * win.scale);
-            self.drawText(@tagName(enum_val.*), text.pos(), text.h, Color.Black);
-            const ow = win.scale * os9drop.w / 3;
-            const oh = win.scale * os9drop.h / 3;
-            const btn_rec = Rec(rec.x + rec.w - ow - os9dropbtn.w * win.scale, rec.y + oh, os9dropbtn.w * win.scale, os9dropbtn.h * win.scale);
-            self.drawRectTextured(btn_rec, Color.White, os9dropbtn, win.texture);
+            d.end(gui);
         }
     }
 
     //TODO better way to display error
     //option to treat an integer as decimal fixed point
-    pub fn textboxNumber(self: *Self, gui: *Gui.Context, number_ptr: anytype) !void {
+    pub fn textboxNumber(self: *Self, number_ptr: anytype) !void {
+        const gui = self.gui;
         const NumType = enum { uint, int, float };
 
         const comptime_err_prefix = @typeName(@This()) ++ ".textboxNumber: ";
@@ -1515,64 +1486,15 @@ pub const TestWindow = struct {
         }
     }
 
-    pub fn textbox(self: *Self, gui: *Gui.Context, contents: *std.ArrayList(u8)) !void {
-        const area = gui.getArea() orelse return;
-        const id = gui.getId();
-        const click = gui.clickWidget(area, .{});
-        const trect = area.inset(3 * self.scale);
-        gui.draw9Slice(area, inset9, self.texture, self.scale);
-        var is_drawn = false;
-        const tc = Color.Black;
-
-        if (gui.isActiveTextinput(id)) {
-            const tb = &gui.textbox_state;
-            gui.text_input_state.advanceStateActive();
-            try tb.handleEventsOpts(
-                gui.text_input_state.buffer,
-                gui.input_state,
-                .{},
-            );
-            const sl = gui.textbox_state.getSlice();
-            gui.drawText(sl, trect.pos(), trect.h, tc);
-            const caret_x = gui.font.textBounds(sl[0..@as(usize, @intCast(tb.head))], trect.h).x;
-            gui.drawRectFilled(Rect.new(caret_x + trect.x, trect.y + 2, 3, trect.h - 4), Color.Black);
-            is_drawn = true;
-
-            if (!std.mem.eql(u8, sl, contents.items)) {
-                try contents.resize(sl.len);
-                std.mem.copy(u8, contents.items, sl);
+    pub fn textbox(self: *Self, contents: *std.ArrayList(u8)) !void {
+        const gui = self.gui;
+        if (try gui.textboxGeneric(contents, 3 * self.scale)) |d| {
+            const tr = d.text_area;
+            gui.draw9Slice(d.area, inset9, self.texture, self.scale);
+            gui.drawText(d.slice, d.text_area.pos(), d.text_area.h, Color.Black);
+            if (d.caret) |of| {
+                gui.drawRectFilled(Rect.new(of + tr.x, tr.y + 2, 3, tr.h - 4), Color.Black);
             }
-        }
-        if (!is_drawn) {
-            gui.drawText(contents.items, trect.pos(), trect.h, tc);
-        }
-        if (click == .click) {
-            if (gui.isActiveTextinput(id)) {
-                const cin = gui.font.nearestGlyphX(gui.textbox_state.getSlice(), trect.h, gui.input_state.mouse_pos.sub(trect.pos()));
-                if (cin) |cc| {
-                    gui.textbox_state.setCaret(cc - 1);
-                }
-            } else {
-                gui.text_input_state.active_id = id;
-                try gui.textbox_state.resetFmt("{s}", .{contents.items});
-            }
-        }
-    }
-
-    pub fn hLabelTextbox(self: *Self, gui: *Gui.Context, label: []const u8, disp: []const u8, scale: f32) void {
-        {
-            const bw = scale * 184;
-            const tba = gui.getArea() orelse return;
-            const texta = Rec(tba.x, tba.y, tba.w - bw, tba.h);
-            const ba = Rect.new(tba.x + texta.w, tba.y, bw, tba.h);
-            gui.draw9Slice(ba, inset9, self.texture, scale);
-            //const bounds =
-            const ts = 3;
-            const trect = texta.inset(ts * scale);
-            const bounds = gui.font.textBounds(label, trect.h);
-            gui.drawText(label, trect.pos().add(.{ .x = trect.w - bounds.x, .y = 0 }), trect.h, Color.Black);
-            const dispa = ba.inset(ts * scale);
-            gui.drawText(disp, dispa.pos(), dispa.h, Color.Black);
         }
     }
 };
@@ -1675,7 +1597,7 @@ pub fn main() anyerror!void {
     var atlas_editor = AtlasEditor.init(alloc);
     defer atlas_editor.deinit();
 
-    var test_win = try TestWindow.init(alloc, scale);
+    var test_win = try TestWindow.init(alloc, scale, &gui);
     defer test_win.deinit();
 
     //var file_browser = try FileBrowser.init(alloc);
@@ -1755,7 +1677,7 @@ pub fn main() anyerror!void {
             //_ = try gui.beginLayout(Gui.SubRectLayout, .{ .rect = parent_area }, .{});
             _ = try gui.beginLayout(Gui.SubRectLayout, .{ .rect = parent_area }, .{});
             defer gui.endLayout();
-            try test_win.update(&gui);
+            try test_win.update();
             //try fb.update(&gui);
         }
 
