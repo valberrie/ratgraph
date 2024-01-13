@@ -332,6 +332,7 @@ pub const Layout = struct {
     }
 };
 
+//TODO use a utf8 library to add utf8 support. check out the ziglyph library
 pub const RetainedState = struct {
     //Implementation of https://rxi.github.io/textbox_behaviour.html
     pub const TextInput = struct {
@@ -354,11 +355,9 @@ pub const RetainedState = struct {
 
         codepoints: std.ArrayList(u8),
 
-        //As the chars array contains utf8, these are the first byte indicies of codepoints.
         head: i32,
         tail: i32,
 
-        //TODO properly support unicode. Don't know how this will be done. Can we write an iterator than can move both ways?
         fn move_to(self: *Self, movement: SingleLineMovement) void {
             const max = @as(i32, @intCast(self.codepoints.items.len));
             switch (movement) {
@@ -367,6 +366,7 @@ pub const RetainedState = struct {
                     self.tail = self.head;
                 },
                 .right => {
+                    std.debug.print("MOVING RIGHT\n", .{});
                     self.head = clamp(self.head + 1, 0, max);
                     self.tail = self.head;
                 },
@@ -418,11 +418,21 @@ pub const RetainedState = struct {
             self.tail = 0;
         }
 
+        pub fn resetFmt(self: *Self, comptime fmt: []const u8, args: anytype) !void {
+            try self.reset("");
+            try self.codepoints.writer().print(fmt, args);
+            self.head = @as(i32, @intCast(self.codepoints.items.len));
+            self.tail = self.head;
+        }
+
         pub fn handleEventsOpts(
             tb: *TextInput,
             text_input: []const u8,
             input_state: InputState,
-            opts: struct { numbers_only: bool = false },
+            options: struct {
+                /// If set, only the listed characters will be inserted. Others will be silently ignored
+                restricted_charset: ?[]const u8 = null,
+            },
         ) !void {
             const StaticData = struct {
                 var are_binds_init: bool = false;
@@ -433,21 +443,22 @@ pub const RetainedState = struct {
                 StaticData.key_binds = edit_keys_list.init();
             }
 
-            var it = std.unicode.Utf8Iterator{ .bytes = text_input, .i = 0 };
-            var codepoint = it.nextCodepointSlice();
-            while (codepoint != null) : (codepoint = it.nextCodepointSlice()) {
-                if (opts.numbers_only) {
-                    switch (codepoint.?[0]) {
-                        '0'...'9', '-', '.' => {},
-                        else => continue,
+            for (text_input) |new_char| {
+                if (options.restricted_charset) |cset| {
+                    restricted_blk: {
+                        for (cset) |achar| {
+                            if (achar == new_char)
+                                break :restricted_blk;
+                        }
+                        continue;
                     }
                 }
                 if (tb.head != tb.tail) {
                     //try tb.chars.replaceRange(tb.tail, tb.head - tb.tail, codepoint.?);
                     //tb.tail = tb.head;
                 } else {
-                    try tb.codepoints.insertSlice(@as(usize, @intCast(tb.head)), codepoint.?);
-                    tb.head += @as(i32, @intCast(codepoint.?.len));
+                    try tb.codepoints.insert(@intCast(tb.head), new_char);
+                    tb.head += 1;
                     tb.tail = tb.head;
                 }
             }
