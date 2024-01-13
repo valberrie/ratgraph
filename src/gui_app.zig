@@ -1216,6 +1216,7 @@ pub const TestWindow = struct {
             );
             _ = self.button("hello");
             _ = self.button("hello");
+            gui.tooltip("Pressing this button causes great pain", ts);
 
             try self.enumDropdown(SampleEnum, &self.sample_data.en);
             self.sliderOpts(&self.sample_data.float, -10, 200);
@@ -1284,7 +1285,7 @@ pub const TestWindow = struct {
         inline for (fields) |field| {
             const active = @as(info.Enum.tag_type, @intFromEnum(selected.*)) == field.value;
             const area = gui.getArea() orelse return selected.*;
-            const click = gui.clickWidget(area, .{});
+            const click = gui.clickWidget(area);
             if (click == .click)
                 selected.* = @as(list_type, @enumFromInt(field.value));
             const sta = if (active) os9tabstart_active else os9tabstart;
@@ -1369,7 +1370,7 @@ pub const TestWindow = struct {
     pub fn checkbox(self: *Self, label: []const u8, checked: *bool) void {
         const gui = self.gui;
         const area = gui.getArea() orelse return;
-        const click = gui.clickWidget(area, .{});
+        const click = gui.clickWidget(area);
         if (click == .click or click == .double) {
             checked.* = !checked.*;
         }
@@ -1390,6 +1391,7 @@ pub const TestWindow = struct {
         if (try gui.enumDropdownGeneric(enumT, enum_val, .{
             .max_items = 4,
             .scroll_bar_w = 14 * self.scale,
+            .inset_scroll = 4 * self.scale,
         })) |d| {
             var dd = d;
             if (d.popup_active) {
@@ -1433,7 +1435,7 @@ pub const TestWindow = struct {
 
     pub fn textbox(self: *Self, contents: *std.ArrayList(u8)) !void {
         const gui = self.gui;
-        if (try gui.textboxGeneric(contents, 3 * self.scale)) |d| {
+        if (try gui.textboxGeneric(contents, .{ .text_inset = 3 * self.scale })) |d| {
             const tr = d.text_area;
             gui.draw9Slice(d.area, inset9, self.texture, self.scale);
             gui.drawText(d.slice, d.text_area.pos(), d.text_area.h, Color.Black);

@@ -772,6 +772,7 @@ pub const Context = struct {
             pub fn end(self: EnumDropdown, gui: *Context) void {
                 if (self.popup_active) {
                     gui.endLayout();
+                    gui.endLayout();
                     gui.endPopup();
                 }
             }
@@ -931,7 +932,6 @@ pub const Context = struct {
 
     text_input_state: TextInputState = .{},
     textbox_state: RetainedState.TextInput,
-    textbox_number: ?*u8 = null,
 
     enum_drop_down_scroll: Vec2f = .{ .x = 0, .y = 0 },
 
@@ -1161,15 +1161,19 @@ pub const Context = struct {
         self.namespace = self.namespace[0..std.mem.lastIndexOfScalar(u8, self.namespace, ':').?];
     }
 
-    pub fn clickWidget(self: *Self, rec: Rect, opts: struct {
+    pub fn clickWidget(self: *Self, rec: Rect) ClickState {
+        return self.clickWidgetEx(rec, .{}).click;
+    }
+
+    pub fn clickWidgetEx(self: *Self, rec: Rect, opts: struct {
         teleport_area: ?Rect = null,
-    }) ClickState {
+    }) struct { click: ClickState, id: WidgetId } {
         const id = self.getId();
 
         if (self.popup) |p| {
             //TODO this will fail sometimes because we can't garantee popup has been called before this click widget
             //Can set layout to have popup flag or something
-            if (!self.in_popup and graph.rectContainsPoint(p.area, self.input_state.mouse_pos)) return .none;
+            if (!self.in_popup and graph.rectContainsPoint(p.area, self.input_state.mouse_pos)) return .{ .click = .none, .id = id };
         }
 
         const containsCursor = graph.rectContainsPoint(rec, self.input_state.mouse_pos);
@@ -1181,36 +1185,41 @@ pub const Context = struct {
                     self.click_timer = 0;
                     self.last_clicked = id;
                     self.mouse_grab_id = null;
-                    return .click_release;
+                    return .{ .click = .click_release, .id = id };
                 }
-                return .held;
+                return .{ .click = .held, .id = id };
             }
         } else {
             if (self.scroll_bounds) |sb| {
                 if (!graph.rectContainsPoint(sb, self.input_state.mouse_pos))
-                    return .none;
+                    return .{ .click = .none, .id = id };
             }
             if (opts.teleport_area) |parent_area| {
                 if (clicked and !containsCursor and graph.rectContainsPoint(parent_area, self.input_state.mouse_pos)) {
                     self.mouse_grab_id = id;
-                    return .click_teleport;
+                    return .{ .click = .click_teleport, .id = id };
                 }
             }
             const ret: ClickState = if (containsCursor) (if (clicked) .click else .hover) else .none;
             if (ret == .click) {
+                if (!self.isActiveTextinput(id)) {
+                    self.text_input_state.active_id = null;
+                    self.text_input_state.state = .stop;
+                }
+
                 self.mouse_grab_id = id;
                 const double_click_time = 10;
                 if (self.click_timer < double_click_time) {
                     if (self.last_clicked) |lc| {
                         if (lc.eql(id))
-                            return .double;
+                            return .{ .click = .double, .id = id };
                     }
                 }
             }
-            return ret;
+            return .{ .click = ret, .id = id };
         }
 
-        return if (containsCursor) .hover_no_focus else .none;
+        return .{ .click = if (containsCursor) .hover_no_focus else .none, .id = id };
     }
 
     pub fn draggable(self: *Self, area: Rect, mdelta_scale: Vec2f, x_val: anytype, y_val: anytype, opts: struct {
@@ -1259,7 +1268,7 @@ pub const Context = struct {
         const yinfo = @typeInfo(yptrinfo.Pointer.child);
 
         var val: Vec2f = .{ .x = Helper.getVal(xinfo, x_val), .y = Helper.getVal(yinfo, y_val) };
-        const click = self.clickWidget(area, .{});
+        const click = self.clickWidget(area);
 
         if (click == .click) {
             self.draggable_state = .{ .x = 0, .y = 0 };
@@ -1451,8 +1460,8 @@ pub const Context = struct {
         const dec_button = Rect.new(rec.x, rec.y, rec.h, rec.h);
         const inc_button = Rect.new(rec.x + rec.w - rec.h, rec.y, rec.h, rec.h);
 
-        const dec_click = self.clickWidget(dec_button, .{});
-        const inc_click = self.clickWidget(inc_button, .{});
+        const dec_click = self.clickWidget(dec_button);
+        const inc_click = self.clickWidget(inc_button);
 
         if (dec_click == .held or dec_click == .click)
             val.* -= 0.1;
@@ -1467,7 +1476,7 @@ pub const Context = struct {
 
     pub fn checkboxNotify(self: *Self, label: []const u8, checked: *bool) bool {
         const rec = self.getArea() orelse return false;
-        const click = self.clickWidget(rec, .{});
+        const click = self.clickWidget(rec);
         const wstate = self.getWidgetState(.{ .t = WidgetTypes.checkbox, .rec = rec, .name = label, .s = click });
         var changed = false;
         if (click == .click) {
@@ -1515,7 +1524,7 @@ pub const Context = struct {
         const rec = self.getArea() orelse return;
         const id = self.getId();
 
-        const click = self.clickWidget(rec, .{});
+        const click = self.clickWidget(rec);
         const wstate = self.getWidgetState(.{ .c = click, .r = rec, .cc = color.* });
 
         if (self.isActivePopup(id)) {
@@ -1653,7 +1662,6 @@ pub const Context = struct {
 
     pub fn endVLayoutScroll(
         self: *Self,
-        //, data: VLayoutScrollData
     ) void {
         //const dl = data.layout.*;
         self.endLayout();
@@ -1704,7 +1712,7 @@ pub const Context = struct {
             .vertical => Rect.new(arec.x, arec.y + (val - min) * scale, params.handle_h, params.handle_w),
         };
 
-        const clicked = self.clickWidget(handle, .{});
+        const clicked = self.clickWidget(handle);
 
         if (clicked == .click) {
             self.focused_slider_state = 0;
@@ -1758,15 +1766,19 @@ pub const Context = struct {
 
     pub fn buttonGeneric(self: *Self) GenericWidget.Button {
         const area = self.getArea() orelse return .{};
-        const click = self.clickWidget(area, .{});
+        const click = self.clickWidget(area);
         return .{ .area = area, .state = click };
     }
 
-    pub fn textboxGeneric(self: *Self, contents: *std.ArrayList(u8), text_inset: f32) !?GenericWidget.Textbox {
+    pub fn textboxGeneric(self: *Self, contents: *std.ArrayList(u8), params: struct {
+        text_inset: f32,
+        restrict_chars_to: ?[]const u8 = null,
+    }) !?GenericWidget.Textbox {
         const area = self.getArea() orelse return null;
-        const id = self.getId();
-        const click = self.clickWidget(area, .{});
-        const trect = area.inset(text_inset);
+        const cw = self.clickWidgetEx(area, .{});
+        const click = cw.click;
+        const id = cw.id;
+        const trect = area.inset(params.text_inset);
         var ret = GenericWidget.Textbox{
             .area = area,
             .text_area = trect,
@@ -1780,7 +1792,7 @@ pub const Context = struct {
             try tb.handleEventsOpts(
                 self.text_input_state.buffer,
                 self.input_state,
-                .{},
+                .{ .restricted_charset = params.restrict_chars_to },
             );
             const sl = tb.getSlice();
             const caret_x = self.font.textBounds(sl[0..@as(usize, @intCast(tb.head))], trect.h).x;
@@ -1792,14 +1804,13 @@ pub const Context = struct {
             }
         }
         if (click == .click) {
-            if (self.isActiveTextinput(id)) {
-                const cin = self.font.nearestGlyphX(self.textbox_state.getSlice(), trect.h, self.input_state.mouse_pos.sub(trect.pos()));
-                if (cin) |cc| {
-                    self.textbox_state.setCaret(cc - 1);
-                }
-            } else {
+            if (!self.isActiveTextinput(id)) {
                 self.text_input_state.active_id = id;
                 try self.textbox_state.resetFmt("{s}", .{contents.items});
+            }
+            const cin = self.font.nearestGlyphX(self.textbox_state.getSlice(), trect.h, self.input_state.mouse_pos.sub(trect.pos()));
+            if (cin) |cc| {
+                self.textbox_state.setCaret(cc - 1);
             }
         }
         ret.slice = contents.items;
@@ -1828,8 +1839,9 @@ pub const Context = struct {
             else => @compileError(invalid_type_error),
         };
 
-        const id = self.getId();
-        const click = self.clickWidget(area, .{});
+        const cw = self.clickWidgetEx(area, .{});
+        const id = cw.id;
+        const click = cw.click;
         var ret = GenericWidget.Textbox{
             .area = area,
             .text_area = tarea,
@@ -1841,7 +1853,7 @@ pub const Context = struct {
             const charset = switch (number_t) {
                 .int => "-0123456789",
                 .uint => "0123456789",
-                .float => ".-0123456789",
+                .float => "ainf.-0123456789",
             };
             self.text_input_state.advanceStateActive();
             try self.textbox_state.handleEventsOpts(
@@ -1873,14 +1885,14 @@ pub const Context = struct {
             ret.slice = fbs.getWritten();
         }
         if (click == .click) {
-            if (self.isActiveTextinput(id)) {
-                const cin = self.font.nearestGlyphX(self.textbox_state.getSlice(), tarea.h, self.input_state.mouse_pos.sub(tarea.pos()));
-                if (cin) |cc| {
-                    self.textbox_state.setCaret(cc - 1);
-                }
-            } else {
+            if (!self.isActiveTextinput(id)) {
                 self.text_input_state.active_id = id;
                 try self.textbox_state.resetFmt("{d}", .{number_ptr.*});
+            }
+
+            const cin = self.font.nearestGlyphX(self.textbox_state.getSlice(), tarea.h, self.input_state.mouse_pos.sub(tarea.pos()));
+            if (cin) |cc| {
+                self.textbox_state.setCaret(cc - 1);
             }
         }
 
@@ -1890,6 +1902,7 @@ pub const Context = struct {
     pub fn enumDropdownGeneric(self: *Self, comptime enumT: type, enum_val: *enumT, params: struct {
         max_items: usize,
         scroll_bar_w: f32,
+        inset_scroll: f32 = 0,
     }) !?GenericWidget.EnumDropdown {
         const rec = self.getArea() orelse return null;
         const id = self.getId();
@@ -1897,7 +1910,7 @@ pub const Context = struct {
         const nfields = @typeInfo(enumT).Enum.fields.len;
 
         _ = enum_val;
-        const click = self.clickWidget(rec, .{});
+        const click = self.clickWidget(rec);
         const popup_h = h * @as(f32, if (nfields > params.max_items) @floatFromInt(params.max_items) else @floatFromInt(nfields));
 
         if (self.isActivePopup(id)) {
@@ -1905,15 +1918,18 @@ pub const Context = struct {
             const lrq = self.layout.last_requested_bounds orelse graph.Rec(0, 0, 0, 0);
             const popup_rec = graph.Rec(lrq.x, lrq.y, lrq.w, popup_h);
             try self.beginPopup(popup_rec);
+            const inset = popup_rec.inset(params.inset_scroll);
+            _ = try self.beginLayout(SubRectLayout, .{ .rect = inset }, .{});
             if (try self.beginVLayoutScroll(&self.enum_drop_down_scroll, .{ .item_height = h }, params.scroll_bar_w)) |scroll| {
                 return .{
-                    .area = rec,
+                    .area = popup_rec,
                     .popup_active = true,
                     .slider_area = scroll.data.vertical_slider_area.?,
-                    .slider_range = .{ .x = 0, .y = popup_h },
+                    .slider_range = .{ .x = 0, .y = h * nfields - inset.h },
                     .slider_ptr = &self.enum_drop_down_scroll.y,
                 };
             }
+            self.endLayout();
             self.endPopup();
         } else {
             if (click == .click) {
@@ -1940,7 +1956,7 @@ pub const Context = struct {
         const hue_handle_height = 15;
         var hue_handle = Rect.new(h_area.x, h_area.y + h_area.h * hsva.h / 360.0 - hue_handle_height / 2, h_area.w, hue_handle_height);
 
-        const clicked = self.clickWidget(sv_handle, .{ .teleport_area = sv_area });
+        const clicked = self.clickWidgetEx(sv_handle, .{ .teleport_area = sv_area }).click;
         const mpos = self.input_state.mouse_pos;
         switch (clicked) {
             .click, .held => {
@@ -1974,7 +1990,7 @@ pub const Context = struct {
 
         sv_handle = Rect.new(sv_area.x + hsva.s * sv_area.w - hs / 2, sv_area.y + (1.0 - hsva.v) * sv_area.h - hs / 2, hs, hs);
 
-        const hue_clicked = self.clickWidget(hue_handle, .{ .teleport_area = h_area });
+        const hue_clicked = self.clickWidgetEx(hue_handle, .{ .teleport_area = h_area }).click;
         switch (hue_clicked) {
             .click, .held => {
                 const mdel = self.input_state.mouse_delta;
@@ -2036,7 +2052,7 @@ pub const Context = struct {
                         const rec = self.getArea() orelse return;
                         const wstate = self.getWidgetState(.{ .p = rec });
                         const id = self.getId();
-                        const click = self.clickWidget(rec, .{});
+                        const click = self.clickWidget(rec);
                         if (self.isActivePopup(id)) {
                             const lrq = self.layout.last_requested_bounds orelse return;
                             const pr = graph.Rec(lrq.x, lrq.y, 900, 700);
