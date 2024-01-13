@@ -1242,7 +1242,9 @@ pub const TestWindow = struct {
                     defer gui.endScroll();
                     _ = try gui.beginLayout(Gui.VerticalLayout, .{ .item_height = 20 * scale }, .{});
                     defer gui.endLayout();
-                    _ = self.button("hello button");
+                    if (self.button("hello button")) {
+                        try gui.console.print("pushed the button lol\n", .{});
+                    }
                 }
                 {
                     const sd = scroll;
@@ -1260,6 +1262,8 @@ pub const TestWindow = struct {
                     }
                 }
             }
+            vl.pushHeight(100 * scale);
+            gui.drawConsole(gui.console, ts);
         }
     }
 
