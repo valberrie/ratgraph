@@ -1198,6 +1198,7 @@ pub const TestWindow = struct {
             gui.drawText(mt, Vec2f.new(a.x + a.w / 2 - bounds.x / 2, a.y - ts / 2), ts, Color.Black);
             //gui.spinner(&val);
             self.checkbox("Checkbox", &self.sample_data.flag);
+            gui.tooltip("This checkbox sucks", ts);
             vl.pushHeight(os9tabstart.h * scale);
             _ = try self.tabs(SampleEnum, &self.sample_data.en);
             vl.current_h -= (vl.padding.top + vl.padding.bottom + scale * 1);
@@ -1223,6 +1224,7 @@ pub const TestWindow = struct {
             try self.textbox(&self.sample_data.ar_str);
             try self.textboxNumber(&self.sample_data.int_edit);
             try self.textboxNumber(&self.sample_data.float);
+            gui.tooltip("This number represents my death", ts);
             try self.textboxNumber(&self.sample_data.uint_edit);
             {
                 _ = try gui.beginLayout(Gui.HorizLayout, .{ .count = 2 }, .{});
@@ -1412,79 +1414,22 @@ pub const TestWindow = struct {
         }
     }
 
-    //TODO better way to display error
-    //option to treat an integer as decimal fixed point
     pub fn textboxNumber(self: *Self, number_ptr: anytype) !void {
         const gui = self.gui;
-        const NumType = enum { uint, int, float };
-
-        const comptime_err_prefix = @typeName(@This()) ++ ".textboxNumber: ";
-        const invalid_type_error = comptime_err_prefix ++ "Argument \'number_ptr\' expects a mutable pointer to an int or float. Recieved: " ++ @typeName(@TypeOf(number_ptr));
-        const area = gui.getArea() orelse return;
-        const tarea = area.inset(3 * self.scale);
-        gui.draw9Slice(area, inset9, self.texture, self.scale);
-
-        const pinfo = @typeInfo(@TypeOf(number_ptr));
-        if (pinfo != .Pointer or pinfo.Pointer.is_const) @compileError(invalid_type_error);
-        const number_type = pinfo.Pointer.child;
-        const number_t: NumType = switch (@typeInfo(number_type)) {
-            .Float => .float,
-            .Int => |int| switch (int.signedness) {
-                .signed => .int,
-                .unsigned => .uint,
-            },
-            else => @compileError(invalid_type_error),
-        };
-
-        const id = gui.getId();
-        const click = gui.clickWidget(area, .{});
-
-        var is_drawn = false;
-        if (gui.isActiveTextinput(id)) {
-            const charset = switch (number_t) {
-                .int => "-0123456789",
-                .uint => "0123456789",
-                .float => ".-0123456789",
-            };
-            gui.text_input_state.advanceStateActive();
-            try gui.textbox_state.handleEventsOpts(
-                gui.text_input_state.buffer,
-                gui.input_state,
-                .{ .restricted_charset = charset },
-            );
-            const sl = gui.textbox_state.getSlice();
-            gui.drawTextFmt("{s}", .{sl}, tarea, tarea.h, Color.Black, .{});
-            const caret_x = gui.font.textBounds(sl[0..@as(usize, @intCast(gui.textbox_state.head))], tarea.h).x;
-            gui.drawRectFilled(Rect.new(caret_x + tarea.x, tarea.y + 2, 3, tarea.h - 4), Color.Black);
-
-            const err_rect = Rect.new(tarea.x + tarea.w - tarea.h, tarea.y, tarea.h, tarea.h);
-            number_ptr.* = switch (number_t) {
-                .float => std.fmt.parseFloat(number_type, sl) catch blk: {
-                    gui.drawRectFilled(err_rect, Color.Red);
-                    break :blk number_ptr.*;
-                },
-                .uint, .int => std.fmt.parseInt(number_type, sl, 10) catch blk: {
-                    gui.drawRectFilled(err_rect, Color.Red);
-                    break :blk number_ptr.*;
-                },
-            };
-
-            is_drawn = true;
-        }
-        if (!is_drawn)
-            gui.drawTextFmt("{d}", .{number_ptr.*}, tarea, tarea.h, Color.Black, .{});
-        if (click == .click) {
-            if (gui.isActiveTextinput(id)) {
-                const cin = gui.font.nearestGlyphX(gui.textbox_state.getSlice(), tarea.h, gui.input_state.mouse_pos.sub(tarea.pos()));
-                if (cin) |cc| {
-                    gui.textbox_state.setCaret(cc - 1);
-                }
-            } else {
-                gui.text_input_state.active_id = id;
-                try gui.textbox_state.resetFmt("{d}", .{number_ptr.*});
+        if (try gui.textboxNumberGeneric(number_ptr, .{ .text_inset = self.scale * 3 })) |d| {
+            const tr = d.text_area;
+            gui.draw9Slice(d.area, inset9, self.texture, self.scale);
+            if (d.is_invalid)
+                gui.drawRectFilled(d.text_area, itc(0xff000086));
+            gui.drawText(d.slice, d.text_area.pos(), d.text_area.h, Color.Black);
+            if (d.caret) |of| {
+                gui.drawRectFilled(Rect.new(of + tr.x, tr.y + 2, 3, tr.h - 4), Color.Black);
             }
         }
     }
+
+    //TODO better way to display error
+    //option to treat an integer as decimal fixed point
 
     pub fn textbox(self: *Self, contents: *std.ArrayList(u8)) !void {
         const gui = self.gui;

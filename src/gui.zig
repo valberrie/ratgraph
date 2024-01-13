@@ -728,6 +728,7 @@ pub const Context = struct {
             text_area: Rect,
             caret: ?f32,
             slice: []const u8,
+            is_invalid: bool = false,
         };
 
         pub const Slider = struct {
@@ -837,6 +838,18 @@ pub const Context = struct {
         bar_w: f32, //????
     };
 
+    pub const TooltipState = struct {
+        command_list: std.ArrayList(DrawCommand),
+        draw_area: ?Rect = null,
+
+        pending_area: ?Rect = null,
+        mouse_in_area: ?Rect = null,
+
+        hover_time: u64 = 0,
+
+        hide_active: bool = false,
+    };
+
     pub const VLayoutScrollData = struct {
         data: ScrollData,
         layout: *VerticalLayout,
@@ -896,11 +909,9 @@ pub const Context = struct {
 
     command_list_popup: std.ArrayList(DrawCommand),
 
-    data_store: OpaqueDataStore,
-    //retained_data: RetainedHashMapT,
+    tooltip_state: TooltipState,
+
     retained_alloc: std.mem.Allocator,
-    //retained_data_key_store: std.ArrayList([]const u8),
-    focused_element: []const u8 = "",
     namespace: []const u8 = "global",
     //TODO change naming system, state from last frame should be prefixed with last_frame or exist inside a last_frame_state struct
     old_namespace: []const u8 = "",
@@ -914,21 +925,17 @@ pub const Context = struct {
 
     input_state: InputState = .{},
 
-    //State for slider()
-    // Stores the difference between slider_val and @trunc(slider_val) to prevent losing non integer changes in &val every frame.
-    // Depends on clickWidget
+    /// Stores the difference between slider_val and @trunc(slider_val) to prevent losing non integer changes in &val every frame.
     focused_slider_state: f32 = 0,
     draggable_state: Vec2f = .{ .x = 0, .y = 0 },
 
-    //TODO a better system to deal with compose edits and returning a text_editing_rect to SDL for proper rendering of ibus compose editor
     text_input_state: TextInputState = .{},
     textbox_state: RetainedState.TextInput,
     textbox_number: ?*u8 = null,
 
     enum_drop_down_scroll: Vec2f = .{ .x = 0, .y = 0 },
 
-    //State for clickWidget()
-    // The hash of the layout that has grabbed the mouse. Gets reset when mouse != held
+    /// The hash of the layout that has grabbed the mouse. Gets reset when mouse != held
     mouse_grab_id: ?WidgetId = null,
     mouse_released: bool = false,
 
@@ -937,20 +944,18 @@ pub const Context = struct {
     //TODO this field is for clickWidget, label or move to something
     last_clicked: ?WidgetId = null,
 
+    //TODO is there a reason these nulls are all seperate?
     popup: ?Popup = null,
     popup_scroll_bounds: ?Rect = null,
-    //TODO there can only ever be one beginPopup call in a layout. Ensure this
-
     popup_id: ?WidgetId = null,
     /// This is set true on beginPopup and set false on endPopup
     in_popup: bool = false,
+    last_frame_had_popup: bool = false,
 
     /// Represents the screen space area of the current scroll area, when a nested scroll section is created,
     /// it is always clipped to exist inside the parent scroll_bounds
     scroll_bounds: ?Rect = null,
     scroll_claimed_mouse: bool = false,
-
-    last_frame_had_popup: bool = false,
 
     pub fn storeString(self: *Self, str: []const u8) []const u8 {
         if (str.len + self.str_index >= self.strings.len) {
@@ -970,6 +975,10 @@ pub const Context = struct {
         return self.input_state.keyboard_state.isSet(@intFromEnum(scancode));
     }
 
+    pub fn isCursorInRect(self: *Self, r: Rect) bool {
+        return graph.rectContainsPoint(r, self.input_state.mouse_pos);
+    }
+
     pub fn qualifyName(self: *const Self, name: []const u8) ![]const u8 {
         const qn = try self.alloc.alloc(u8, name.len + self.namespace.len + 1);
         std.mem.copy(u8, qn, self.namespace);
@@ -980,7 +989,36 @@ pub const Context = struct {
 
     pub fn getArea(self: *Self) ?Rect {
         const new_area = self.layout.getArea();
+        self.tooltip_state.pending_area = new_area;
         return new_area;
+    }
+
+    pub fn tooltip(self: *Self, message: []const u8, size: f32) void {
+        const ts = &self.tooltip_state;
+        const pa = ts.pending_area orelse return;
+        if (self.isCursorInRect(pa)) {
+            if (ts.mouse_in_area) |ma| {
+                if (ma.eql(pa)) {
+                    ts.hover_time += 1;
+                    if (ts.hover_time > 20 and !ts.hide_active) {
+                        if (self.input_state.mouse_left_clicked) {
+                            ts.hide_active = true;
+                        }
+                        const bounds = self.font.textBounds(message, size);
+                        const mp = self.input_state.mouse_pos;
+                        ts.command_list.append(.{ .rect_filled = .{ .r = Rect.newV(mp, bounds), .color = Color.Gray } }) catch unreachable;
+                        ts.command_list.append(.{
+                            .text = .{ .string = message, .pos = mp.toI(i16, Vec2i), .size = size, .color = Color.White, .font = self.font },
+                        }) catch unreachable;
+                    }
+                } else {
+                    ts.hover_time = 0;
+                }
+            }
+            ts.mouse_in_area = ts.pending_area;
+        }
+        //is the mouse in this area?
+        //has the mouse been in this area for atleast n frames
     }
 
     pub fn getId(self: *Self) WidgetId {
@@ -1032,9 +1070,9 @@ pub const Context = struct {
 
     pub fn init(alloc: std.mem.Allocator, stack_alloc: *std.heap.FixedBufferAllocator, bounds: Rect, font: *graph.Font, icon_font: *graph.Font) !Self {
         //TODO change stack_alloc from a FixedBufferAllocator to a ArenaAllocator
+        const sa = stack_alloc.allocator();
         return Self{
             .console = Console.init(alloc),
-            .data_store = OpaqueDataStore.init(alloc),
             .layout = .{ .bounds = bounds },
             .layout_stack = .{},
             .layout_cache = try LayoutCacheT.init(alloc),
@@ -1044,11 +1082,10 @@ pub const Context = struct {
             .icon_font = icon_font,
             //.retained_data = RetainedHashMapT.init(alloc),
             .retained_alloc = alloc,
-            //.retained_data_key_store = std.ArrayList([]const u8).init(alloc),
-            .command_list = std.ArrayList(DrawCommand).init(stack_alloc.allocator()),
-            .command_list_popup = std.ArrayList(DrawCommand).init(stack_alloc.allocator()),
+            .tooltip_state = .{ .command_list = std.ArrayList(DrawCommand).init(sa) },
+            .command_list = std.ArrayList(DrawCommand).init(sa),
+            .command_list_popup = std.ArrayList(DrawCommand).init(sa),
             .textbox_state = RetainedState.TextInput.init(alloc),
-            //.textbox_state = .{ .chars = std.ArrayList(u8).init(alloc), .head = 0, .tail = 0 },
         };
     }
 
@@ -1068,6 +1105,13 @@ pub const Context = struct {
         self.stack_alloc.reset();
         self.command_list = std.ArrayList(DrawCommand).init(self.alloc);
         self.command_list_popup = std.ArrayList(DrawCommand).init(self.alloc);
+        self.tooltip_state.command_list = std.ArrayList(DrawCommand).init(self.alloc);
+        if (self.tooltip_state.mouse_in_area) |ma| {
+            if (!self.isCursorInRect(ma)) {
+                self.tooltip_state.hover_time = 0;
+                self.tooltip_state.hide_active = false;
+            }
+        }
         self.input_state = input_state;
 
         self.layout.reset();
@@ -1098,7 +1142,6 @@ pub const Context = struct {
         self.layout_cache.deinit();
         self.console.deinit();
         self.textbox_state.deinit();
-        self.data_store.deinit();
     }
 
     pub fn setNamespace(self: *Self, new_namespace: []const u8) void {
@@ -1495,89 +1538,6 @@ pub const Context = struct {
 
     //TODO what happens when the enum has lots of values and can't fit on the screen. Add scrolling function.
     //Should typing and autocompleting a value be a function
-    pub fn enumDropDown(self: *Self, comptime enumT: type, enum_val: *enumT) !void {
-        const rec = self.getArea() orelse return;
-        const id = self.getId();
-        const h = rec.h;
-
-        const click = self.clickWidget(rec, .{});
-        const wstate = self.getWidgetState(.{ .c = click, .r = rec, .v = enum_val.* });
-
-        if (self.isActivePopup(id)) {
-            var done = false;
-            const info = @typeInfo(enumT);
-            const lrq = self.layout.last_requested_bounds orelse graph.Rec(0, 0, 0, 0);
-            const popup_rec = graph.Rec(lrq.x, lrq.y, lrq.w, h * 5);
-            try self.beginPopup(popup_rec);
-            if (try self.beginVLayoutScroll(&self.enum_drop_down_scroll, .{ .item_height = h })) |scroll| {
-                inline for (info.Enum.fields) |field| {
-                    if (self.button(field.name)) {
-                        if (!done) {
-                            enum_val.* = @as(enumT, @enumFromInt(field.value));
-                            self.popup_id = null;
-                            done = true;
-                        }
-                    }
-                }
-                self.endVLayoutScroll(scroll);
-            }
-            self.endPopup();
-        } else {
-            if (click == .click) {
-                self.enum_drop_down_scroll = .{ .x = 0, .y = 0 };
-                self.popup_id = id;
-                self.last_frame_had_popup = true;
-                //try self.enumDropDown(enumT, enum_val);
-            }
-        }
-
-        if (wstate != .no_change) {
-            self.drawRectFilled(rec, Color.Black);
-            const scale = h / 20;
-            self.drawRectFilled(Rect.newV(rec.pos(), rec.dim().sub(.{ .x = scale, .y = scale })), Color.White);
-            const inner = rec.inset(scale);
-            self.drawRectFilled(inner, itc(0xaaaaaaff));
-
-            self.drawText(@tagName(enum_val.*), .{ .x = inner.x + scale * 6, .y = inner.y }, inner.h, Color.Black);
-        }
-    }
-
-    pub fn buttonEx(self: *Self, opts: struct {
-        name: []const u8 = "",
-        mouse_colors: ClickStateColors = ClickStateColors.new(.{ .none = Color.Gray, .held = Color.Blue, .click = Color.Blue, .hover = Color.Green, .hover_no_focus = Color.Gray, .click_teleport = Color.Gray, .click_release = Color.Blue, .double = Color.Gray }),
-        label_size: ?f32 = null,
-    }) bool {
-        const arec = self.getArea() orelse return false;
-        const rec = arec.inset(1);
-        const click = self.clickWidget(rec, .{});
-        const wstate = self.getWidgetState(.{
-            .t = WidgetTypes.button,
-            .rec = rec,
-            .name = opts.name,
-            .color = opts.mouse_colors._switch(.none),
-        });
-
-        if (wstate != .no_change or click != .none) {
-            self.drawRectFilled(arec, switch (click) {
-                else => itc(0x444444ff),
-                .hover => itc(0x555555ff),
-                .click, .held => itc(0x111111ff),
-            });
-
-            const border_perc = 0.1;
-            //    self.drawRectFilled(graph.Rec(arec.x, arec.y, arec.w, arec.h * border_perc), itc(0x777777ff));
-            //    self.drawRectFilled(graph.Rec(arec.x, arec.y + arec.h * 1 - border_perc, arec.w, arec.h * border_perc), itc(0x222222ff));
-            //self.drawRectFilled(rec, opts.mouse_colors._switch(click));
-
-            if (opts.name.len > 0)
-                self.drawText(opts.name, .{ .x = rec.x, .y = rec.y + rec.h * border_perc }, opts.label_size orelse rec.h * (1 - border_perc * 2), Color.White);
-        }
-        return click == .click;
-    }
-
-    pub fn button(self: *Self, name: []const u8) bool {
-        return self.buttonEx(.{ .name = name });
-    }
 
     pub fn drawConsole(self: *Self, console: Console, line_height: f32) void {
         const area = self.getArea() orelse return;
@@ -1614,8 +1574,6 @@ pub const Context = struct {
             self.drawText(name, rec.pos(), rec.h, Color.White);
         }
     }
-
-    //Only vertical for now
 
     pub fn beginScroll(self: *Self, offset: *Vec2f, opts: struct {
         horiz_scroll: bool = true,
@@ -1677,17 +1635,6 @@ pub const Context = struct {
 
         self.scroll_bounds = self.layout.parent_scroll_bounds;
         self.scissor(self.scroll_bounds);
-
-        //if (scroll_data.horiz_slider_area) |hrec| {
-        //    _ = try self.beginLayout(SubRectLayout, .{ .rect = hrec }, .{});
-        //    try self.sliderOpts(&scroll_data.offset.x, hbounds.x, hbounds.y, .{ .orientation = .horizontal, .draw_text = false });
-        //    self.endLayout();
-        //}
-        //if (scroll_data.vertical_slider_area) |vrec| {
-        //    _ = try self.beginLayout(SubRectLayout, .{ .rect = vrec }, .{});
-        //    try self.sliderOpts(&scroll_data.offset.y, vbounds.x, vbounds.y, .{ .orientation = .vertical, .draw_text = false });
-        //    self.endLayout();
-        //}
     }
 
     pub fn beginVLayoutScroll(self: *Self, scr: *Vec2f, layout: VerticalLayout, scroll_bar_w: f32) !?VLayoutScrollData {
@@ -1715,127 +1662,6 @@ pub const Context = struct {
         self.endScroll();
     }
 
-    //TODO types of sliders
-    //Desktop Gui like slider than you slide a shuttle around
-    //spinner kind
-
-    pub fn sliderOpts(self: *Self, value: anytype, min: anytype, max: anytype, opts: struct {
-        orientation: Orientation = .horizontal,
-        draw_text: bool = true,
-        handle_w: ?f32 = null,
-        handle_perc: f32 = 0.99,
-        bounds_check: bool = true,
-        label_text: ?[]const u8 = null,
-    }) !void {
-        const lmin = std.math.lossyCast(f32, min);
-        const lmax = std.math.lossyCast(f32, max);
-        const lval = std.math.lossyCast(f32, value.*);
-        const horiz = (opts.orientation == .horizontal);
-        const ptrinfo = @typeInfo(@TypeOf(value));
-        const child_type = ptrinfo.Pointer.child;
-        if (ptrinfo != .Pointer) @compileError("slider requires a pointer for value");
-        const info = @typeInfo(child_type);
-        if (opts.bounds_check and (lval < lmin or lval > lmax)) return error.valueOutOfBounds;
-
-        const arec = self.getArea() orelse return;
-        const rec = if (horiz) arec.inset(8) else arec.inset(8).swapAxis();
-
-        const handle_w = blk: {
-            if (opts.handle_w) |hw| {
-                break :blk hw;
-            }
-            const ww = rec.w * (rec.w / (lmax - lmin));
-            const MIN_W = 40;
-            _ = ww;
-            _ = MIN_W;
-            break :blk 40;
-
-            //break :blk std.math.clamp(ww, MIN_W, rec.w);
-        };
-        const mdel = if (horiz) self.input_state.mouse_delta.x else self.input_state.mouse_delta.y;
-        const mpos = if (horiz) self.input_state.mouse_pos.x else self.input_state.mouse_pos.y;
-        const scale = (rec.w - handle_w) / (lmax - lmin);
-        //const scale = switch (info) {
-        //    .Float => (rec.w - handle_w) / @floatCast(f32, max - min),
-        //    .Int => (rec.w - handle_w) / @intToFloat(f32, max - min),
-        //    else => @compileError("slider only accepts pointers to ints or floats. Provided: " ++ @typeName(@TypeOf(value))),
-        //};
-        var val: f32 = switch (info) {
-            .Float => @as(f32, @floatCast(value.*)),
-            .Int => @as(f32, @floatFromInt(value.*)),
-            else => @compileError("invalid type"),
-        };
-
-        var handle = Rect{
-            .x = rec.x + (val - min) * scale,
-            .y = rec.y + (rec.h - (rec.h * opts.handle_perc)) / 2,
-            .w = handle_w,
-            .h = rec.h * opts.handle_perc,
-        };
-        handle = if (horiz) handle else handle.swapAxis();
-        const clicked = if (handle_w >= rec.w) .none else self.clickWidget(handle, .{});
-        //const clicked = self.clickWidget(handle, .{});
-
-        const wstate = self.getWidgetState(.{ .t = WidgetTypes.slider, .r = handle });
-
-        if (clicked == .click) {
-            self.focused_slider_state = 0;
-        }
-
-        if (clicked == .held or clicked == .click) {
-            val += self.focused_slider_state;
-            val += mdel / scale;
-            val = std.math.clamp(val, lmin, lmax);
-
-            //Prevents slider moving oddly when mouse has been moved far outside of slider bounds
-            if (mpos > rec.x + rec.w)
-                val = max;
-            if (mpos < rec.x)
-                val = min;
-
-            if (info == .Int)
-                self.focused_slider_state = (val - @trunc(val));
-            (if (horiz) handle.x else handle.y) = rec.x + (val - lmin) * scale;
-        }
-
-        if (self.mouse_grab_id == null and !self.scroll_claimed_mouse and graph.rectContainsPoint(rec, self.input_state.mouse_pos)) {
-            self.scroll_claimed_mouse = true;
-            switch (info) {
-                .Float => {},
-                .Int => {
-                    val += self.input_state.mouse_wheel_delta;
-                    val = std.math.clamp(val, lmin, lmax);
-                },
-                else => {},
-            }
-            //scroll_data.offset.y = std.math.clamp(scroll_data.offset.y + self.input_state.mouse_wheel_delta * -40, vbounds.x, vbounds.y);
-        }
-
-        switch (info) {
-            .Float => {
-                value.* = val;
-            },
-            .Int => {
-                value.* = @as(ptrinfo.Pointer.child, @intFromFloat(@trunc(val)));
-                (if (horiz) handle.x else handle.y) = rec.x + (@trunc(val) - min) * scale;
-            },
-            else => @compileError("invalid type"),
-        }
-
-        if (wstate != .no_change) {
-            self.drawRectFilled(arec, itc(0x111111ff));
-            self.drawRectFilled(handle, itc(0x777777ff));
-            if (!opts.draw_text) return;
-            const tt = if (opts.label_text) |t| t else "";
-            if (info == .Float) {
-                self.drawTextFmt("{s}{d:.2}", .{ tt, val }, rec, rec.h, Color.White, .{ .justify = .center });
-            } else {
-                self.drawTextFmt("{s}{d:.0}", .{ tt, @trunc(val) }, arec, arec.h, Color.White, .{ .justify = .center });
-            }
-        }
-    }
-
-    //TODO include paramaters to adjust size and position of handle
     pub fn sliderGeneric(self: *Self, number_ptr: anytype, min: anytype, max: anytype, params: struct {
         handle_w: f32,
         handle_h: f32,
@@ -1980,6 +1806,87 @@ pub const Context = struct {
         return ret;
     }
 
+    pub fn textboxNumberGeneric(self: *Self, number_ptr: anytype, params: struct {
+        text_inset: f32,
+    }) !?GenericWidget.Textbox {
+        const NumType = enum { uint, int, float };
+
+        const comptime_err_prefix = @typeName(@This()) ++ ".textboxNumberGeneric: ";
+        const invalid_type_error = comptime_err_prefix ++ "Argument \'number_ptr\' expects a mutable pointer to an int or float. Recieved: " ++ @typeName(@TypeOf(number_ptr));
+        const area = self.getArea() orelse return null;
+        const tarea = area.inset(params.text_inset);
+
+        const pinfo = @typeInfo(@TypeOf(number_ptr));
+        if (pinfo != .Pointer or pinfo.Pointer.is_const) @compileError(invalid_type_error);
+        const number_type = pinfo.Pointer.child;
+        const number_t: NumType = switch (@typeInfo(number_type)) {
+            .Float => .float,
+            .Int => |int| switch (int.signedness) {
+                .signed => .int,
+                .unsigned => .uint,
+            },
+            else => @compileError(invalid_type_error),
+        };
+
+        const id = self.getId();
+        const click = self.clickWidget(area, .{});
+        var ret = GenericWidget.Textbox{
+            .area = area,
+            .text_area = tarea,
+            .caret = null,
+            .slice = "",
+        };
+
+        if (self.isActiveTextinput(id)) {
+            const charset = switch (number_t) {
+                .int => "-0123456789",
+                .uint => "0123456789",
+                .float => ".-0123456789",
+            };
+            self.text_input_state.advanceStateActive();
+            try self.textbox_state.handleEventsOpts(
+                self.text_input_state.buffer,
+                self.input_state,
+                .{ .restricted_charset = charset },
+            );
+            const sl = self.textbox_state.getSlice();
+            const caret_x = self.font.textBounds(sl[0..@as(usize, @intCast(self.textbox_state.head))], tarea.h).x;
+            ret.caret = caret_x;
+            if (sl.len == 0) {
+                number_ptr.* = 0;
+            } else {
+                number_ptr.* = switch (number_t) {
+                    .float => std.fmt.parseFloat(number_type, sl) catch blk: {
+                        ret.is_invalid = true;
+                        break :blk number_ptr.*;
+                    },
+                    .uint, .int => std.fmt.parseInt(number_type, sl, 10) catch blk: {
+                        ret.is_invalid = true;
+                        break :blk number_ptr.*;
+                    },
+                };
+            }
+            ret.slice = self.storeString(sl);
+        } else {
+            var fbs = std.io.FixedBufferStream([]u8){ .pos = 0, .buffer = &self.scratch_buf };
+            try fbs.writer().print("{d}", .{number_ptr.*});
+            ret.slice = fbs.getWritten();
+        }
+        if (click == .click) {
+            if (self.isActiveTextinput(id)) {
+                const cin = self.font.nearestGlyphX(self.textbox_state.getSlice(), tarea.h, self.input_state.mouse_pos.sub(tarea.pos()));
+                if (cin) |cc| {
+                    self.textbox_state.setCaret(cc - 1);
+                }
+            } else {
+                self.text_input_state.active_id = id;
+                try self.textbox_state.resetFmt("{d}", .{number_ptr.*});
+            }
+        }
+
+        return ret;
+    }
+
     pub fn enumDropdownGeneric(self: *Self, comptime enumT: type, enum_val: *enumT, params: struct {
         max_items: usize,
         scroll_bar_w: f32,
@@ -1999,15 +1906,6 @@ pub const Context = struct {
             const popup_rec = graph.Rec(lrq.x, lrq.y, lrq.w, popup_h);
             try self.beginPopup(popup_rec);
             if (try self.beginVLayoutScroll(&self.enum_drop_down_scroll, .{ .item_height = h }, params.scroll_bar_w)) |scroll| {
-                //  {
-                //      const sd = scroll.data;
-                //      if (sd.vertical_slider_area) |va| {
-                //          _ = try self.beginLayout(self.SubRectLayout, .{ .rect = va }, .{});
-                //          defer self.endLayout();
-                //          const smax = scroll.layout.current_h - va.h;
-                //          self.scrollBar(&sd.offset.y, 0, smax);
-                //      }
-                //  }
                 return .{
                     .area = rec,
                     .popup_active = true,
@@ -2025,10 +1923,6 @@ pub const Context = struct {
             }
         }
         return .{ .area = rec, .popup_active = false };
-    }
-
-    pub fn slider(self: *Self, value: anytype, min: anytype, max: anytype) !void {
-        try self.sliderOpts(value, min, max, .{});
     }
 
     pub fn colorPicker(self: *Self, color: *Hsva) void {
@@ -2309,6 +2203,11 @@ pub const GuiDrawContext = struct {
             for (gui.command_list_popup.items) |command| {
                 try self.drawCommand(command, ctx, font);
             }
+            try ctx.flush(.{ .x = 0, .y = 0 }, null);
+        }
+
+        for (gui.tooltip_state.command_list.items) |tt| {
+            try self.drawCommand(tt, ctx, font);
             try ctx.flush(.{ .x = 0, .y = 0 }, null);
         }
         ctx.screen_bounds = graph.IRect.new(0, 0, win_w, win_h);
