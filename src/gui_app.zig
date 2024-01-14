@@ -16,6 +16,74 @@ const bg4 = itc(0xff);
 const bg2 = itc(0xff);
 const bg0 = itc(0xff);
 
+pub const Test = struct {
+    const Col = [_]Color{
+        Color.Blue,
+        Color.Green,
+        Color.Red,
+        Color.Pink,
+        Color.Purple,
+        Color.White,
+    };
+    var color_counter: usize = 0;
+    pub const Split = struct {
+        orientation: graph.Orientation,
+        perc: f32,
+    };
+
+    pub const Lt = struct {
+        name: []const u8,
+        kind: ?enum { h, v } = null,
+        nodes: []const Lt,
+        percent: f32,
+    };
+
+    pub const Node = struct {
+        name: []const u8,
+        left: ?*const Node = null,
+        right: ?*const Node = null,
+        split: Split,
+    };
+
+    fn drawNode(gui: *Gui.Context, area: Rect) void {
+        const a = area.inset(10);
+        gui.drawRectFilled(a, Col[color_counter]);
+        gui.drawTextFmt("{d}", .{color_counter}, a, 40, Color.Black, .{});
+        color_counter = (color_counter + 1) % Col.len;
+    }
+
+    pub fn traverse(gui: *Gui.Context, area: Rect, n: Node) void {
+        //drawNode(gui, area);
+
+        const d = switch (n.split.orientation) {
+            .vertical => area.w,
+            .horizontal => area.h,
+        };
+        const p = area.split(n.split.orientation, n.split.perc * d);
+        drawNode(gui, p[0]);
+        drawNode(gui, p[1]);
+        if (n.left) |l| {
+            traverse(gui, p[0], l.*);
+        } else {}
+
+        if (n.right) |r| {
+            traverse(gui, p[1], r.*);
+        } else {}
+    }
+    //Root rect
+    //split
+
+    pub fn nothing() void {
+        const root = Rec(0, 0, 100, 100);
+        const my_layout = Node{
+            .split = .{ .orientation = .vertical, .pos = 20 },
+            .left = &.{ .split = .{ .orientation = .horizontal, .pos = 40 } },
+        };
+        _ = root;
+        traverse(my_layout);
+    }
+};
+
 pub const MyStruct = struct {
     my_color: graph.Hsva = .{ .h = 20, .s = 1, .v = 1, .a = 1 },
     my_number: f32 = 11.2,
@@ -57,6 +125,14 @@ pub const Icons = enum(u21) {
 };
 
 pub const FileBrowser = struct {
+    //TODO
+    //Fix the layouting issues.
+    //Fix the color issues
+    //Fix the scrollbar disappearing
+    //add mouse scrolling
+    //right click menu?
+    //  Add directory to bookmarks
+    //Prevent crashes when file can't be accsesd
     const Self = @This();
 
     pub const Extensions = enum {
@@ -69,8 +145,11 @@ pub const FileBrowser = struct {
     };
 
     pub const Bookmark = struct {
+        /// These two fields are allocated
         abs_path: []const u8,
         name: []const u8,
+        /// This field is never allocated
+        err_msg: ?[]const u8 = null,
     };
 
     pub const DirEntry = struct {
@@ -120,6 +199,22 @@ pub const FileBrowser = struct {
         column_widths: []f32,
         show_hidden: bool = false,
     };
+    pub const DefaultBookmarks: []const Bookmark = &.{
+        .{ .name = "crash lol", .abs_path = "/usr/bin" },
+        .{ .name = "crash lol", .abs_path = "/root" },
+        .{ .name = "Home", .abs_path = "/home/tony" },
+        .{ .name = "Gui repo", .abs_path = "/home/tony/user-data/develpment/zig-gui" },
+        .{ .name = "Mario", .abs_path = "/home/tony/user-data/develpment/zig-game_engine/mario_assets" },
+    };
+
+    pub const DialogState = enum {
+        none,
+        add_bookmark,
+    };
+
+    scratch_vec: std.ArrayList(u8),
+    dialog_state: DialogState = .none,
+    should_exit: bool = false,
 
     alloc: std.mem.Allocator,
     entries: std.ArrayList(DirEntry),
@@ -128,22 +223,21 @@ pub const FileBrowser = struct {
 
     file_scroll: graph.Vec2f = .{ .x = 0, .y = 0 },
 
+    selected_name: std.ArrayList(u8),
     selected_bookmark: ?usize = null,
     selected: ?usize = null,
     show_hidden: bool = true,
+    bar_pos: ?f32 = null,
 
     path_str: ?[]const u8 = null,
 
-    bookmarks: []const Bookmark = &.{
-        .{ .name = "Home", .abs_path = "/home/tony" },
-        .{ .name = "Gui repo", .abs_path = "/home/tony/user-data/develpment/zig-gui" },
-        .{ .name = "Mario", .abs_path = "/home/tony/user-data/develpment/zig-game_engine/mario_assets" },
-    },
+    bookmarks: std.ArrayList(Bookmark),
+    console: Gui.Console,
 
     columns: [4]FileColumn = [_]FileColumn{
-        .{ .width = 200, .kind = .name },
-        .{ .width = 400, .kind = .mtime },
-        .{ .width = 400, .kind = .size },
+        .{ .width = 300, .kind = .name },
+        .{ .width = 200, .kind = .mtime },
+        .{ .width = 100, .kind = .size },
         .{ .width = 200, .kind = .ftype },
     },
 
@@ -158,7 +252,24 @@ pub const FileBrowser = struct {
             error.FileNotFound => null,
             else => return err,
         };
-        var ret = Self{ .alloc = alloc, .entries = std.ArrayList(DirEntry).init(alloc), .dir = cwd, .conf_dir = settings_dir };
+        var ret = Self{
+            .alloc = alloc,
+            .entries = std.ArrayList(DirEntry).init(alloc),
+            .dir = cwd,
+            .conf_dir = settings_dir,
+            .selected_name = std.ArrayList(u8).init(alloc),
+            .bookmarks = std.ArrayList(Bookmark).init(alloc),
+            .console = Gui.Console.init(alloc),
+            .scratch_vec = std.ArrayList(u8).init(alloc),
+        };
+
+        for (DefaultBookmarks) |db| {
+            try ret.bookmarks.append(.{
+                .name = try alloc.dupe(u8, db.name),
+                .abs_path = try alloc.dupe(u8, db.abs_path),
+                .err_msg = db.err_msg,
+            });
+        }
 
         if (file) |f| {
             const jslice = try f.readToEndAlloc(alloc, std.math.maxInt(usize));
@@ -173,6 +284,7 @@ pub const FileBrowser = struct {
             }
         }
 
+        //TODO what if this fails?
         try ret.popuplate_entries();
 
         return ret;
@@ -196,10 +308,18 @@ pub const FileBrowser = struct {
         self.entries.deinit();
         if (self.path_str) |str|
             self.alloc.free(str);
+        self.selected_name.deinit();
+        for (self.bookmarks.items) |b| {
+            self.alloc.free(b.name);
+            self.alloc.free(b.abs_path);
+        }
+        self.bookmarks.deinit();
+        self.console.deinit();
+        self.scratch_vec.deinit();
     }
 
     pub fn sort_entries(self: *Self, ctx: DirEntry.CompareContext) void {
-        std.sort.insertion(DirEntry, self.entries.items, ctx, DirEntry.compare);
+        std.sort.heap(DirEntry, self.entries.items, ctx, DirEntry.compare);
     }
 
     pub fn popuplate_entries(self: *Self) !void {
@@ -207,7 +327,10 @@ pub const FileBrowser = struct {
         var it_dir = self.dir.openIterableDir(".", .{}) catch {
             self.dir = try self.dir.openDir("..", .{});
             self.clear_entries();
-            try self.popuplate_entries();
+            self.popuplate_entries() catch |err| {
+                std.debug.print("This is really bad\n", .{});
+                return err;
+            };
             return;
         };
         defer it_dir.close();
@@ -261,13 +384,17 @@ pub const FileBrowser = struct {
         return .unknown;
     }
 
-    fn fileItem(self: *Self, gui: *Gui.Context, entry: DirEntry, index: usize, columns: []const FileColumn) !bool {
-        const rec = gui.getArea() orelse return true;
+    fn fileItem(self: *Self, gui: *Gui.Context, entry: DirEntry, index: usize, columns: []const FileColumn, bg: ?Color) !bool {
+        const rec = gui.getArea() orelse return false;
+        const pada = 4;
+        if (bg) |bb| {
+            gui.drawRectFilled(rec, bb);
+        }
         var cx: f32 = 0;
         if (index == self.selected)
-            gui.drawRectFilled(rec, bg1);
+            gui.drawRectFilled(rec, Os9Gui.blue);
         for (columns) |col| {
-            const r = graph.Rec(rec.x + cx, rec.y, col.width, rec.h);
+            const r = graph.Rec(pada + rec.x + cx, rec.y, col.width - pada, rec.h);
             defer cx += col.width; //defer so continue; still applies width
             switch (col.kind) {
                 .name => {
@@ -282,13 +409,13 @@ pub const FileBrowser = struct {
                             else => .file,
                         },
                         else => .file,
-                    }), .{ .x = ico.x, .y = ico.y + ico.h / 3 }, ico.h * 0.7, fg);
+                    }), .{ .x = ico.x, .y = ico.y + ico.h / 3 }, ico.h * 0.7, Color.Black);
                     const ir = graph.Rec(r.x + ico.w, r.y, r.w - ico.w, r.h);
                     if (gui.font.nearestGlyphX(entry.name, rec.h, .{ .x = col.width - ico.w, .y = rec.h / 2 })) |glyph_index| {
                         if (glyph_index > 2)
-                            gui.drawTextFmt("{s}…", .{entry.name[0 .. glyph_index - 2]}, ir, rec.h, fg, .{});
+                            gui.drawTextFmt("{s}…", .{entry.name[0 .. glyph_index - 2]}, ir, rec.h, Color.Black, .{});
                     } else {
-                        gui.drawTextFmt("{s}", .{entry.name}, ir, rec.h, fg, .{});
+                        gui.drawTextFmt("{s}", .{entry.name}, ir, rec.h, Color.Black, .{});
                     }
                     //const b = gui.font.textBounds(entry.name.len, rec.h);
                     //const trunc = b.y > ;
@@ -299,11 +426,6 @@ pub const FileBrowser = struct {
                     if (entry.kind != .file)
                         continue;
                     const s = entry.size;
-                    //how to fmt?
-                    //we have a 64 bit int
-                    //10 bits > kilo
-                    //20 bits > mega
-                    //
 
                     const val = switch (64 - @clz(s)) {
                         0...10 => .{ s, "b" },
@@ -315,7 +437,7 @@ pub const FileBrowser = struct {
                         61...64 => .{ s >> 60, "E" },
                         else => .{ s, "" },
                     };
-                    gui.drawTextFmt("{d: >3}{s}", .{ val[0], val[1] }, r, rec.h, fg, .{});
+                    gui.drawTextFmt("{d: >3}{s}", .{ val[0], val[1] }, r, rec.h, Color.Black, .{});
                 },
                 .mtime => {
                     const epsec = std.time.epoch.EpochSeconds{ .secs = entry.mtime };
@@ -326,30 +448,33 @@ pub const FileBrowser = struct {
                         epmday.month.numeric(),
                         @as(u16, epmday.day_index) + 1,
                         epyear.year,
-                    }, r, r.h * 0.8, fg, .{});
+                    }, r, r.h * 0.8, Color.Black, .{});
                 },
                 .ftype => {
-                    gui.drawTextFmt("{s}", .{@tagName(entry.kind)}, r, r.h * 0.8, fg, .{});
+                    gui.drawTextFmt("{s}", .{@tagName(entry.kind)}, r, r.h * 0.8, Color.Black, .{});
                 },
             }
         }
         //const time_rec = graph.Rec(rec.x + rec.w / 2, rec.y, rec.w / 4, rec.h);
         //const type_rec = graph.Rec(time_rec.x + time_rec.w, time_rec.y, time_rec.w, rec.h);
 
-        const click = gui.clickWidget(rec, .{});
+        const click = gui.clickWidget(rec);
         if (click == .click) {
             self.selected = index;
+            try self.selected_name.resize(0);
+            try self.selected_name.writer().print("{s}", .{entry.name});
         }
 
         if (click == .double) {
+            self.selected_bookmark = null;
             switch (entry.kind) {
                 .directory => {
                     self.file_scroll = .{ .x = 0, .y = 0 };
                     if (self.dir.openDir(entry.name, .{}) catch null) |new_dir| {
-                        self.dir = new_dir;
-                        self.clear_entries();
-                        try self.popuplate_entries();
-                        return true;
+                        if (try self.setDir(new_dir, entry.name))
+                            return true;
+                    } else {
+                        std.debug.print("Can't open directory {s}\n", .{entry.name});
                     }
                 },
                 .file => {
@@ -361,72 +486,173 @@ pub const FileBrowser = struct {
         return false;
     }
 
-    pub fn update(self: *Self, gui: *Gui.Context) !void {
+    pub fn setDir(self: *Self, dir: std.fs.Dir, name_for_debug: []const u8) !bool {
+        //This stat is needed as openDir can return an unreadable directory.
+        if (dir.statFile(".") catch null) |stat| {
+            _ = stat;
+            self.dir = dir;
+            self.clear_entries();
+            try self.popuplate_entries();
+            try self.selected_name.resize(0);
+            self.selected = null;
+            self.selected_bookmark = null;
+            return true;
+        } else {
+            std.debug.print("Can open directory but can't read {s}\n", .{name_for_debug});
+        }
+        return false;
+    }
+
+    pub fn update(self: *Self, wrap: *Os9Gui) !void {
+        const gui = wrap.gui;
         const item_height = 35;
-        const area = gui.getArea() orelse return;
-        const header_bar = graph.Rec(area.x, area.y, area.w, area.h / 5);
-        const mid_panel = graph.Rec(area.x, area.y + header_bar.h, area.w, area.h / 5 * 3);
-        const left_side = graph.Rec(mid_panel.x, mid_panel.y, mid_panel.w / 5, mid_panel.h);
-        //const main_area = graph.Rec(mid_panel.x + left_side.w, mid_panel.y, mid_panel.w - left_side.w, mid_panel.h);
-        const prev_w = mid_panel.w / 3;
-        const main_area = graph.Rec(mid_panel.x + left_side.w, mid_panel.y, mid_panel.w - left_side.w - prev_w, mid_panel.h);
-        const prev_area = graph.Rec(main_area.x + main_area.w, main_area.y, prev_w, main_area.h);
-        const bottom_bar = graph.Rec(area.x, mid_panel.y + mid_panel.h, area.w, area.h / 5);
-        gui.drawRectFilled(area, bg4);
+        const win_area = gui.getArea() orelse return;
+        const border_area = win_area.inset(6 * wrap.scale);
+        const area = border_area.inset(6 * wrap.scale);
+        const w_id = gui.getId();
+
+        const popup_area = area.inset(area.w / 5);
+        if (gui.isActivePopup(w_id)) {
+            try gui.beginPopup(popup_area);
+            defer gui.endPopup();
+            gui.draw9Slice(popup_area, Os9Gui.os9win, wrap.texture, wrap.scale);
+            gui.draw9Slice(popup_area.inset(6 * wrap.scale), Os9Gui.os9in, wrap.texture, wrap.scale);
+            switch (self.dialog_state) {
+                .none => {},
+                .add_bookmark => {
+                    //TODO subrectlayout should have a function that scales it so we can avoid so many nested subrect layouts
+                    _ = try wrap.beginSubLayout(popup_area.inset(12 * wrap.scale), Gui.VerticalLayout, .{ .item_height = item_height });
+                    defer wrap.endSubLayout();
+                    wrap.label("Add new bookmark", .{});
+                    wrap.label("Path: {s}", .{self.path_str.?});
+                    {
+                        _ = try gui.beginLayout(Gui.HorizLayout, .{ .count = 2 }, .{});
+                        defer gui.endLayout();
+                        wrap.labelEx("Name: ", .{}, .{ .justify = .right });
+                        try wrap.textbox(&self.scratch_vec);
+                    }
+                    if (wrap.buttonEx("Add", .{ .disabled = self.scratch_vec.items.len == 0 })) {
+                        try self.bookmarks.append(.{
+                            .name = try self.alloc.dupe(u8, self.scratch_vec.items),
+                            .abs_path = try self.alloc.dupe(u8, self.path_str.?),
+                        });
+                        gui.popup_id = null;
+                    }
+                    if (wrap.button("Cancel")) {
+                        gui.popup_id = null;
+                    }
+                },
+            }
+        }
 
         {
-            _ = try gui.beginLayout(Gui.SubRectLayout, .{ .rect = header_bar }, .{});
-            //gui.drawRectOutline(header_bar, Color.Black);
-            defer gui.endLayout();
-            var vlayout = try gui.beginLayout(Gui.VerticalLayout, .{ .item_height = item_height }, .{});
-            defer gui.endLayout();
-            _ = vlayout;
-            try gui.printLabel("File Browser", .{});
-            try gui.printLabel("Path: {s}", .{if (self.path_str) |str| str else ""});
+            if (self.bar_pos == null)
+                self.bar_pos = area.w / 4;
         }
+
+        const root = area.split(.vertical, self.bar_pos.?);
+        const left_side_outer = root[0];
+        const main_t = root[1];
+        const first_child = main_t.split(.horizontal, item_height + 6 * wrap.scale);
+
+        const header_bar = first_child[0].insetV(6 * wrap.scale, 1 * wrap.scale);
+        const second_child = first_child[1].split(.horizontal, first_child[1].h - item_height);
+        const main_area = second_child[0].inset(6 * wrap.scale);
+        const bottom_bar = second_child[1].insetV(6 * wrap.scale, 1 * wrap.scale);
+
+        const left_side = left_side_outer.inset(6 * wrap.scale);
+        const sep_bar = Rect.new(left_side.x + left_side.w, left_side.y, main_area.x - (left_side.x + left_side.w), left_side.h);
+        gui.draw9Slice(win_area, Os9Gui.os9win, wrap.texture, wrap.scale);
+        gui.draw9Slice(border_area, Os9Gui.os9in, wrap.texture, wrap.scale);
+        gui.draw9Border(left_side_outer, Os9Gui.os9line, wrap.texture, wrap.scale, 0, 0);
+
+        var unused: f32 = 0;
+        _ = gui.draggable(sep_bar, .{ .x = 1, .y = 0 }, &(self.bar_pos.?), &unused, .{ .x_min = area.w / 8, .x_max = area.w - area.w / 8 });
+
         {
-            const ls = left_side.inset(5);
-            gui.drawRectFilled(ls, bg2);
-            gui.drawRectOutline(ls, bg2);
-            const ils = ls.inset(1);
-            { //header bar
-                _ = try gui.beginLayout(Gui.SubRectLayout, .{ .rect = graph.Rec(ils.x, ils.y, ils.w, item_height) }, .{});
-                defer gui.endLayout();
-                gui.textLabel("Places");
+            _ = try wrap.beginSubLayout(header_bar, Gui.HorizLayout, .{ .count = 3 });
+            defer wrap.endSubLayout();
+            if (wrap.checkbox("Show hidden", &self.show_hidden)) {
+                _ = try self.setDir(self.dir, ".");
             }
-            _ = try gui.beginLayout(Gui.SubRectLayout, .{ .rect = graph.Rec(ils.x, ils.y + item_height, ils.w, ils.h - item_height) }, .{});
-            defer gui.endLayout();
-            var vlayout = try gui.beginLayout(Gui.VerticalLayout, .{ .item_height = item_height }, .{});
-            defer gui.endLayout();
-            _ = vlayout;
-            for (self.bookmarks, 0..) |bookmark, i| {
+            wrap.label("Path: {s}", .{if (self.path_str) |str| str else ""});
+        }
+        const ils = left_side.inset(6);
+        const sp = ils.split(.horizontal, ils.h / 2);
+        {
+            _ = try wrap.beginSubLayout(sp[0], Gui.VerticalLayout, .{ .item_height = item_height });
+            defer wrap.endSubLayout();
+            wrap.label("Places", .{});
+            for (self.bookmarks.items, 0..) |*bookmark, i| {
                 const rec = gui.getArea() orelse break;
                 if (self.selected_bookmark) |sb| {
                     if (sb == i)
-                        gui.drawRectFilled(rec, bg1);
+                        gui.drawRectFilled(rec, Os9Gui.blue);
                 }
-                const vpad = rec.h * 0.1;
-                const tpos = graph.Vec2f.new(rec.x, rec.y + vpad);
-                gui.drawText(bookmark.name, tpos, rec.h - vpad * 2, fg);
-                const click = gui.clickWidget(rec, .{});
+                //const vpad = rec.h * 0.1;
+                //const tpos = graph.Vec2f.new(rec.x, rec.y + vpad);
+                const color = if (bookmark.err_msg != null) Color.Red else Color.Black;
+                const tr = blk: {
+                    if (bookmark.err_msg != null) {
+                        const d = rec.split(.vertical, rec.h);
+                        gui.drawRectTextured(d[0], Color.White, Os9Gui.win_warning, wrap.texture);
+                        break :blk d[1];
+                    } else {
+                        break :blk rec;
+                    }
+                };
+                gui.drawTextFmt("{s}", .{bookmark.name}, tr, tr.h, color, .{});
+                gui.tooltip(bookmark.abs_path, rec.h);
+                const click = gui.clickWidget(rec);
                 if (click == .click) {
+                    if (std.fs.openDirAbsolute(bookmark.abs_path, .{}) catch null) |new_dir| {
+                        if (try self.setDir(new_dir, bookmark.abs_path)) {
+                            bookmark.err_msg = null;
+                        } else {
+                            bookmark.err_msg = "Access denied";
+                            std.debug.print("Access denied for bookmark: {s}\n", .{bookmark.abs_path});
+                        }
+                    } else {
+                        std.debug.print("Folder not found: {s}\n", .{bookmark.abs_path});
+                        bookmark.err_msg = "Folder not found";
+                    }
                     self.selected_bookmark = i;
-                    self.dir = try std.fs.openDirAbsolute(bookmark.abs_path, .{});
-                    self.clear_entries();
-                    try self.popuplate_entries();
                 }
             }
         }
         {
-            const ma = main_area.inset(5);
-            gui.drawRectFilled(ma, bg2);
-            gui.drawRectOutline(ma, bg2);
-            const ima = ma.inset(3);
+            _ = try wrap.beginSubLayout(sp[1], Gui.VerticalLayout, .{ .item_height = item_height });
+            defer wrap.endSubLayout();
+
+            if (wrap.button("Add current Folder as bookmark")) {
+                gui.popup_id = w_id;
+                gui.last_frame_had_popup = true;
+                try self.scratch_vec.resize(0);
+                self.dialog_state = .add_bookmark;
+            }
+            if (wrap.buttonEx("Remove selected bookmark", .{ .disabled = self.selected_bookmark == null })) {
+                if (self.selected_bookmark) |sb| {
+                    if (sb < self.bookmarks.items.len) {
+                        const b = self.bookmarks.items[sb];
+                        std.debug.print("Removing bookmark Path: {s} Name: {s}\n", .{ b.abs_path, b.name });
+                        self.alloc.free(b.abs_path);
+                        self.alloc.free(b.name);
+                        _ = self.bookmarks.orderedRemove(sb);
+                    }
+                }
+                self.selected_bookmark = null;
+            }
+        }
+        {
+            gui.draw9Slice(main_area, Os9Gui.inset9, wrap.texture, wrap.scale);
+            const ima = main_area.inset(wrap.scale * Os9Gui.inset9.w / 3);
+            const root1 = ima.split(.horizontal, item_height);
             {
-                _ = try gui.beginLayout(Gui.SubRectLayout, .{ .rect = graph.Rec(ima.x, ima.y, ima.w, item_height) }, .{});
+                const fheader = root1[0];
+                gui.draw9Slice(fheader, Os9Gui.window9, wrap.texture, wrap.scale);
+                _ = try gui.beginLayout(Gui.SubRectLayout, .{ .rect = fheader }, .{});
                 defer gui.endLayout();
                 const rec = gui.getArea() orelse return;
-                gui.drawRectFilled(rec, bg4);
                 var cx: f32 = 0;
                 for (&self.columns, 0..) |*cc, i| {
                     if (i == self.columns.len - 1) //We can't adjust the last columns width
@@ -440,23 +666,23 @@ pub const FileBrowser = struct {
                     //    gui.trySetCursor(.size_WE);
 
                     handle.x += -old_w + cc.width;
-                    gui.drawRectFilled(handle, bg0);
+                    //gui.drawRectFilled(handle, bg0);
                     cx += cc.width;
                 }
                 cx = 0;
                 for (self.columns, 0..) |cc, i| {
                     gui.drawText(switch (cc.kind) {
-                        .name => "Name",
+                        .name => " Name",
                         .mtime => "Modified",
                         .ftype => "Kind",
                         .size => "Size",
-                    }, Vec2f.new(rec.x + cx, rec.y), rec.h, Color.White);
+                    }, Vec2f.new(rec.x + cx, rec.y), rec.h, Color.Black);
                     if (i == self.sorted_column_index) {
                         gui.drawIcon(Icons.get(
                             if (!self.sorted_column_ascending) .drop_up else .drop_down,
-                        ), .{ .x = rec.x + cx + cc.width - rec.h, .y = rec.y }, rec.h, Color.White);
+                        ), .{ .x = rec.x + cx + cc.width - rec.h, .y = rec.y }, rec.h, Color.Black);
                     }
-                    if (gui.clickWidget(graph.Rec(rec.x + cx, rec.y, cc.width, rec.h), .{}) == .click) {
+                    if (gui.clickWidget(graph.Rec(rec.x + cx, rec.y, cc.width, rec.h)) == .click) {
                         if (i == self.sorted_column_index) {
                             self.sorted_column_ascending = !self.sorted_column_ascending;
                         } else {
@@ -468,31 +694,35 @@ pub const FileBrowser = struct {
                     cx += cc.width;
                 }
             }
-            _ = try gui.beginLayout(Gui.SubRectLayout, .{ .rect = graph.Rec(ima.x, ima.y + item_height, ima.w, ima.h - item_height) }, .{});
+            const sa = root1[1];
+            _ = try gui.beginLayout(Gui.SubRectLayout, .{ .rect = sa }, .{});
             defer gui.endLayout();
-            if (try gui.beginVLayoutScroll(&self.file_scroll, .{ .item_height = item_height })) |file_scroll| {
-                _ = try self.fileItem(gui, .{ .name = "..", .kind = .directory }, 0, &self.columns);
+            if (try wrap.beginVScroll(&self.file_scroll)) |file_scroll| {
+                defer wrap.endVScroll(file_scroll);
+                _ = try self.fileItem(gui, .{ .name = "..", .kind = .directory }, 0, &self.columns, null);
                 for (self.entries.items, 1..) |entry, i| {
-                    if (try self.fileItem(gui, entry, i, &self.columns))
+                    const bgfile_color = itc(0xeeeeeeff);
+                    if (try self.fileItem(gui, entry, i, &self.columns, if (i % 2 != 0) bgfile_color else null))
                         break;
                 }
-                try gui.endVLayoutScroll(file_scroll);
             }
-        }
-        {
-            _ = try gui.beginLayout(Gui.SubRectLayout, .{ .rect = prev_area }, .{});
-            defer gui.endLayout();
+            var cx: f32 = 0;
+            for (self.columns) |cc| {
+                cx += cc.width;
+                gui.drawLine(Vec2f.new(sa.x + cx, sa.y), Vec2f.new(sa.x + cx, sa.y + sa.h), Color.Black);
+            }
         }
         {
             _ = try gui.beginLayout(Gui.SubRectLayout, .{ .rect = bottom_bar }, .{});
             defer gui.endLayout();
-            var vlayout = try gui.beginLayout(Gui.VerticalLayout, .{ .item_height = item_height }, .{});
+            var hl = try gui.beginLayout(Gui.HorizLayout, .{ .count = 4 }, .{});
             defer gui.endLayout();
-            _ = vlayout;
-            if (gui.checkboxNotify("show hidden", &self.show_hidden)) {
-                self.clear_entries();
-                try self.popuplate_entries();
+            hl.pushCount(2);
+            try wrap.textbox(&self.selected_name);
+            if (wrap.button("Cancel")) {
+                self.should_exit = true;
             }
+            _ = wrap.button("Ok");
         }
     }
 };
@@ -1068,7 +1298,7 @@ pub const AtlasEditor = struct {
 /// checkbox
 /// header
 /// table with scroll area
-pub const TestWindow = struct {
+pub const Os9Gui = struct {
     const Self = @This();
 
     const SampleEnum = enum {
@@ -1087,6 +1317,7 @@ pub const TestWindow = struct {
     };
 
     const SampleStruct = struct {
+        icon: Icons = .folder,
         en: SampleEnum = .what,
         float_edit: f32 = 22,
         int_edit: i64 = 21,
@@ -1102,6 +1333,7 @@ pub const TestWindow = struct {
     const wbg = itc(0xaaaaaaff);
     const shadow = itc(0x555555ff);
     const light = itc(0xffffffff);
+    const blue = itc(0xccccffff);
 
     //Define the different 9slices in "texture"
     const inset9 = Rec(0, 0, 6, 6);
@@ -1110,11 +1342,14 @@ pub const TestWindow = struct {
     const title9 = Rec(6, 0, 6, 6);
     const divider = Rec(12, 0, 1, 2);
 
+    const text_disabled = itc(0x222222ff);
+
     const os9win = Rec(0, 12, 6, 6);
     const os9in = Rec(6, 12, 6, 6);
     const os9line = Rec(0, 18, 6, 6);
     const os9drop = Rec(6, 18, 6, 6);
     const os9btn = Rec(12, 0, 12, 12);
+    const os9btn_disable = Rec(26, 37, 12, 12);
     const os9nurl = Rec(24, 0, 6, 12);
     const os9dropbtn = Rec(31, 0, 20, 16);
     const os9slider = Rec(0, 24, 3, 3);
@@ -1131,29 +1366,27 @@ pub const TestWindow = struct {
     const os9tabmid_active = Rec(66, 24, 6, 21);
 
     const os9tabborder = Rec(42, 24, 9, 9);
-    const os9scrollinner = Rec(0, 44, 6, 6);
+    const os9scrollinner = Rec(0, 44, 8, 8);
     const os9scrollhandle = Rec(9, 44, 14, 15);
+    const os9scrollw = 16;
+    const os9handleoffset = 1;
 
-    ref_img: graph.Texture,
+    const win_warning = Rec(0, 60, 32, 32);
+
     texture: graph.Texture,
     scale: f32,
-    sample_data: SampleStruct,
-    scroll_offset: Vec2f = .{ .x = 0, .y = 0 },
     gui: *Gui.Context,
 
     pub fn init(alloc: std.mem.Allocator, scale: f32, gui: *Gui.Context) !Self {
         const dir = std.fs.cwd();
         return .{
-            .sample_data = .{ .ar_str = std.ArrayList(u8).init(alloc) },
             .gui = gui,
             .scale = scale,
             .texture = try graph.Texture.initFromImgFile(alloc, dir, "next_step.png", .{ .mag_filter = graph.c.GL_NEAREST }),
-            .ref_img = try graph.Texture.initFromImgFile(alloc, dir, "nextgui.png", .{ .mag_filter = graph.c.GL_NEAREST }),
         };
     }
     pub fn deinit(self: *Self) void {
-        self.sample_data.ar_str.deinit();
-        //self.ref_img.deinit();
+        _ = self;
     }
 
     //TODO remove scale variable and scale using GuiDrawContext
@@ -1219,6 +1452,7 @@ pub const TestWindow = struct {
             gui.tooltip("Pressing this button causes great pain", ts);
 
             try self.enumDropdown(SampleEnum, &self.sample_data.en);
+            try self.enumDropdown(Icons, &self.sample_data.icon);
             self.sliderOpts(&self.sample_data.float, -10, 200);
             //self.scrollBar(&self.sample_data.float, -100, 200, .horizontal);
             try self.textbox(&self.sample_data.ar_str);
@@ -1264,6 +1498,44 @@ pub const TestWindow = struct {
             }
             vl.pushHeight(100 * scale);
             gui.drawConsole(gui.console, ts);
+        }
+    }
+
+    pub fn beginSubLayout(self: *Self, sub: Rect, comptime Layout_T: type, layout_data: Layout_T) !*Layout_T {
+        _ = try self.gui.beginLayout(Gui.SubRectLayout, .{ .rect = sub }, .{});
+        return try self.gui.beginLayout(Layout_T, layout_data, .{});
+    }
+
+    pub fn endSubLayout(self: *Self) void {
+        self.gui.endLayout();
+        self.gui.endLayout();
+    }
+
+    pub fn beginVScroll(self: *Self, scr: *Vec2f) !?Gui.Context.VLayoutScrollData {
+        const scale = self.scale;
+        if (try self.gui.beginScroll(scr, .{
+            .vertical_scroll = true,
+            .bar_w = os9scrollw * scale,
+            .scroll_area_w = 10000 * scale,
+            .scroll_area_h = 100000,
+        })) |scroll| {
+            const lrq = self.gui.layout.last_requested_bounds;
+            return .{ .layout = try self.gui.beginLayout(Gui.VerticalLayout, .{ .item_height = 20 * scale }, .{}), .data = scroll, .area = lrq orelse graph.Rec(0, 0, 0, 0) };
+        }
+        return null;
+    }
+
+    pub fn endVScroll(self: *Self, scroll_data: Gui.Context.VLayoutScrollData) void {
+        self.gui.endLayout();
+        self.gui.endScroll();
+        const sd = scroll_data.data;
+        if (sd.vertical_slider_area) |va| {
+            _ = self.gui.beginLayout(Gui.SubRectLayout, .{ .rect = va }, .{}) catch unreachable;
+            defer self.gui.endLayout();
+            const max = scroll_data.layout.current_h - scroll_data.area.h;
+            self.scrollBar(&sd.offset.y, 0, if (max < 0) 0 else max, .vertical, .{
+                .handle_w = if (max > scroll_data.area.h) os9scrollhandle.h * self.scale else scroll_data.area.h - max,
+            });
         }
     }
 
@@ -1327,7 +1599,20 @@ pub const TestWindow = struct {
         return selected.*;
     }
 
-    pub fn button(self: *Self, label: []const u8) bool {
+    pub fn labelEx(self: *Self, comptime fmt: []const u8, args: anytype, params: struct { justify: Gui.Justify = .left }) void {
+        const area = self.gui.getArea() orelse return;
+        self.gui.drawTextFmt(fmt, args, area, area.h, Color.Black, .{ .justify = params.justify });
+    }
+
+    pub fn label(self: *Self, comptime fmt: []const u8, args: anytype) void {
+        self.labelEx(fmt, args, .{});
+    }
+
+    pub fn button(self: *Self, label_: []const u8) bool {
+        return self.buttonEx(label_, .{});
+    }
+
+    pub fn buttonEx(self: *Self, label_: []const u8, params: struct { disabled: bool = false }) bool {
         const gui = self.gui;
         const d = gui.buttonGeneric();
         const sl = switch (d.state) {
@@ -1335,18 +1620,24 @@ pub const TestWindow = struct {
             .click, .held => inset9,
             else => os9btn,
         };
-        gui.draw9Slice(d.area, sl, self.texture, self.scale);
+        const sl1 = if (params.disabled) os9btn_disable else sl;
+        const color = if (params.disabled) text_disabled else Color.Black;
+        gui.draw9Slice(d.area, sl1, self.texture, self.scale);
         const texta = d.area.inset(3 * self.scale);
-        const bounds = gui.font.textBounds(label, texta.h);
-        gui.drawText(label, texta.pos().add(.{ .x = (texta.w - bounds.x) / 2, .y = 0 }), texta.h, Color.Black);
+        const bounds = gui.font.textBounds(label_, texta.h);
+        gui.drawText(label_, texta.pos().add(.{ .x = (texta.w - bounds.x) / 2, .y = 0 }), texta.h, color);
 
-        return d.state == .click;
+        return (d.state == .click) and !params.disabled;
     }
 
-    pub fn scrollBar(self: *Self, pos: *f32, min: f32, max: f32, orientation: Gui.Orientation) void {
+    pub fn scrollBar(self: *Self, pos: *f32, min: f32, max: f32, orientation: Gui.Orientation, params: struct {
+        handle_w: f32 = os9scrollhandle.h,
+    }) void {
         const gui = self.gui;
         if (gui.sliderGeneric(pos, min, max, .{
-            .handle_w = os9scrollhandle.h * self.scale,
+            .handle_offset_y = os9handleoffset * self.scale,
+            .handle_offset_x = os9handleoffset * self.scale,
+            .handle_w = params.handle_w,
             .handle_h = os9scrollhandle.w * self.scale,
             .orientation = orientation,
         })) |d| {
@@ -1371,31 +1662,32 @@ pub const TestWindow = struct {
         }
     }
 
-    pub fn checkbox(self: *Self, label: []const u8, checked: *bool) void {
+    pub fn checkbox(self: *Self, label_: []const u8, checked: *bool) bool {
         const gui = self.gui;
-        const area = gui.getArea() orelse return;
-        const click = gui.clickWidget(area);
-        if (click == .click or click == .double) {
-            checked.* = !checked.*;
+        if (gui.checkboxGeneric(checked)) |d| {
+            const area = d.area;
+
+            const br = Rect.newV(area.pos(), .{ .x = 12 * self.scale, .y = 12 * self.scale });
+            gui.drawRectTextured(
+                br,
+                Color.White,
+                os9checkbox,
+                self.texture,
+            );
+            gui.drawText(label_, area.pos().add(.{ .x = area.h * 1.5, .y = 0 }), area.h, Color.Black);
+            if (checked.*)
+                gui.drawRectTextured(br.addV(2 * self.scale, 0), Color.White, os9check, self.texture);
+            return d.changed;
         }
-        const br = Rect.newV(area.pos(), .{ .x = 12 * self.scale, .y = 12 * self.scale });
-        gui.drawRectTextured(
-            br,
-            Color.White,
-            os9checkbox,
-            self.texture,
-        );
-        gui.drawText(label, area.pos().add(.{ .x = area.h * 1.5, .y = 0 }), area.h, Color.Black);
-        if (checked.*)
-            gui.drawRectTextured(br.addV(2 * self.scale, 0), Color.White, os9check, self.texture);
+        return false;
     }
 
     pub fn enumDropdown(self: *Self, comptime enumT: type, enum_val: *enumT) !void {
         const gui = self.gui;
         if (try gui.enumDropdownGeneric(enumT, enum_val, .{
             .max_items = 4,
-            .scroll_bar_w = 14 * self.scale,
-            .inset_scroll = 4 * self.scale,
+            .scroll_bar_w = os9scrollw * self.scale,
+            //.inset_scroll = 4 * self.scale,
         })) |d| {
             var dd = d;
             if (d.popup_active) {
@@ -1460,9 +1752,9 @@ pub fn main() anyerror!void {
     var win = try graph.SDL.Window.createWindow("My window", .{
         .window_flags = &.{
             graph.c.SDL_WINDOW_BORDERLESS,
-            //graph.c.SDL_WINDOW_UTILITY,
+            graph.c.SDL_WINDOW_UTILITY,
         },
-        .window_size = .{ .x = @intFromFloat(273 * scale), .y = @intFromFloat(430 * scale) },
+        .window_size = .{ .x = 1600, .y = 1200 },
     });
     defer win.destroyWindow();
 
@@ -1484,7 +1776,7 @@ pub fn main() anyerror!void {
     var dpix: u32 = @as(u32, @intFromFloat(win.getDpi()));
     //const init_size = graph.pxToPt(win.getDpi(), 100);
     const init_size = 8;
-    var font = try graph.Font.init(alloc, std.fs.cwd(), "fonts/roboto.ttf", init_size, dpix, .{
+    var font = try graph.Font.init(alloc, std.fs.cwd(), "fonts/din.otf", init_size, dpix, .{
         .debug_dir = std.fs.cwd(),
     });
     defer font.deinit();
@@ -1509,7 +1801,7 @@ pub fn main() anyerror!void {
     );
     defer icons.deinit();
 
-    var stack_buffer: [300000]u8 = undefined;
+    var stack_buffer: [600000]u8 = undefined;
     var stack_alloc = std.heap.FixedBufferAllocator.init(&stack_buffer);
     var gui = try Gui.Context.init(alloc, &stack_alloc, .{ .x = 0, .y = 0, .w = 3840, .h = 2160 }, &font, &icons);
     defer gui.deinit();
@@ -1547,9 +1839,6 @@ pub fn main() anyerror!void {
 
     var atlas_editor = AtlasEditor.init(alloc);
     defer atlas_editor.deinit();
-
-    var test_win = try TestWindow.init(alloc, scale, &gui);
-    defer test_win.deinit();
 
     //var file_browser = try FileBrowser.init(alloc);
     //defer file_browser.deinit();
@@ -1592,6 +1881,9 @@ pub fn main() anyerror!void {
     var fb = try FileBrowser.init(alloc, conf_dir);
     defer fb.deinit();
 
+    var os9gui = try Os9Gui.init(alloc, scale, &gui);
+    defer os9gui.deinit();
+
     while (!win.should_exit) {
         try ctx.beginDraw(win.screen_width, win.screen_height, itc(0x2f2f2fff), true);
         defer dcall_count = ctx.call_count;
@@ -1628,8 +1920,9 @@ pub fn main() anyerror!void {
             //_ = try gui.beginLayout(Gui.SubRectLayout, .{ .rect = parent_area }, .{});
             _ = try gui.beginLayout(Gui.SubRectLayout, .{ .rect = parent_area }, .{});
             defer gui.endLayout();
-            try test_win.update();
-            //try fb.update(&gui);
+            try fb.update(&os9gui);
+            if (fb.should_exit)
+                win.should_exit = true;
         }
 
         try gui_draw_context.draw(&ctx, &font, parent_area, &gui, win.screen_width, win.screen_height);

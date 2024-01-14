@@ -52,6 +52,25 @@ pub fn reduceU32Mask(items: []const u32) u32 {
     return result;
 }
 
+pub const Orientation = enum {
+    horizontal,
+    vertical,
+
+    pub fn vec2fComponent(self: Orientation, v: Vec2f) f32 {
+        return switch (self) {
+            .horizontal => v.x,
+            .vertical => v.y,
+        };
+    }
+
+    pub fn rectH(self: Orientation, r: Rect) Rect {
+        return switch (self) {
+            .horizontal => r,
+            .vertical => r.swapAxis(),
+        };
+    }
+};
+
 pub fn RingBuffer(comptime size: u32, comptime T: type, comptime default: T) type {
     return struct {
         const Self = @This();
@@ -2256,6 +2275,10 @@ pub const Rect = struct {
         return .{ .x = x, .y = y, .w = w, .h = h };
     }
 
+    pub fn overlap(r1: Self, r2: Self) bool {
+        return !(r1.x > r2.x + r2.w or r2.x > r1.x + r1.w or r1.y > r2.y + r2.h or r2.y > r1.y + r1.h);
+    }
+
     pub fn newV(_pos: Vec2f, dim_: Vec2f) @This() {
         return .{ .x = _pos.x, .y = _pos.y, .w = dim_.x, .h = dim_.y };
     }
@@ -2282,6 +2305,10 @@ pub const Rect = struct {
 
     pub fn inset(self: Self, amount: f32) Self {
         return .{ .x = self.x + amount, .y = self.y + amount, .w = self.w - amount * 2, .h = self.h - amount * 2 };
+    }
+
+    pub fn insetV(self: Self, ax: f32, ay: f32) Self {
+        return .{ .x = self.x + ax, .y = self.y + ay, .w = self.w - ax * 2, .h = self.h - ay * 2 };
     }
 
     pub fn dimR(self: Self) Self {
@@ -2332,6 +2359,14 @@ pub const Rect = struct {
         const x = @min(a.x, b.x);
         const y = @min(a.y, b.y);
         return Rec(x, y, @max(a.farX(), b.farX()) - x, @max(a.farY(), b.farY()) - y);
+    }
+
+    /// cpos is where the cut should occur, relative to the rectangles origin
+    pub fn split(a: Self, orientation: Orientation, cpos: f32) struct { Self, Self } {
+        return switch (orientation) {
+            .vertical => .{ Self.new(a.x, a.y, cpos, a.h), Self.new(a.x + cpos, a.y, a.w - cpos, a.h) },
+            .horizontal => .{ Self.new(a.x, a.y, a.w, cpos), Self.new(a.x, a.y + cpos, a.w, a.h - cpos) },
+        };
     }
 
     //pub fn param(

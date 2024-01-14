@@ -119,24 +119,7 @@ pub const DrawCommand = union(enum) {
 //TODO bitset type that takes an enum and gives each field a mask bit. see github.com/emekoi/bitset-zig
 
 pub const Justify = enum { right, left, center };
-pub const Orientation = enum {
-    horizontal,
-    vertical,
-
-    pub fn vec2fComponent(self: Orientation, v: Vec2f) f32 {
-        return switch (self) {
-            .horizontal => v.x,
-            .vertical => v.y,
-        };
-    }
-
-    pub fn rectH(self: Orientation, r: Rect) Rect {
-        return switch (self) {
-            .horizontal => r,
-            .vertical => r.swapAxis(),
-        };
-    }
-};
+pub const Orientation = graph.Orientation;
 
 //TODO Replace with std.EnumArray. Study how std.EnumMap uses "mixin"
 pub fn EnumMap(comptime Enum: type, comptime child_type: type) type {
@@ -288,6 +271,7 @@ pub const HorizLayout = struct {
     count: usize,
     current_w: f32 = 0,
     hidden: bool = false,
+    count_override: ?usize = null,
 
     pub fn hash(self: *anyopaque, bounds: Rect) u64 {
         return dhash(.{ .r = bounds, .d = opaqueSelf(@This(), self).* });
@@ -295,15 +279,20 @@ pub const HorizLayout = struct {
 
     pub fn getArea(bounds: Rect, anyself: *anyopaque) ?Rect {
         const self = opaqueSelf(@This(), anyself);
-        defer self.index += 1;
+        defer self.index += if (self.count_override) |co| co else 1;
         const fc: f32 = @floatFromInt(self.count);
+        const w = ((bounds.w - self.paddingh * (fc - 1)) / fc) * @as(f32, @floatFromInt(if (self.count_override) |co| co else 1));
+        self.count_override = null;
 
-        const w = (bounds.w - self.paddingh * (fc - 1)) / fc;
         //const w = (bounds.w - self.paddingh) / @as(f32, @floatFromInt(self.count));
         //defer self.current_w += w + self.paddingh;
         defer self.current_w += w + self.paddingh;
 
         return .{ .x = bounds.x + self.current_w, .y = bounds.y, .w = w, .h = bounds.h };
+    }
+
+    pub fn pushCount(self: *HorizLayout, next_count: usize) void {
+        self.count_override = next_count;
     }
 };
 
@@ -723,6 +712,11 @@ pub const Context = struct {
             state: ClickState = .none,
         };
 
+        pub const Checkbox = struct {
+            area: Rect,
+            changed: bool,
+        };
+
         pub const Textbox = struct {
             area: Rect,
             text_area: Rect,
@@ -748,10 +742,14 @@ pub const Context = struct {
             index: usize = 0,
 
             pub fn next(self: *EnumDropdown, comptime enumT: type) ?enumT {
+                //TODO what happens when an enum with non default values is used
                 const info = @typeInfo(enumT).Enum.fields;
                 if (self.index < info.len) {
                     defer self.index += 1;
-                    return @enumFromInt(self.index);
+                    inline for (info, 0..) |f, i| {
+                        if (i == self.index)
+                            return @enumFromInt(f.value);
+                    }
                 }
                 return null;
             }
@@ -853,6 +851,7 @@ pub const Context = struct {
 
     pub const VLayoutScrollData = struct {
         data: ScrollData,
+        area: Rect = graph.Rec(0, 0, 0, 0),
         layout: *VerticalLayout,
     };
 
@@ -990,6 +989,10 @@ pub const Context = struct {
     pub fn getArea(self: *Self) ?Rect {
         const new_area = self.layout.getArea();
         self.tooltip_state.pending_area = new_area;
+        if (self.scroll_bounds) |sb| {
+            if (!sb.overlap(new_area orelse return new_area))
+                return null;
+        }
         return new_area;
     }
 
@@ -1251,7 +1254,7 @@ pub const Context = struct {
                 const math = std.math;
                 switch (info) {
                     .Float => {
-                        valptr.* = math.clamp(val, if (min) |m| m else math.f32_min, if (max) |mx| mx else math.f32_max);
+                        valptr.* = math.clamp(val, if (min) |m| m else math.floatMin(f32), if (max) |mx| mx else math.floatMin(f32));
                     },
                     .Int => {
                         const cval = math.clamp(val, if (min) |m| m else math.minInt(@Type(info)), if (max) |mx| mx else math.maxInt(@Type(info)));
@@ -1474,52 +1477,6 @@ pub const Context = struct {
         self.drawTextFmt("{d:.2}", .{val.*}, rec, rec.h, Color.White, .{ .justify = .center });
     }
 
-    pub fn checkboxNotify(self: *Self, label: []const u8, checked: *bool) bool {
-        const rec = self.getArea() orelse return false;
-        const click = self.clickWidget(rec);
-        const wstate = self.getWidgetState(.{ .t = WidgetTypes.checkbox, .rec = rec, .name = label, .s = click });
-        var changed = false;
-        if (click == .click) {
-            checked.* = !checked.*;
-            changed = true;
-        }
-        if (wstate != .no_change) {
-            self.drawRectFilled(rec, Color.Gray);
-            const inset = rec.inset(rec.h * 0.1);
-            const check_outer = graph.Rec(inset.x, inset.y, inset.h, inset.h);
-            const check_inner = check_outer.inset(check_outer.h * 0.2);
-            self.drawRectFilled(check_outer, Color.White);
-            self.drawRectOutline(check_outer, Color.Black);
-            if (checked.*) {
-                _ = check_inner;
-                self.drawIcon(0xEB7B, rec.pos(), rec.h, Color.Black);
-            }
-
-            self.drawText(label, .{ .x = rec.x + rec.h, .y = rec.y }, rec.h, Color.Black);
-        }
-        return changed;
-    }
-
-    pub fn checkbox(self: *Self, label: []const u8, checked: *bool) void {
-        _ = self.checkboxNotify(label, checked);
-    }
-
-    pub fn tabs(self: *Self, comptime list_type: type, selected: *list_type) !list_type {
-        const info = @typeInfo(list_type);
-        const fields = info.Enum.fields;
-        _ = try self.beginLayout(HorizLayout, .{ .count = fields.len }, .{});
-        defer self.endLayout();
-        inline for (fields) |field| {
-            if (self.buttonEx(.{
-                .name = field.name,
-            })) {
-                selected.* = @as(list_type, @enumFromInt(field.value));
-            }
-        }
-
-        return selected.*;
-    }
-
     pub fn colorInline(self: *Self, color: *Hsva) !void {
         const rec = self.getArea() orelse return;
         const id = self.getId();
@@ -1585,8 +1542,8 @@ pub const Context = struct {
     }
 
     pub fn beginScroll(self: *Self, offset: *Vec2f, opts: struct {
-        horiz_scroll: bool = true,
-        vertical_scroll: bool = true,
+        horiz_scroll: bool = false,
+        vertical_scroll: bool = false,
         bar_w: f32 = 60,
         scroll_area_w: f32,
         scroll_area_h: f32,
@@ -1671,6 +1628,8 @@ pub const Context = struct {
     }
 
     pub fn sliderGeneric(self: *Self, number_ptr: anytype, min: anytype, max: anytype, params: struct {
+        handle_offset_x: f32 = 0,
+        handle_offset_y: f32 = 0,
         handle_w: f32,
         handle_h: f32,
         orientation: Orientation = .horizontal,
@@ -1698,9 +1657,12 @@ pub const Context = struct {
         const arec = self.getArea() orelse return null;
         const rec = if (is_horiz) arec else arec.swapAxis();
 
+        if (lmax - lmin == 0)
+            return null;
+
         const mdel = orient.vec2fComponent(self.input_state.mouse_delta);
         const mpos = orient.vec2fComponent(self.input_state.mouse_pos);
-        const scale = (rec.w - params.handle_w) / (lmax - lmin);
+        const scale = (rec.w - params.handle_w - (params.handle_offset_x * 2)) / (lmax - lmin);
 
         var val: f32 = switch (number_t) {
             .float => @as(f32, @floatCast(number_ptr.*)),
@@ -1708,8 +1670,8 @@ pub const Context = struct {
         };
 
         var handle: Rect = switch (orient) {
-            .horizontal => Rect.new(arec.x + (val - min) * scale, arec.y, params.handle_w, params.handle_h),
-            .vertical => Rect.new(arec.x, arec.y + (val - min) * scale, params.handle_h, params.handle_w),
+            .horizontal => Rect.new(params.handle_offset_x + arec.x + (val - min) * scale, params.handle_offset_y + arec.y, params.handle_w, params.handle_h),
+            .vertical => Rect.new(params.handle_offset_y + arec.x, params.handle_offset_x + arec.y + (val - min) * scale, params.handle_h, params.handle_w),
         };
 
         const clicked = self.clickWidget(handle);
@@ -1725,14 +1687,14 @@ pub const Context = struct {
             val = std.math.clamp(val, lmin, lmax);
 
             //Prevent the slider's and the cursor's position from becoming misaligned when the cursor goes past the slider boundries.
-            if (mpos > rec.x + rec.w)
+            if (mpos - params.handle_offset_x > rec.x + rec.w)
                 val = max;
-            if (mpos < rec.x)
+            if (mpos + params.handle_offset_x < rec.x)
                 val = min;
 
             if (number_t == .int or number_t == .uint)
                 self.focused_slider_state = (val - @trunc(val));
-            (if (is_horiz) handle.x else handle.y) = rec.x + (val - lmin) * scale;
+            (if (is_horiz) handle.x else handle.y) = params.handle_offset_x + rec.x + (val - lmin) * scale;
         }
 
         if (self.mouse_grab_id == null and !self.scroll_claimed_mouse and graph.rectContainsPoint(arec, self.input_state.mouse_pos)) {
@@ -1752,11 +1714,10 @@ pub const Context = struct {
             },
             .uint, .int => {
                 number_ptr.* = @as(number_type, @intFromFloat(@trunc(val)));
-                (if (is_horiz) handle.x else handle.y) = rec.x + (@trunc(val) - min) * scale;
+                (if (is_horiz) handle.x else handle.y) = params.handle_offset_x + rec.x + (@trunc(val) - min) * scale;
             },
         }
 
-        //(if (is_horiz) handle.x else handle.y) = std.math.clamp(orient.vec2fComponent(handle.pos()), rec.x, rec.x + rec.w - params.handle_w);
         return .{
             .area = arec,
             .handle = handle,
@@ -1768,6 +1729,18 @@ pub const Context = struct {
         const area = self.getArea() orelse return .{};
         const click = self.clickWidget(area);
         return .{ .area = area, .state = click };
+    }
+
+    pub fn checkboxGeneric(self: *Self, checked: *bool) ?GenericWidget.Checkbox {
+        const area = self.getArea() orelse return null;
+        var changed = false;
+        const click = self.clickWidget(area);
+        if (click == .click or click == .double) {
+            checked.* = !checked.*;
+            changed = true;
+        }
+
+        return .{ .area = area, .changed = changed };
     }
 
     pub fn textboxGeneric(self: *Self, contents: *std.ArrayList(u8), params: struct {
@@ -1899,6 +1872,18 @@ pub const Context = struct {
         return ret;
     }
 
+    //TODO there are a few states for this function when drawing
+    //popped / not popped
+    // A 'U' indicates user facing
+    // beginPopup
+    // U "draw stuff"
+    // beginscrollVLayout <- This causes draw.scissor to be called, if we inset the scroll area but want to draw a border it has to happend before this call
+    // U for each enum value draw a widget
+    // U set a value if clicked
+    // end the v layout
+    // end all regardless
+    // U draw the non popped
+    //
     pub fn enumDropdownGeneric(self: *Self, comptime enumT: type, enum_val: *enumT, params: struct {
         max_items: usize,
         scroll_bar_w: f32,
@@ -1941,6 +1926,7 @@ pub const Context = struct {
         return .{ .area = rec, .popup_active = false };
     }
 
+    //TODO make generic
     pub fn colorPicker(self: *Self, color: *Hsva) void {
         const hue_slider_w = 70;
         //const sv_size = 500;
