@@ -1230,9 +1230,14 @@ pub const Bitmap = struct {
     const Self = @This();
     pub const ImageFormat = enum {
         rgba_8,
+        rgb_8,
         g_8, //grayscale, 8 bit
     };
-    pub const FormatCompCount = std.enums.directEnumArray(ImageFormat, usize, 0, .{ .rgba_8 = 4, .g_8 = 1 });
+    pub const FormatCompCount = std.enums.directEnumArray(ImageFormat, usize, 0, .{
+        .rgba_8 = 4,
+        .g_8 = 1,
+        .rgb_8 = 3,
+    });
 
     format: ImageFormat = .rgba_8,
     data: std.ArrayList(u8),
@@ -1251,7 +1256,7 @@ pub const Bitmap = struct {
         return Bitmap{ .data = std.ArrayList(u8).fromOwnedSlice(alloc, copy), .w = lcast(u32, width), .h = lcast(u32, height), .format = format };
     }
 
-    pub fn initFromPngFileBuffer(alloc: Alloc, buffer: []const u8) !Bitmap {
+    pub fn initFromPngBuffer(alloc: Alloc, buffer: []const u8) !Bitmap {
         var pngctx = c.spng_ctx_new(0);
         defer c.spng_ctx_free(pngctx);
         _ = c.spng_set_png_buffer(pngctx, &buffer[0], buffer.len);
@@ -1276,7 +1281,34 @@ pub const Bitmap = struct {
         const file_slice = try dir.readFileAlloc(alloc, sub_path, std.math.maxInt(usize));
         defer alloc.free(file_slice);
 
-        return try initFromPngFileBuffer(alloc, file_slice);
+        return try initFromPngBuffer(alloc, file_slice);
+    }
+
+    pub fn initFromImageFile(alloc: Alloc, dir: Dir, sub_path: []const u8) !Bitmap {
+        const file_slice = try dir.readFileAlloc(alloc, sub_path, std.math.maxInt(usize));
+        defer alloc.free(file_slice);
+
+        return try initFromImageBuffer(alloc, file_slice);
+    }
+
+    pub fn initFromImageBuffer(alloc: Alloc, buffer: []const u8) !Bitmap {
+        //TODO check errors
+        var x: c_int = 0;
+        var y: c_int = 0;
+        var num_channel: c_int = 0;
+        const img_buf = c.stbi_load_from_memory(&buffer[0], @intCast(buffer.len), &x, &y, &num_channel, 4);
+        const len = @as(usize, @intCast(num_channel * x * y));
+        const decoded = try alloc.alloc(u8, len);
+        defer alloc.free(decoded);
+        std.mem.copy(u8, decoded, img_buf[0..len]);
+        std.debug.print("Num format {d}\n", .{num_channel});
+
+        return try initFromBuffer(alloc, decoded, x, y, switch (num_channel) {
+            4 => .rgba_8,
+            3 => .rgb_8,
+            1 => .g_8,
+            else => return error.unsupportedFormat,
+        });
     }
 
     pub fn deinit(self: Self) void {
@@ -1300,6 +1332,7 @@ pub const Bitmap = struct {
     }
 
     pub fn writeToBmpFile(self: *Self, alloc: Alloc, dir: Dir, file_name: []const u8) !void {
+        if (self.format != .rgba_8) return error.unsupportedFormat;
         var path = std.ArrayList(u8).init(alloc).fromOwnedSlice(alloc, try dir.realpathAlloc(file_name));
         defer path.deinit();
         try path.append(0);
@@ -1320,6 +1353,7 @@ pub const Bitmap = struct {
             .height = self.h,
             .bit_depth = 8,
             .color_type = switch (self.format) {
+                .rgb_8 => c.SPNG_COLOR_TYPE_TRUECOLOR,
                 .rgba_8 => c.SPNG_COLOR_TYPE_TRUECOLOR_ALPHA,
                 .g_8 => c.SPNG_COLOR_TYPE_GRAYSCALE,
             },
@@ -2631,11 +2665,22 @@ pub const Texture = struct {
     };
 
     pub fn initFromImgFile(alloc: Alloc, dir: Dir, sub_path: []const u8, o: Options) !Texture {
-        //TODO check if png file
-        var bmp = try Bitmap.initFromPngFile(alloc, dir, sub_path);
-        defer bmp.deinit();
-
-        return initFromBitmap(bmp, o);
+        var file = try dir.openFile(sub_path, .{});
+        defer file.close();
+        var header: [8]u8 = undefined;
+        const len = try file.read(&header);
+        const sl = header[0..len];
+        const eql = std.mem.eql;
+        if (eql(u8, &.{ 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a }, sl)) {
+            var bmp = try Bitmap.initFromPngFile(alloc, dir, sub_path);
+            defer bmp.deinit();
+            return initFromBitmap(bmp, o);
+        } else {
+            var bmp = try Bitmap.initFromImageFile(alloc, dir, sub_path);
+            defer bmp.deinit();
+            return initFromBitmap(bmp, o);
+        }
+        return error.unrecognizedImageFileFormat;
     }
 
     pub fn initFromBuffer(buffer: ?[]const u8, w: i32, h: i32, o: Options) Texture {
@@ -2683,8 +2728,7 @@ pub const Texture = struct {
     }
 
     pub fn deinit(self: *Texture) void {
-        _ = self;
-        //c.glDeleteTextures(1, self.id);
+        c.glDeleteTextures(1, &self.id);
     }
 };
 

@@ -236,6 +236,7 @@ pub const VerticalLayout = struct {
     current_h: f32 = 0,
     hidden: bool = false,
     next_height: ?f32 = null,
+    give_remaining: bool = false,
 
     pub fn hash(self: *anyopaque, bounds: Rect) u64 {
         return dhash(.{ .r = bounds, .d = opaqueSelf(@This(), self).* });
@@ -249,6 +250,16 @@ pub const VerticalLayout = struct {
         if (self.current_h + self.padding.top > bounds.h or self.hidden) //We don't add h yet because the last element can be partially displayed. (if clipped)
             return null;
 
+        if (self.give_remaining) {
+            defer self.current_h = bounds.h;
+            return .{
+                .x = bounds.x + self.padding.left,
+                .y = bounds.y + self.current_h + self.padding.top,
+                .w = bounds.w - self.padding.horizontal(),
+                .h = bounds.h - (self.current_h + self.padding.top) - self.padding.bottom,
+            };
+        }
+
         defer self.current_h += h + self.padding.vertical();
         return .{
             .x = bounds.x + self.padding.left,
@@ -261,6 +272,11 @@ pub const VerticalLayout = struct {
     //TODO this doesn't really "push" a height. misleading as one might push push push then expecting subsequent widgets to pop pop pop
     pub fn pushHeight(self: *Self, h: f32) void {
         self.next_height = h;
+    }
+
+    /// The next requested area will be the rest of the available space
+    pub fn pushRemaining(self: *Self) void {
+        self.give_remaining = true;
     }
 };
 

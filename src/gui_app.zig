@@ -138,10 +138,20 @@ pub const FileBrowser = struct {
     pub const Extensions = enum {
         png,
         bmp,
+        jpg,
+        jpeg,
+        tga,
         json,
         txt,
         zig,
         unknown,
+
+        pub fn isImage(self: Extensions) bool {
+            return switch (self) {
+                .png, .bmp, .jpg, .jpeg => true,
+                else => false,
+            };
+        }
     };
 
     pub const Bookmark = struct {
@@ -207,14 +217,29 @@ pub const FileBrowser = struct {
         .{ .name = "Mario", .abs_path = "/home/tony/user-data/develpment/zig-game_engine/mario_assets" },
     };
 
+    pub const FilePreview = struct {
+        texture: graph.Texture,
+
+        pub fn deinit(self: *FilePreview) void {
+            self.texture.deinit();
+        }
+    };
+
     pub const DialogState = enum {
         none,
         add_bookmark,
     };
 
+    pub const ParentFlag = enum {
+        normal,
+        should_exit,
+        ok_clicked,
+    };
+
+    file_preview: ?FilePreview = null,
     scratch_vec: std.ArrayList(u8),
     dialog_state: DialogState = .none,
-    should_exit: bool = false,
+    flag: ParentFlag = .normal,
 
     alloc: std.mem.Allocator,
     entries: std.ArrayList(DirEntry),
@@ -384,6 +409,16 @@ pub const FileBrowser = struct {
         return .unknown;
     }
 
+    fn filepreview(self: *Self, wrap: *Os9Gui) !void {
+        const gui = wrap.gui;
+        const area = gui.getArea() orelse return;
+        gui.draw9Slice(area, Os9Gui.inset9, wrap.texture, wrap.scale);
+        const na = area.inset(Os9Gui.inset9.w / 3);
+        if (self.file_preview) |fp| {
+            gui.drawRectTextured(na, Color.White, fp.texture.rect(), fp.texture);
+        }
+    }
+
     fn fileItem(self: *Self, gui: *Gui.Context, entry: DirEntry, index: usize, columns: []const FileColumn, bg: ?Color) !bool {
         const rec = gui.getArea() orelse return false;
         const pada = 4;
@@ -404,7 +439,7 @@ pub const FileBrowser = struct {
                         .sym_link => .folder_link,
                         .file => switch (getExtension(entry.name)) {
                             .zig, .json => .src_file,
-                            .png, .bmp => .img_file,
+                            .png => .img_file,
                             .txt => .txt_file,
                             else => .file,
                         },
@@ -461,6 +496,7 @@ pub const FileBrowser = struct {
         const click = gui.clickWidget(rec);
         if (click == .click) {
             self.selected = index;
+
             try self.selected_name.resize(0);
             try self.selected_name.writer().print("{s}", .{entry.name});
         }
@@ -470,12 +506,8 @@ pub const FileBrowser = struct {
             switch (entry.kind) {
                 .directory => {
                     self.file_scroll = .{ .x = 0, .y = 0 };
-                    if (self.dir.openDir(entry.name, .{}) catch null) |new_dir| {
-                        if (try self.setDir(new_dir, entry.name))
-                            return true;
-                    } else {
-                        std.debug.print("Can't open directory {s}\n", .{entry.name});
-                    }
+                    if (try self.cd(entry.name))
+                        return true;
                 },
                 .file => {
                     self.file = .{ .file_name = entry.name, .dir = self.dir };
@@ -483,6 +515,15 @@ pub const FileBrowser = struct {
                 else => {},
             }
         }
+        return false;
+    }
+
+    pub fn cd(self: *Self, path: []const u8) !bool {
+        if (self.dir.openDir(path, .{}) catch null) |new_dir| {
+            if (try self.setDir(new_dir, path))
+                return true;
+        }
+        std.debug.print("Can't open directory {s}\n", .{path});
         return false;
     }
 
@@ -575,6 +616,9 @@ pub const FileBrowser = struct {
             if (wrap.checkbox("Show hidden", &self.show_hidden)) {
                 _ = try self.setDir(self.dir, ".");
             }
+            if (wrap.button("Up")) {
+                _ = try self.cd("..");
+            }
             wrap.label("Path: {s}", .{if (self.path_str) |str| str else ""});
         }
         const ils = left_side.inset(6);
@@ -605,23 +649,17 @@ pub const FileBrowser = struct {
                 gui.tooltip(bookmark.abs_path, rec.h);
                 const click = gui.clickWidget(rec);
                 if (click == .click) {
-                    if (std.fs.openDirAbsolute(bookmark.abs_path, .{}) catch null) |new_dir| {
-                        if (try self.setDir(new_dir, bookmark.abs_path)) {
-                            bookmark.err_msg = null;
-                        } else {
-                            bookmark.err_msg = "Access denied";
-                            std.debug.print("Access denied for bookmark: {s}\n", .{bookmark.abs_path});
-                        }
+                    if (try self.cd(bookmark.abs_path)) {
+                        bookmark.err_msg = null;
                     } else {
-                        std.debug.print("Folder not found: {s}\n", .{bookmark.abs_path});
-                        bookmark.err_msg = "Folder not found";
+                        bookmark.err_msg = "Can't open bookmark";
                     }
                     self.selected_bookmark = i;
                 }
             }
         }
         {
-            _ = try wrap.beginSubLayout(sp[1], Gui.VerticalLayout, .{ .item_height = item_height });
+            var vl = try wrap.beginSubLayout(sp[1], Gui.VerticalLayout, .{ .item_height = item_height });
             defer wrap.endSubLayout();
 
             if (wrap.button("Add current Folder as bookmark")) {
@@ -639,8 +677,15 @@ pub const FileBrowser = struct {
                         self.alloc.free(b.name);
                         _ = self.bookmarks.orderedRemove(sb);
                     }
+                    if (self.selected_bookmark.? >= self.bookmarks.items.len) {
+                        // By only setting this to null here we allow the user to delete multiple bookmarks in a row
+                        self.selected_bookmark = null;
+                    }
                 }
-                self.selected_bookmark = null;
+            }
+            {
+                vl.pushRemaining();
+                try self.filepreview(wrap);
             }
         }
         {
@@ -699,8 +744,7 @@ pub const FileBrowser = struct {
             defer gui.endLayout();
             if (try wrap.beginVScroll(&self.file_scroll)) |file_scroll| {
                 defer wrap.endVScroll(file_scroll);
-                _ = try self.fileItem(gui, .{ .name = "..", .kind = .directory }, 0, &self.columns, null);
-                for (self.entries.items, 1..) |entry, i| {
+                for (self.entries.items, 0..) |entry, i| {
                     const bgfile_color = itc(0xeeeeeeff);
                     if (try self.fileItem(gui, entry, i, &self.columns, if (i % 2 != 0) bgfile_color else null))
                         break;
@@ -720,9 +764,258 @@ pub const FileBrowser = struct {
             hl.pushCount(2);
             try wrap.textbox(&self.selected_name);
             if (wrap.button("Cancel")) {
-                self.should_exit = true;
+                self.flag = .should_exit;
             }
-            _ = wrap.button("Ok");
+            if (wrap.buttonEx("Ok", .{ .disabled = !(if (self.selected) |si| self.entries.items[si].kind == .file else false) })) {
+                self.file = .{ .file_name = self.entries.items[self.selected.?].name, .dir = self.dir };
+                self.flag = .ok_clicked;
+            }
+        }
+    }
+};
+
+pub const KeyboardDisplay = struct {
+    const Self = @This();
+    pub const Row = struct {
+        pub const Key = struct {
+            name: ?[]const u8 = null,
+            width: f32 = 1,
+            height: f32 = 1,
+            ktype: enum { key, spacing } = .key,
+        };
+
+        x: f32,
+        y: f32,
+        keys: []const Key,
+    };
+    pub const Rows = struct {
+        const fkeys = [_]Row.Key{
+            .{ .name = "Esc" },
+            .{ .ktype = .spacing },
+            .{ .name = "F1" },
+            .{ .name = "F2" },
+            .{ .name = "F3" },
+            .{ .name = "F4" },
+            .{ .ktype = .spacing, .width = 0.5 },
+            .{ .name = "F5" },
+            .{ .name = "F6" },
+            .{ .name = "F7" },
+            .{ .name = "F8" },
+            .{ .ktype = .spacing, .width = 0.5 },
+            .{ .name = "F9" },
+            .{ .name = "F10" },
+            .{ .name = "F11" },
+            .{ .name = "F12" },
+            .{ .ktype = .spacing, .width = 0.25 },
+            .{ .name = "PrtSc" },
+            .{ .name = "Scroll Lock" },
+            .{ .name = "Pause\tBreak" },
+        };
+
+        const numkeys = [_]Row.Key{
+            .{ .name = "~\t`" },
+            .{ .name = "!\t1" },
+            .{ .name = "@\t2" },
+            .{ .name = "#\t3" },
+            .{ .name = "$\t4" },
+            .{ .name = "%\t5" },
+            .{ .name = "^\t6" },
+            .{ .name = "&\t7" },
+            .{ .name = "*\t8" },
+            .{ .name = "(\t9" },
+            .{ .name = ")\t0" },
+            .{ .name = "_\t-" },
+            .{ .name = "+\t=" },
+
+            .{ .name = "Backspace", .width = 2 },
+        };
+        const numkeys_ex = [_]Row.Key{
+            .{ .ktype = .spacing, .width = 0.25 },
+            .{ .name = "Insert" },
+            .{ .name = "Home" },
+            .{ .name = "PgUp" },
+        };
+
+        const tabkeys = [_]Row.Key{
+            .{ .name = "Tab", .width = 1.5 },
+            .{ .name = "Q" },
+            .{ .name = "W" },
+            .{ .name = "E" },
+            .{ .name = "R" },
+            .{ .name = "T" },
+            .{ .name = "Y" },
+            .{ .name = "U" },
+            .{ .name = "I" },
+            .{ .name = "O" },
+            .{ .name = "P" },
+            .{ .name = "{\t[" },
+            .{ .name = "}\t]" },
+            .{ .name = "|\t\\", .width = 1.5 },
+            .{ .ktype = .spacing, .width = 0.25 },
+            .{ .name = "Delete" },
+            .{ .name = "End" },
+            .{ .name = "PgDn" },
+        };
+
+        const capskeys = [_]Row.Key{
+            .{ .name = "CapsLock", .width = 1.75 },
+            .{ .name = "A" },
+            .{ .name = "S" },
+            .{ .name = "D" },
+            .{ .name = "F" },
+            .{ .name = "G" },
+            .{ .name = "H" },
+            .{ .name = "J" },
+            .{ .name = "K" },
+            .{ .name = "L" },
+            .{ .name = ":\t;" },
+            .{ .name = "\"\t\'" },
+            .{ .name = "Return", .width = 2.25 },
+        };
+
+        const shiftkeys = [_]Row.Key{
+            .{ .name = "Shift", .width = 2.25 },
+            .{ .name = "Z" },
+            .{ .name = "X" },
+            .{ .name = "C" },
+            .{ .name = "V" },
+            .{ .name = "B" },
+            .{ .name = "N" },
+            .{ .name = "M" },
+            .{ .name = "<\t," },
+            .{ .name = ">\t." },
+            .{ .name = "?\t/" },
+            .{ .name = "RShift", .width = 2.75 },
+            .{ .ktype = .spacing, .width = 1.25 },
+            .{ .name = "Up" },
+        };
+
+        const ctrlkeys = [_]Row.Key{
+            .{ .name = "Control", .width = 1.25 },
+            .{ .name = "Meta", .width = 1.25 },
+            .{ .name = "Alt", .width = 1.25 },
+            .{ .name = "Space", .width = 6.25 },
+            .{ .name = "RAlt", .width = 1.25 },
+            .{ .name = "RMeta", .width = 1.25 },
+            .{ .name = "Menu", .width = 1.25 },
+            .{ .name = "RCtrl", .width = 1.25 },
+            .{ .ktype = .spacing, .width = 0.25 },
+            .{ .name = "Left" },
+            .{ .name = "Down" },
+            .{ .name = "Right" },
+        };
+
+        const numpad1 = [_]Row.Key{
+            .{ .name = "NumLock" },
+            .{ .name = "NumpadDivide" },
+            .{ .name = "NumpadMultiply" },
+            .{ .name = "NumpadMinus" },
+        };
+
+        const numpad2 = [_]Row.Key{
+            .{ .name = "Numpad7" },
+            .{ .name = "Numpad8" },
+            .{ .name = "Numpad9" },
+            .{ .name = "NumpadPlus", .height = -2 },
+        };
+
+        const numpad3 = [_]Row.Key{
+            .{ .name = "Numpad4" },
+            .{ .name = "Numpad5" },
+            .{ .name = "Numpad6" },
+        };
+
+        const numpad4 = [_]Row.Key{
+            .{ .name = "Numpad1" },
+            .{ .name = "Numpad2" },
+            .{ .name = "Numpad3" },
+            .{ .name = "NumpadEnter", .height = -2 },
+        };
+
+        const numpad5 = [_]Row.Key{
+            .{ .name = "Numpad0", .width = 2 },
+            .{ .name = "NumpadPeriod" },
+        };
+    };
+
+    pub const Ansi104 = [_]Row{
+        .{ .x = 0, .y = 0, .keys = &Rows.fkeys },
+        .{ .x = 0, .y = 1.5, .keys = &(Rows.numkeys ++ Rows.numkeys_ex) },
+        .{ .x = 0, .y = 2.5, .keys = &Rows.tabkeys },
+        .{ .x = 0, .y = 3.5, .keys = &Rows.capskeys },
+        .{ .x = 0, .y = 4.5, .keys = &Rows.shiftkeys },
+        .{ .x = 0, .y = 5.5, .keys = &Rows.ctrlkeys },
+        .{ .x = 18.5, .y = 1.5, .keys = &Rows.numpad1 },
+        .{ .x = 18.5, .y = 2.5, .keys = &Rows.numpad2 },
+        .{ .x = 18.5, .y = 3.5, .keys = &Rows.numpad3 },
+        .{ .x = 18.5, .y = 4.5, .keys = &Rows.numpad4 },
+        .{ .x = 18.5, .y = 5.5, .keys = &Rows.numpad5 },
+    };
+
+    pub const Ansi104_60 = [_]Row{
+        .{ .x = 0, .y = 1.5, .keys = &(Rows.numkeys ++ Rows.numkeys_ex) },
+        .{ .x = 0, .y = 2.5, .keys = &Rows.tabkeys },
+        .{ .x = 0, .y = 3.5, .keys = &Rows.capskeys },
+        .{ .x = 0, .y = 4.5, .keys = &Rows.shiftkeys },
+        .{ .x = 0, .y = 5.5, .keys = &Rows.ctrlkeys },
+    };
+
+    pub fn init(alloc: std.mem.Allocator) Self {
+        _ = alloc;
+        return .{};
+    }
+
+    pub fn deinit(self: *Self) void {
+        _ = self;
+    }
+
+    pub fn update(self: *Self, wrap: *Os9Gui) !void {
+        _ = self;
+        const gui = wrap.gui;
+        const win_area = gui.getArea() orelse return;
+        const border_area = win_area.inset(6 * wrap.scale);
+        const area = border_area.inset(6 * wrap.scale);
+        const keyboard = Ansi104_60;
+
+        gui.draw9Slice(win_area, Os9Gui.os9win, wrap.texture, wrap.scale);
+        gui.draw9Slice(border_area, Os9Gui.os9in, wrap.texture, wrap.scale);
+
+        const keyboard_width = blk: {
+            var maxw: f32 = 0;
+            for (keyboard) |row| {
+                var w: f32 = row.x;
+                for (row.keys) |key| {
+                    w += key.width;
+                }
+                maxw = if (w > maxw) w else maxw;
+            }
+            break :blk maxw;
+        };
+
+        {
+            _ = try gui.beginLayout(Gui.SubRectLayout, .{ .rect = area }, .{});
+            defer gui.endLayout();
+            const r = gui.getArea() orelse return;
+            const kw = r.w / keyboard_width;
+            const kh = kw;
+            for (keyboard) |row| {
+                var x: f32 = row.x * kw;
+                var y: f32 = row.y * kh;
+                for (row.keys) |key| {
+                    const ww = key.width * kw;
+                    switch (key.ktype) {
+                        .key => {
+                            const rr = Rect.new(r.x + x, r.y + y, ww, kh);
+                            gui.draw9Slice(rr.inset(3), Os9Gui.outset9, wrap.texture, wrap.scale);
+                            if (key.name) |n| {
+                                gui.drawText(n, rr.pos(), 10 * wrap.scale, Color.Black);
+                            }
+                        },
+                        .spacing => {},
+                    }
+                    x += ww;
+                }
+            }
         }
     }
 };
@@ -1011,7 +1304,8 @@ pub const AtlasEditor = struct {
             self.alloc.free(self.add_image_filename);
     }
 
-    pub fn update(self: *Self, gui: *Gui.Context) !void {
+    pub fn update(self: *Self, wrap: *Os9Gui) !void {
+        const gui = wrap.gui;
         const inspector_item_height = 50;
         const area = gui.getArea() orelse return;
         _ = try gui.beginLayout(Gui.SubRectLayout, .{ .rect = area }, .{});
@@ -1021,7 +1315,7 @@ pub const AtlasEditor = struct {
         { //Inspector
             _ = try gui.beginLayout(Gui.SubRectLayout, .{ .rect = inspector_rec }, .{});
             defer gui.endLayout();
-            if (try gui.beginVLayoutScroll(&self.inspector_scroll, .{ .item_height = inspector_item_height })) |inspector_scroll| {
+            if (try wrap.beginVScroll(&self.inspector_scroll)) |inspector_scroll| {
                 if (self.loaded_atlas) |*atlas| {
                     inspector_scroll.layout.pushHeight(inspector_item_height * 40);
                     //if (try gui.beginVLayoutScroll(&self.set_scroll, .{ .item_height = inspector_item_height })) |set_scroll| {
@@ -1030,14 +1324,15 @@ pub const AtlasEditor = struct {
                         {
                             _ = try gui.beginLayout(Gui.VerticalLayout, .{ .item_height = inspector_item_height }, .{});
                             defer gui.endLayout();
-                            if (gui.button(set.filename)) {
+                            if (wrap.button(set.filename)) {
                                 try gui.console.print("Setting new index {d} {d}", .{ 0, si });
-                                gui.text_input_hash = null;
+                                gui.text_input_state.active_id = null;
+                                gui.text_input_state.state = .stop;
                                 self.canvas_cam = null;
                                 self.set_index = 0;
                                 self.atlas_index = si;
                             }
-                            if (gui.button("new set")) {
+                            if (wrap.button("new set")) {
                                 std.debug.print("Sett {d}\n", .{set.tilesets.len});
                                 const index = set.tilesets.len;
                                 set.tilesets = try atlas.alloc.realloc(set.tilesets, set.tilesets.len + 1);
@@ -1054,14 +1349,15 @@ pub const AtlasEditor = struct {
                                 }
                             }
                             gui.drawText(if (ts.description.len > 0) ts.description else "{blank}", rec.pos(), rec.h, col);
-                            const click = gui.clickWidget(rec, .{});
+                            const click = gui.clickWidget(rec);
                             if (click == .click) {
                                 if (self.atlas_index != si) {
                                     self.copy_range_range_start = 0;
                                     self.copy_range_range_end = 0;
                                 }
                                 try gui.console.print("Setting new index {d} {d}", .{ tsi, si });
-                                gui.text_input_hash = null;
+                                gui.text_input_state.active_id = null;
+                                gui.text_input_state.state = .stop;
                                 self.canvas_cam = null;
                                 self.set_index = tsi;
                                 self.atlas_index = si;
@@ -1071,7 +1367,7 @@ pub const AtlasEditor = struct {
                     //try gui.endVLayoutScroll(set_scroll);
                     //}
                     if (atlas.atlas_data.sets[self.atlas_index].tilesets.len > 0) {
-                        try gui.textbox(&atlas.atlas_data.sets[self.atlas_index].tilesets[self.set_index].description, self.alloc);
+                        try wrap.textbox(&atlas.atlas_data.sets[self.atlas_index].tilesets[self.set_index].description);
 
                         const sts = &atlas.atlas_data.sets[self.atlas_index].tilesets[self.set_index];
 
@@ -1386,7 +1682,7 @@ pub const Os9Gui = struct {
         };
     }
     pub fn deinit(self: *Self) void {
-        _ = self;
+        self.texture.deinit();
     }
 
     //TODO remove scale variable and scale using GuiDrawContext
@@ -1526,13 +1822,19 @@ pub const Os9Gui = struct {
     }
 
     pub fn endVScroll(self: *Self, scroll_data: Gui.Context.VLayoutScrollData) void {
+        const sd = scroll_data.data;
+        const max = scroll_data.layout.current_h - scroll_data.area.h;
+        if (max > 0) {
+            if (self.gui.mouse_grab_id == null and !self.gui.scroll_claimed_mouse and graph.rectContainsPoint(self.gui.scroll_bounds.?, self.gui.input_state.mouse_pos)) {
+                self.gui.scroll_claimed_mouse = true;
+                sd.offset.y = std.math.clamp(sd.offset.y + self.gui.input_state.mouse_wheel_delta * -40, 0, max);
+            }
+        }
         self.gui.endLayout();
         self.gui.endScroll();
-        const sd = scroll_data.data;
         if (sd.vertical_slider_area) |va| {
             _ = self.gui.beginLayout(Gui.SubRectLayout, .{ .rect = va }, .{}) catch unreachable;
             defer self.gui.endLayout();
-            const max = scroll_data.layout.current_h - scroll_data.area.h;
             self.scrollBar(&sd.offset.y, 0, if (max < 0) 0 else max, .vertical, .{
                 .handle_w = if (max > scroll_data.area.h) os9scrollhandle.h * self.scale else scroll_data.area.h - max,
             });
@@ -1757,6 +2059,7 @@ pub fn main() anyerror!void {
         .window_size = .{ .x = 1600, .y = 1200 },
     });
     defer win.destroyWindow();
+    _ = try graph.Texture.initFromImgFile(alloc, std.fs.cwd(), "debug/bitmaps/30.bmp", .{});
 
     var ctx = try graph.GraphicsContext.init(
         alloc,
@@ -1828,46 +2131,11 @@ pub fn main() anyerror!void {
     var rbuf = graph.RingBuffer(3, u64, 0){};
     var dcall_count: usize = 0;
 
-    //_ = graph.MarioData.jj;
     const type_name = @typeName(std.ArrayList(void));
     std.debug.print("{s}\n", .{type_name});
 
-    //var scr1: graph.Vec2f = .{ .x = 0, .y = 0 };
-
-    //var atlas = try graph.Atlas.initFromJsonFile("../zig-game_engine/mario_assets", "tileset_manifest.json", alloc);
-    //defer atlas.deinit();
-
     var atlas_editor = AtlasEditor.init(alloc);
     defer atlas_editor.deinit();
-
-    //var file_browser = try FileBrowser.init(alloc);
-    //defer file_browser.deinit();
-
-    //var ts_tex = try graph.Texture.fromImage("../zig-game_engine/mario_assets/img/mario-tileset.png", alloc, .{ .mag_filter = graph.c.GL_NEAREST, .min_filter = graph.c.GL_NEAREST });
-    //var clear_screen = true;
-
-    //var out_dir = try std.fs.cwd().openDir("test_out", .{});
-    //defer out_dir.close();
-    //try graph.Atlas.writeToTiled(asset_dir, "fuck.json", out_dir, alloc);
-    //if (true) {
-    //    return;
-    //}
-
-    //var atlasjson = try graph.Atlas.AtlasJson.initFromJsonFile(asset_dir, "fuck.json", alloc);
-    //var baked_atlas = try graph.BakedAtlas.fromAtlas(asset_dir, atlasjson, alloc);
-    //defer baked_atlas.deinit();
-    //atlasjson.deinit(alloc);
-    //try baked_atlas.bitmap.writeToPngFile(std.fs.cwd(), "test.png");
-
-    //var mario_map = try graph.MarioData.Map.initFromJsonFile(alloc, std.fs.cwd(), "test_map_thir.json");
-    //defer mario_map.deinit();
-    ////try mario_map.updateAtlas(baked_atlas);
-    //var map_editor = MapEditor.init(alloc);
-    //defer map_editor.deinit();
-    //map_editor.loaded_map = &mario_map;
-    //map_editor.atlas = baked_atlas;
-
-    //defer mario_map.writeToJsonFile(alloc, std.fs.cwd(), "test_map_thir.json") catch unreachable;
 
     const conf_dir = blk: {
         //const dir = win.getPrefPath("nik_org", "test_gui");
@@ -1881,8 +2149,13 @@ pub fn main() anyerror!void {
     var fb = try FileBrowser.init(alloc, conf_dir);
     defer fb.deinit();
 
+    var kbd = KeyboardDisplay.init(alloc);
+    defer kbd.deinit();
+
     var os9gui = try Os9Gui.init(alloc, scale, &gui);
     defer os9gui.deinit();
+
+    var current_app: enum { keyboard_display, filebrowser, atlas_edit } = .filebrowser;
 
     while (!win.should_exit) {
         try ctx.beginDraw(win.screen_width, win.screen_height, itc(0x2f2f2fff), true);
@@ -1920,9 +2193,23 @@ pub fn main() anyerror!void {
             //_ = try gui.beginLayout(Gui.SubRectLayout, .{ .rect = parent_area }, .{});
             _ = try gui.beginLayout(Gui.SubRectLayout, .{ .rect = parent_area }, .{});
             defer gui.endLayout();
-            try fb.update(&os9gui);
-            if (fb.should_exit)
-                win.should_exit = true;
+            switch (current_app) {
+                .keyboard_display => try kbd.update(&os9gui),
+                .atlas_edit => {},
+                .filebrowser => {
+                    try fb.update(&os9gui);
+                    switch (fb.flag) {
+                        .should_exit => win.should_exit = true,
+                        .ok_clicked => {
+                            if (fb.file) |f| {
+                                std.debug.print("Trying to open file: {s}\n", .{f.file_name});
+                                win.should_exit = true;
+                            }
+                        },
+                        else => {},
+                    }
+                },
+            }
         }
 
         try gui_draw_context.draw(&ctx, &font, parent_area, &gui, win.screen_width, win.screen_height);

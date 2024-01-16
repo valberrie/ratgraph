@@ -21,6 +21,7 @@ pub fn linkLibrary(exe: *std.build.LibExeObjStep) void {
 
     const c_source_files = [_][]const u8{
         srcdir ++ "/" ++ cdir ++ "/stb_image_write.c",
+        srcdir ++ "/" ++ cdir ++ "/stb_image.c",
         srcdir ++ "/" ++ cdir ++ "/stb_rect_pack.c",
         srcdir ++ "/" ++ cdir ++ "/libspng/spng/spng.c",
     };
