@@ -360,9 +360,10 @@ pub const RetainedState = struct {
         const Self = @This();
         const uni = std.unicode;
         const edit_keys_list = graph.Bind(&.{
-            .{ "left", "left" },
-            .{ "right", "right" },
+            .{ "move_left", "Left" },
+            .{ "move_right", "Right" },
             .{ "backspace", "Backspace" },
+            .{ "delete", "Delete" },
         });
 
         const SingleLineMovement = enum {
@@ -379,36 +380,40 @@ pub const RetainedState = struct {
         head: i32,
         tail: i32,
 
-        fn move_to(self: *Self, movement: SingleLineMovement) void {
+        fn select_to(self: *Self, movement: SingleLineMovement) void {
             const max = @as(i32, @intCast(self.codepoints.items.len));
             switch (movement) {
                 .left => {
                     self.head = clamp(self.head - 1, 0, max);
-                    self.tail = self.head;
                 },
                 .right => {
-                    std.debug.print("MOVING RIGHT\n", .{});
                     self.head = clamp(self.head + 1, 0, max);
-                    self.tail = self.head;
                 },
+                .start => self.head = 0,
+                .end => self.head = max,
                 else => {},
             }
         }
 
-        fn select_to(self: *Self, movement: SingleLineMovement) void {
-            _ = self;
-            _ = movement;
+        fn move_to(self: *Self, movement: SingleLineMovement) void {
+            self.select_to(movement);
+            self.tail = self.head;
         }
 
         fn delete_to(self: *Self, movement: SingleLineMovement) void {
             const max = @as(i32, @intCast(self.codepoints.items.len));
             switch (movement) {
                 .left => {
-                    if (self.codepoints.items.len == 0 or self.head == 0) return;
+                    if (max == 0 or self.head == 0) return;
                     self.head -= 1;
                     self.head = clamp(self.head, 0, max);
                     self.tail = self.head;
                     _ = self.codepoints.orderedRemove(@as(usize, @intCast(self.head)));
+                },
+                .right => {
+                    if (max == 0 or self.head == max) return;
+                    _ = self.codepoints.orderedRemove(@as(usize, @intCast(self.head)));
+                    self.tail = self.head;
                 },
                 else => {},
             }
@@ -486,8 +491,9 @@ pub const RetainedState = struct {
 
             for (input_state.keys) |key| {
                 switch (StaticData.key_binds.get(key.scancode)) {
-                    .left => tb.move_to(.left),
-                    .right => tb.move_to(.right),
+                    .move_left => tb.move_to(.left),
+                    .move_right => tb.move_to(.right),
+                    .delete => tb.delete_to(.right),
                     .backspace => tb.delete_to(.left),
                     else => {},
                 }
