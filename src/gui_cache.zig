@@ -48,12 +48,8 @@ pub fn StackCache(comptime NodeData: type, comptime eql_fn: fn (NodeData, NodeDa
         depth: u32 = 0,
         cached: bool = false,
 
-        //TODO option to disable time profile
-        timer: std.time.Timer,
-        last_time: u64 = 0,
-
         pub fn init(alloc: std.mem.Allocator) !Self {
-            return .{ .alloc = alloc, .timer = try std.time.Timer.start() };
+            return .{ .alloc = alloc };
         }
 
         pub fn deinit(self: *Self) void {
@@ -68,7 +64,6 @@ pub fn StackCache(comptime NodeData: type, comptime eql_fn: fn (NodeData, NodeDa
         }
 
         pub fn begin(self: *Self) (error{ leftDangling, unmatchedPush } || Error)!void {
-            self.last_time = 0;
             logOut("\nBegin StackCache\n", .{});
 
             if (self.dangle != null) return error.leftDangling;
@@ -127,8 +122,6 @@ pub fn StackCache(comptime NodeData: type, comptime eql_fn: fn (NodeData, NodeDa
         //Caret always points to previous pushed node.
         //No branch should modify self.depth;
         pub fn push(self: *Self, new_data: NodeData) (Error || std.mem.Allocator.Error)!void {
-            self.timer.reset();
-            defer self.last_time += self.timer.read();
             printNSpaces(self.depth, opts.log_function);
             logOut("{any} ", .{new_data});
             defer logOut("\n", .{});
@@ -162,7 +155,7 @@ pub fn StackCache(comptime NodeData: type, comptime eql_fn: fn (NodeData, NodeDa
                             self.destroy_node(next);
                             const new_node = try self.create_node();
                             new_node.* = .{ .data = new_data, .depth = self.depth };
-                            next.next = null;
+                            //next.next = null;
                             self.caret.?.next = new_node;
                             self.caret = new_node;
                         }
@@ -202,15 +195,15 @@ pub fn StackCache(comptime NodeData: type, comptime eql_fn: fn (NodeData, NodeDa
         }
 
         pub fn pop(self: *Self) Error!void {
-            self.timer.reset();
-            defer self.last_time += self.timer.read();
             defer self.depth -= 1;
 
             printNSpaces(self.depth, opts.log_function);
-            logOut("pop\n", .{});
+            logOut("pop ", .{});
+            defer logOut("\n", .{});
 
             if (self.caret.?.next) |next| {
                 if (next.depth != self.depth) { //the next node is only valid if it has the next depth
+                    logOut("dropping", .{});
                     const cont_cache = findNextNonChildNode(self.caret.?);
                     self.dealloc_till(next, cont_cache);
                     if (self.dangle != null) unreachable;
@@ -330,7 +323,7 @@ fn testLcEqlFn(a: u8, b: u8) bool {
     return a == b;
 }
 const TestLc = StackCache(u8, testLcEqlFn, .{
-    .log_debug = false,
+    .log_debug = true,
 });
 test "StackCache init and same cache" {
     const alloc = std.testing.allocator;
