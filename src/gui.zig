@@ -1478,28 +1478,6 @@ pub const Context = struct {
         self.drawText(sl, Vec2f.new(x, area.y), size, color);
     }
 
-    pub fn spinner(self: *Self, val: *f32) void {
-        //TODO add way of timing how long left mouse has been held
-        //on click value changes by a user provided inc value. After held_time has been exceeded start applying inc at a fixed rate
-        //Add support for ints and floats
-        const rec = self.getArea() orelse return;
-        const dec_button = Rect.new(rec.x, rec.y, rec.h, rec.h);
-        const inc_button = Rect.new(rec.x + rec.w - rec.h, rec.y, rec.h, rec.h);
-
-        const dec_click = self.clickWidget(dec_button);
-        const inc_click = self.clickWidget(inc_button);
-
-        if (dec_click == .held or dec_click == .click)
-            val.* -= 0.1;
-        if (inc_click == .held or inc_click == .click)
-            val.* += 0.1;
-
-        self.drawRectFilled(rec, Color.Black);
-        self.drawRectFilled(dec_button, Color.White);
-        self.drawRectFilled(inc_button, Color.White);
-        self.drawTextFmt("{d:.2}", .{val.*}, rec, rec.h, Color.White, .{ .justify = .center });
-    }
-
     pub fn colorInline(self: *Self, color: *Hsva) !void {
         const rec = self.getArea() orelse return;
         const id = self.getId();
@@ -1540,27 +1518,6 @@ pub const Context = struct {
         for (console.lines.items[start..]) |line| {
             self.drawText(line, .{ .x = area.x, .y = area.y + y }, line_height, Color.White);
             y += line_height;
-        }
-    }
-
-    pub fn printLabel(self: *Self, comptime fmt: []const u8, args: anytype) !void {
-        const rec = self.getArea() orelse return;
-        const wstate = self.getWidgetState(.{ .t = WidgetTypes.print_label, .name = fmt, .r = rec });
-        if (wstate == .no_change) return;
-
-        var fbs = std.io.FixedBufferStream([]u8){ .pos = 0, .buffer = &self.scratch_buf };
-        try fbs.writer().print(fmt, args);
-        self.drawRectFilled(rec, Color.Gray);
-        self.drawText(fbs.getWritten(), rec.pos(), rec.h, Color.White);
-    }
-
-    pub fn textLabel(self: *Self, name: []const u8) void {
-        const rec = self.getArea() orelse return;
-
-        const wstate = self.getWidgetState(.{ .t = WidgetTypes.text_label, .rec = rec.toIntRect(i16, SRect), .name = name });
-        if (wstate != .no_change) {
-            self.drawRectFilled(rec, Color.Gray);
-            self.drawText(name, rec.pos(), rec.h, Color.White);
         }
     }
 
@@ -1617,11 +1574,6 @@ pub const Context = struct {
     pub fn endScroll(self: *Self) void {
         self.endLayout(); //SubRectLayout
 
-        // if (self.mouse_grab_id == null and !self.scroll_claimed_mouse and graph.rectContainsPoint(self.scroll_bounds.?, self.input_state.mouse_pos)) {
-        //     self.scroll_claimed_mouse = true;
-        //     scroll_data.offset.y = std.math.clamp(scroll_data.offset.y + self.input_state.mouse_wheel_delta * -40, vbounds.x, vbounds.y);
-        // }
-
         self.scroll_bounds = self.layout.parent_scroll_bounds;
         self.scissor(self.scroll_bounds);
     }
@@ -1643,10 +1595,7 @@ pub const Context = struct {
     pub fn endVLayoutScroll(
         self: *Self,
     ) void {
-        //const dl = data.layout.*;
         self.endLayout();
-        //const scr_dist = dl.current_h - data.data.vertical_slider_area.?.h;
-        //try self.endScrollN(data.data, .{ .x = 0, .y = if (scr_dist < 0) 1 else scr_dist }, .{ .x = 0, .y = 1 });
         self.endScroll();
     }
 

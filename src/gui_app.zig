@@ -5,6 +5,12 @@ const Rec = graph.Rec;
 const itc = graph.itc;
 const Pad = graph.Padding;
 
+const lua = @cImport({
+    @cInclude("lua.h");
+    @cInclude("lauxlib.h");
+    @cInclude("lualib.h");
+});
+
 const ArgUtil = @import("arg_gen.zig");
 const Color = graph.CharColor;
 //const Gui = @import("gui.zig");
@@ -2080,13 +2086,51 @@ pub const GuiTest = struct {
     }
 };
 
+var os9_ctx: Os9Gui = undefined;
+
+pub const Lua = struct {
+    const Ls = ?*lua.lua_State;
+
+    //export fn drawRect()
+    fn pushRect(L: Ls, r: Rect) void {
+        const topush = [_]struct { [*c]const u8, f32 }{
+            .{ "x", r.x },
+            .{ "y", r.y },
+            .{ "w", r.w },
+            .{ "h", r.h },
+        };
+        lua.lua_newtable(L);
+        for (topush) |t| {
+            _ = lua.lua_pushstring(L, t[0]);
+            lua.lua_pushnumber(L, t[1]);
+            lua.lua_settable(L, -3);
+        }
+    }
+
+    export fn getArea(L: Ls) c_int {
+        const area = os9_ctx.gui.getArea();
+        if (area) |a| {
+            pushRect(L, a);
+            return 1;
+        }
+        lua.lua_pushnil(L);
+        return 1;
+    }
+};
+
+export fn l_sin(L: ?*lua.lua_State) c_int {
+    const d = lua.luaL_checknumber(L, 1);
+    lua.lua_pushnumber(L, std.math.sin(d));
+    return 1;
+}
+
 pub fn main() anyerror!void {
     //_ = graph.MarioData.dd;
     var gpa = std.heap.GeneralPurposeAllocator(.{ .retain_metadata = true, .never_unmap = false, .verbose_log = false }){};
     defer _ = gpa.detectLeaks();
     const alloc = gpa.allocator();
 
-    var current_app: enum { keyboard_display, filebrowser, atlas_edit, gtest } = .filebrowser;
+    var current_app: enum { keyboard_display, filebrowser, atlas_edit, gtest, lua_test } = .filebrowser;
     var arg_it = try std.process.ArgIterator.initWithAllocator(alloc);
     defer arg_it.deinit();
     const Arg = ArgUtil.Arg;
@@ -2103,6 +2147,17 @@ pub fn main() anyerror!void {
     if (cli_opts.app) |app|
         current_app = app;
 
+    //BEGIN LUA
+    var L = lua.luaL_newstate();
+    lua.luaL_openlibs(L);
+    lua.lua_register(L, "mysin", l_sin);
+    lua.lua_register(L, "getArea", Lua.getArea);
+    const lf = lua.luaL_loadfilex(L, "script.lua", "bt");
+    _ = lua.lua_pcallk(L, 0, lua.LUA_MULTRET, 0, 0, null);
+    _ = lf;
+
+    //END LUA
+
     const scale = 2.0;
     var win = try graph.SDL.Window.createWindow("My window", .{
         .window_flags = &.{
@@ -2112,7 +2167,6 @@ pub fn main() anyerror!void {
         .window_size = .{ .x = 1600, .y = 1200 },
     });
     defer win.destroyWindow();
-    _ = try graph.Texture.initFromImgFile(alloc, std.fs.cwd(), "debug/bitmaps/30.bmp", .{});
 
     var ctx = try graph.GraphicsContext.init(
         alloc,
@@ -2120,14 +2174,6 @@ pub fn main() anyerror!void {
     );
     defer ctx.deinit();
     graph.c.glLineWidth(1);
-
-    //TODO
-    //load multiple 9 slices into a single texture
-    //An easy way to manage it would be, a directory called "gui_asset", all pngs in this dir will be loaded and packed into a single texture.
-    //Can be referenced by name in program
-    //
-    //const fna = "h9.png";
-    //var t9 = try graph.Texture.initFromImgFile(alloc, std.fs.cwd(), fna, .{ .mag_filter = graph.c.GL_NEAREST });
 
     var dpix: u32 = @as(u32, @intFromFloat(win.getDpi()));
     //const init_size = graph.pxToPt(win.getDpi(), 100);
@@ -2211,6 +2257,8 @@ pub fn main() anyerror!void {
     var os9gui = try Os9Gui.init(alloc, scale, &gui);
     defer os9gui.deinit();
 
+    os9_ctx = os9gui;
+
     while (!win.should_exit) {
         try ctx.beginDraw(win.screen_width, win.screen_height, itc(0x2f2f2fff), true);
         defer dcall_count = ctx.call_count;
@@ -2249,6 +2297,11 @@ pub fn main() anyerror!void {
             defer gui.endLayout();
             switch (current_app) {
                 .keyboard_display => try kbd.update(&os9gui),
+                .lua_test => {
+                    _ = lua.lua_getglobal(L, "docrap");
+                    _ = lua.lua_pcallk(L, 0, 0, 0, 0, null);
+                },
+                //.lua_test => try luaTest(alloc: std.mem.Allocator),
                 .atlas_edit => {
                     try atlas_editor.update(&os9gui);
                 },

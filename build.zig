@@ -34,6 +34,7 @@ pub fn linkLibrary(exe: *std.build.LibExeObjStep) void {
     exe.linkSystemLibrary("epoxy");
     exe.linkSystemLibrary("freetype2");
     exe.linkSystemLibrary("zlib");
+    exe.linkSystemLibrary("lua");
 }
 
 //pub fn addPackage(exe: *std.build.LibExeObjStep, name: []const u8) void {
