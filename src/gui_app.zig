@@ -5,6 +5,7 @@ const Rec = graph.Rec;
 const itc = graph.itc;
 const Pad = graph.Padding;
 
+const ArgUtil = @import("arg_gen.zig");
 const Color = graph.CharColor;
 //const Gui = @import("gui.zig");
 const Gui = graph.Gui;
@@ -975,7 +976,7 @@ pub const KeyboardDisplay = struct {
         const win_area = gui.getArea() orelse return;
         const border_area = win_area.inset(6 * wrap.scale);
         const area = border_area.inset(6 * wrap.scale);
-        const keyboard = Ansi104_60;
+        const keyboard = Ansi104;
 
         gui.draw9Slice(win_area, Os9Gui.os9win, wrap.texture, wrap.scale);
         gui.draw9Slice(border_area, Os9Gui.os9in, wrap.texture, wrap.scale);
@@ -1827,7 +1828,8 @@ pub const Os9Gui = struct {
         if (max > 0) {
             if (self.gui.mouse_grab_id == null and !self.gui.scroll_claimed_mouse and graph.rectContainsPoint(self.gui.scroll_bounds.?, self.gui.input_state.mouse_pos)) {
                 self.gui.scroll_claimed_mouse = true;
-                sd.offset.y = std.math.clamp(sd.offset.y + self.gui.input_state.mouse_wheel_delta * -40, 0, max);
+                const pixel_per_line = 20 * self.scale;
+                sd.offset.y = std.math.clamp(sd.offset.y + self.gui.input_state.mouse_wheel_delta * -pixel_per_line * 3, 0, max);
             }
         }
         self.gui.endLayout();
@@ -2044,11 +2046,51 @@ pub const Os9Gui = struct {
     }
 };
 
+pub const GuiTest = struct {
+    const Self = @This();
+
+    arr: std.ArrayList(u8),
+    pub fn init(alloc: std.mem.Allocator) Self {
+        return .{ .arr = std.ArrayList(u8).init(alloc) };
+    }
+    pub fn deinit(self: *Self) void {
+        self.arr.deinit();
+    }
+
+    pub fn update(self: *Self, wrap: *Os9Gui) !void {
+        const gui = wrap.gui;
+        const scale = wrap.scale;
+        const area = gui.getArea() orelse return;
+        gui.draw9Slice(area, Os9Gui.os9win, wrap.texture, scale);
+        var vl = try wrap.beginSubLayout(area.inset(6 * scale), Gui.VerticalLayout, .{ .item_height = 20 * scale, .padding = .{ .bottom = 6 * scale } });
+        defer wrap.endSubLayout();
+        _ = vl;
+        try wrap.textbox(&self.arr);
+    }
+};
+
 pub fn main() anyerror!void {
     //_ = graph.MarioData.dd;
-    var gpa = std.heap.GeneralPurposeAllocator(.{ .retain_metadata = true, .never_unmap = true, .verbose_log = false }){};
+    var gpa = std.heap.GeneralPurposeAllocator(.{ .retain_metadata = true, .never_unmap = false, .verbose_log = false }){};
     defer _ = gpa.detectLeaks();
     const alloc = gpa.allocator();
+
+    var current_app: enum { keyboard_display, filebrowser, atlas_edit, gtest } = .atlas_edit;
+    var arg_it = try std.process.ArgIterator.initWithAllocator(alloc);
+    defer arg_it.deinit();
+    const Arg = ArgUtil.Arg;
+    const cli_opts = (ArgUtil.parseArgs(&.{
+        Arg("test_bool", .flag, "fuck stain"),
+        ArgUtil.ArgCustom("app", @TypeOf(current_app), "Which gui app to run"),
+    }, &arg_it) catch |err| switch (err) {
+        error.printedHelp => return,
+        else => {
+            std.debug.print("Error while parsing args, exiting.\nUse --help for info\n", .{});
+            return;
+        },
+    });
+    if (cli_opts.app) |app|
+        current_app = app;
 
     const scale = 2.0;
     var win = try graph.SDL.Window.createWindow("My window", .{
@@ -2152,10 +2194,11 @@ pub fn main() anyerror!void {
     var kbd = KeyboardDisplay.init(alloc);
     defer kbd.deinit();
 
+    var gt = GuiTest.init(alloc);
+    defer gt.deinit();
+
     var os9gui = try Os9Gui.init(alloc, scale, &gui);
     defer os9gui.deinit();
-
-    var current_app: enum { keyboard_display, filebrowser, atlas_edit } = .filebrowser;
 
     while (!win.should_exit) {
         try ctx.beginDraw(win.screen_width, win.screen_height, itc(0x2f2f2fff), true);
@@ -2196,6 +2239,9 @@ pub fn main() anyerror!void {
             switch (current_app) {
                 .keyboard_display => try kbd.update(&os9gui),
                 .atlas_edit => {},
+                .gtest => {
+                    try gt.update(&os9gui);
+                },
                 .filebrowser => {
                     try fb.update(&os9gui);
                     switch (fb.flag) {
