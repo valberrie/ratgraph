@@ -1307,6 +1307,7 @@ pub const Context = struct {
         return click;
     }
 
+    //TODO ensure our new layout does not clip the previous layout, special case for scroll areas and popups as they can clip
     pub fn beginLayout(self: *Self, comptime Layout_T: type, layout_data: Layout_T, opts: struct { bg: Color = itc(0x222222ff) }) !*Layout_T {
         const new_layout = try self.alloc.create(Layout_T);
         new_layout.* = layout_data;

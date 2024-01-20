@@ -215,7 +215,7 @@ pub const FileBrowser = struct {
         .{ .name = "crash lol", .abs_path = "/root" },
         .{ .name = "Home", .abs_path = "/home/tony" },
         .{ .name = "Gui repo", .abs_path = "/home/tony/user-data/develpment/zig-gui" },
-        .{ .name = "Mario", .abs_path = "/home/tony/user-data/develpment/zig-game_engine/mario_assets" },
+        .{ .name = "Mario", .abs_path = "/home/tony/user-data/develpment/zig_rat_game/asset" },
     };
 
     pub const FilePreview = struct {
@@ -1307,161 +1307,24 @@ pub const AtlasEditor = struct {
 
     pub fn update(self: *Self, wrap: *Os9Gui) !void {
         const gui = wrap.gui;
-        const inspector_item_height = 50;
-        const area = gui.getArea() orelse return;
-        _ = try gui.beginLayout(Gui.SubRectLayout, .{ .rect = area }, .{});
-        defer gui.endLayout();
-        const inspector_rec = graph.Rec(area.x, area.y, area.w / 3, area.h);
-        const canvas = graph.Rec(area.x + inspector_rec.w, area.y, area.w - inspector_rec.w, area.h);
-        { //Inspector
-            _ = try gui.beginLayout(Gui.SubRectLayout, .{ .rect = inspector_rec }, .{});
-            defer gui.endLayout();
-            if (try wrap.beginVScroll(&self.inspector_scroll)) |inspector_scroll| {
-                if (self.loaded_atlas) |*atlas| {
-                    inspector_scroll.layout.pushHeight(inspector_item_height * 40);
-                    //if (try gui.beginVLayoutScroll(&self.set_scroll, .{ .item_height = inspector_item_height })) |set_scroll| {
-                    for (atlas.atlas_data.sets, 0..) |*set, si| {
-                        inspector_scroll.layout.pushHeight(inspector_item_height * 3);
-                        {
-                            _ = try gui.beginLayout(Gui.VerticalLayout, .{ .item_height = inspector_item_height }, .{});
-                            defer gui.endLayout();
-                            if (wrap.button(set.filename)) {
-                                try gui.console.print("Setting new index {d} {d}", .{ 0, si });
-                                gui.text_input_state.active_id = null;
-                                gui.text_input_state.state = .stop;
-                                self.canvas_cam = null;
-                                self.set_index = 0;
-                                self.atlas_index = si;
-                            }
-                            if (wrap.button("new set")) {
-                                std.debug.print("Sett {d}\n", .{set.tilesets.len});
-                                const index = set.tilesets.len;
-                                set.tilesets = try atlas.alloc.realloc(set.tilesets, set.tilesets.len + 1);
-                                set.tilesets[set.tilesets.len - 1] = self.new_ts_default;
-                                self.set_index = index;
-                            }
-                        }
-                        for (set.tilesets, 0..) |ts, tsi| {
-                            const rec = gui.getArea() orelse break;
-                            var col = Color.White;
-                            if (self.mode == .copy_range) {
-                                if (self.atlas_index == si and tsi < self.copy_range_range_end and tsi >= self.copy_range_range_start) {
-                                    col = Color.Green;
-                                }
-                            }
-                            gui.drawText(if (ts.description.len > 0) ts.description else "{blank}", rec.pos(), rec.h, col);
-                            const click = gui.clickWidget(rec);
-                            if (click == .click) {
-                                if (self.atlas_index != si) {
-                                    self.copy_range_range_start = 0;
-                                    self.copy_range_range_end = 0;
-                                }
-                                try gui.console.print("Setting new index {d} {d}", .{ tsi, si });
-                                gui.text_input_state.active_id = null;
-                                gui.text_input_state.state = .stop;
-                                self.canvas_cam = null;
-                                self.set_index = tsi;
-                                self.atlas_index = si;
-                            }
-                        }
-                    }
-                    //try gui.endVLayoutScroll(set_scroll);
-                    //}
-                    if (atlas.atlas_data.sets[self.atlas_index].tilesets.len > 0) {
-                        try wrap.textbox(&atlas.atlas_data.sets[self.atlas_index].tilesets[self.set_index].description);
+        const win_area = gui.getArea() orelse return;
+        const border_area = win_area.inset(6 * wrap.scale);
+        const area = border_area.inset(6 * wrap.scale);
+        const w_id = gui.getId();
+        _ = w_id;
+        gui.draw9Slice(win_area, Os9Gui.os9win, wrap.texture, wrap.scale);
+        gui.draw9Slice(border_area, Os9Gui.os9in, wrap.texture, wrap.scale);
 
-                        const sts = &atlas.atlas_data.sets[self.atlas_index].tilesets[self.set_index];
+        const root = area.split(.vertical, area.w / 3);
+        const inspector_rec = root[0];
+        const canvas_outer = root[1];
+        const canvas_b = canvas_outer.inset(6 * wrap.scale);
+        gui.draw9Slice(canvas_b, Os9Gui.inset9, wrap.texture, wrap.scale);
+        const canvas = canvas_b.inset(wrap.scale * Os9Gui.inset9.w / 3);
 
-                        //try gui.printLabel("Tile count: {d}", .{sts.count});
-                        try gui.sliderOpts(&sts.count, 1, 1000, .{ .handle_w = 40, .label_text = "Count: " });
-                        try gui.sliderOpts(&sts.num.x, 1, 1000, .{ .handle_w = 40, .label_text = "Num x: " });
-                        try gui.sliderOpts(&sts.num.y, 1, 1000, .{ .handle_w = 40, .label_text = "Num y: " });
-                        try gui.sliderOpts(&sts.tw, 1, 1000, .{ .handle_w = 40, .label_text = "tw: " });
-                        try gui.sliderOpts(&sts.th, 1, 1000, .{ .handle_w = 40, .label_text = "th: " });
-                    }
-
-                    gui.checkbox("overlay unfocused", &self.draw_unfocused_overlay);
-                    if (gui.button("Save file")) {
-                        const f = self.file_browser.?.file.?;
-                        const fname = "testoutput.json";
-                        var out_file = try f.dir.createFile(fname, .{});
-                        defer out_file.close();
-                        try std.json.stringify(atlas.atlas_data, .{}, out_file.writer());
-                        try gui.console.print("Saving to file: {s}", .{fname});
-                    }
-                    if (gui.button("set current as default")) {
-                        self.new_ts_default = atlas.atlas_data.sets[self.atlas_index].tilesets[self.set_index];
-                        self.new_ts_default.description = "";
-                    }
-                    try gui.enumDropDown(Mode, &self.mode);
-                    switch (self.mode) {
-                        .copy_range => {
-                            const max_index: f32 = @floatFromInt(atlas.atlas_data.sets[self.atlas_index].tilesets.len);
-
-                            try gui.sliderOpts(&self.copy_range_offset_x, -1000, 1000, .{ .handle_w = 40, .label_text = "cpy offset x: " });
-                            try gui.sliderOpts(&self.copy_range_offset_y, -1000, 1000, .{ .handle_w = 40, .label_text = "cpy offset y: " });
-                            try gui.sliderOpts(&self.copy_range_range_start, 0, max_index, .{ .handle_w = 40, .label_text = "cpy start i: " });
-                            try gui.sliderOpts(&self.copy_range_range_end, 0, max_index, .{ .handle_w = 40, .label_text = "cpy end i: " });
-                            try gui.textbox(&self.copy_range_desc_prefix, self.alloc);
-                            _ = blk: {
-                                if (gui.button("Push copy")) {
-                                    if (self.copy_range_desc_prefix.len == 0) {
-                                        try gui.console.print("error: Unable to copy tileset range without a description prefix", .{});
-                                        break :blk;
-                                    }
-                                    const current_sets = &atlas.atlas_data.sets[self.atlas_index].tilesets;
-                                    if (self.copy_range_range_end > current_sets.len) {
-                                        try gui.console.print("error: copy end range larger than current selected set", .{});
-                                        break :blk;
-                                    }
-                                    const copy_len = self.copy_range_range_end - self.copy_range_range_start;
-                                    if (copy_len == 0) {
-                                        try gui.console.print("error: Unable to copy zero length range", .{});
-                                        break :blk;
-                                    }
-
-                                    var new_sets: []graph.SubTileset = try self.alloc.alloc(graph.SubTileset, copy_len);
-                                    defer self.alloc.free(new_sets);
-                                    for (current_sets.*[self.copy_range_range_start..self.copy_range_range_end], 0..) |set, new_i| {
-                                        const st = set.start;
-                                        new_sets[new_i] = set;
-                                        new_sets[new_i].start = .{ .x = st.x + self.copy_range_offset_x, .y = st.y + self.copy_range_offset_y };
-                                        var new_name = std.ArrayList(u8).init(self.alloc);
-                                        try new_name.appendSlice(self.copy_range_desc_prefix);
-                                        try new_name.appendSlice(set.description);
-
-                                        new_sets[new_i].description = try new_name.toOwnedSlice();
-
-                                        try gui.console.print("copying \"{s}{s}\"", .{ self.copy_range_desc_prefix, set.description });
-                                    }
-
-                                    const cpy_start_i = current_sets.len;
-                                    current_sets.* = try self.alloc.realloc(current_sets.*, cpy_start_i + new_sets.len);
-                                    @memcpy(current_sets.*[cpy_start_i .. new_sets.len + cpy_start_i], new_sets);
-
-                                    try gui.console.print("success: Copied {d} tilesets", .{copy_len});
-                                }
-                            };
-                        },
-                        .add_image => {
-                            try gui.textbox(&self.add_image_filename, self.alloc);
-
-                            if (gui.button("add set")) {
-                                atlas.addSet(self.add_image_filename) catch |err| switch (err) {
-                                    error.FileNotFound => try gui.console.print("error: Unable to add set. Image file not found: {s}", .{self.add_image_filename}),
-                                    else => return err,
-                                };
-                            }
-                        },
-                        else => {},
-                    }
-                }
-                inspector_scroll.layout.pushHeight(inspector_item_height * 50);
-                gui.drawConsole(gui.console, inspector_item_height);
-                try gui.endVLayoutScroll(inspector_scroll);
-            }
-        }
+        const inspector_item_height = 20;
         _ = try gui.beginLayout(Gui.SubRectLayout, .{ .rect = canvas }, .{});
+        defer gui.endLayout();
         if (self.loaded_atlas) |atlas| {
             const tex = atlas.textures.items[self.atlas_index];
             var sts = &atlas.atlas_data.sets[self.atlas_index].tilesets[self.set_index];
@@ -1473,7 +1336,7 @@ pub const AtlasEditor = struct {
                     break :blk &self.canvas_cam.?;
                 }
             };
-            if (gui.mouse_grabbed_by_hash == null and graph.rectContainsPoint(canvas, gui.input_state.mouse_pos)) {
+            if (gui.mouse_grab_id == null and graph.rectContainsPoint(canvas, gui.input_state.mouse_pos)) {
                 {
                     const zf = 0.1;
                     const md = gui.input_state.mouse_wheel_delta;
@@ -1537,34 +1400,36 @@ pub const AtlasEditor = struct {
                 gui.drawRectFilled(tw_handle, Color.Black);
                 _ = gui.draggable(tw_handle, f, &sts.tw, &sts.th, .{ .x_min = 1, .y_min = 1 });
 
-                const marquee = gui.clickWidget(graph.Rec(0, 0, 0, 0), .{ .teleport_area = canvas });
-                if (marquee == .click_teleport) {
-                    self.marquee = graph.Rec(0, 0, 0, 0);
-                    self.marquee.x = gui.input_state.mouse_pos.x;
-                    self.marquee.y = gui.input_state.mouse_pos.y;
+                const marquee = gui.clickWidgetEx(graph.Rec(0, 0, 0, 0), .{ .teleport_area = canvas });
+                switch (marquee.click) {
+                    else => {},
+                    .click_teleport => {
+                        self.marquee = graph.Rec(0, 0, 0, 0);
+                        self.marquee.x = gui.input_state.mouse_pos.x;
+                        self.marquee.y = gui.input_state.mouse_pos.y;
+                    },
+                    .held => {
+                        self.marquee.w = (gui.input_state.mouse_pos.x) - self.marquee.x;
+                        self.marquee.h = (gui.input_state.mouse_pos.y) - self.marquee.y;
+                    },
+                    .none => {},
+                    .click_release => {
+                        cam.cam_area = cam.toCam(self.marquee);
+                        if (self.marquee.w < 1 or self.marquee.h < 1) {
+                            cam.cam_area = tex.rect();
+                        }
+                        self.marquee = graph.Rec(0, 0, 0, 0);
+                    },
                 }
-                if (marquee == .held) {
-                    self.marquee.w = (gui.input_state.mouse_pos.x) - self.marquee.x;
-                    self.marquee.h = (gui.input_state.mouse_pos.y) - self.marquee.y;
-                }
-
-                if (marquee != .none) {
-                    gui.drawRectOutline(self.marquee, Color.White);
-                }
-
-                if (marquee == .click_release) {
-                    cam.cam_area = cam.toCam(self.marquee);
-                    if (self.marquee.w < 1 or self.marquee.h < 1) {
-                        cam.cam_area = tex.rect();
-                    }
-                }
+                gui.drawRectOutline(self.marquee, Color.White);
 
                 gui.scissor(null);
             }
         } else {
             if (self.file_browser == null)
                 self.file_browser = try FileBrowser.init(self.alloc, std.fs.cwd());
-            try self.file_browser.?.update(gui);
+
+            try self.file_browser.?.update(wrap);
             if (self.file_browser.?.file) |file| {
                 self.loaded_atlas = graph.Atlas.initFromJsonFile(file.dir, file.file_name, self.alloc) catch blk: {
                     try gui.console.print("Unable to load \"{s}\" as an atlas manifest", .{file.file_name});
@@ -1573,7 +1438,153 @@ pub const AtlasEditor = struct {
                 };
             }
         }
-        gui.endLayout();
+        { //Inspector
+            _ = try gui.beginLayout(Gui.SubRectLayout, .{ .rect = inspector_rec }, .{});
+            defer gui.endLayout();
+            if (try wrap.beginVScroll(&self.inspector_scroll)) |inspector_scroll| {
+                defer wrap.endVScroll(inspector_scroll);
+                if (self.loaded_atlas) |*atlas| {
+                    //if (try gui.beginVLayoutScroll(&self.set_scroll, .{ .item_height = inspector_item_height })) |set_scroll| {
+                    for (atlas.atlas_data.sets, 0..) |*set, si| {
+                        inspector_scroll.layout.pushHeight(inspector_item_height * 3);
+                        {
+                            _ = try gui.beginLayout(Gui.VerticalLayout, .{ .item_height = inspector_item_height }, .{});
+                            defer gui.endLayout();
+                            if (wrap.button(set.filename)) {
+                                try gui.console.print("Setting new index {d} {d}", .{ 0, si });
+                                gui.text_input_state.active_id = null;
+                                gui.text_input_state.state = .stop;
+                                self.canvas_cam = null;
+                                self.set_index = 0;
+                                self.atlas_index = si;
+                            }
+                            if (wrap.button("new set")) {
+                                std.debug.print("Sett {d}\n", .{set.tilesets.len});
+                                const index = set.tilesets.len;
+                                set.tilesets = try atlas.alloc.realloc(set.tilesets, set.tilesets.len + 1);
+                                set.tilesets[set.tilesets.len - 1] = self.new_ts_default;
+                                self.set_index = index;
+                            }
+                        }
+                        for (set.tilesets, 0..) |ts, tsi| {
+                            const rec = gui.getArea() orelse continue;
+                            var col = Color.White;
+                            if (self.mode == .copy_range) {
+                                if (self.atlas_index == si and tsi < self.copy_range_range_end and tsi >= self.copy_range_range_start) {
+                                    col = Color.Green;
+                                }
+                            }
+                            gui.drawText(if (ts.description.len > 0) ts.description else "{blank}", rec.pos(), rec.h, col);
+                            const click = gui.clickWidget(rec);
+                            if (click == .click) {
+                                if (self.atlas_index != si) {
+                                    self.copy_range_range_start = 0;
+                                    self.copy_range_range_end = 0;
+                                }
+                                try gui.console.print("Setting new index {d} {d}", .{ tsi, si });
+                                gui.text_input_state.active_id = null;
+                                gui.text_input_state.state = .stop;
+                                self.canvas_cam = null;
+                                self.set_index = tsi;
+                                self.atlas_index = si;
+                            }
+                        }
+                    }
+                    //try gui.endVLayoutScroll(set_scroll);
+                    //}
+                    if (atlas.atlas_data.sets[self.atlas_index].tilesets.len > 0) {
+                        //try wrap.textbox(&atlas.atlas_data.sets[self.atlas_index].tilesets[self.set_index].description);
+
+                        const sts = &atlas.atlas_data.sets[self.atlas_index].tilesets[self.set_index];
+
+                        //try gui.printLabel("Tile count: {d}", .{sts.count});
+                        wrap.slider(&sts.count, 1, 1000); //Count
+                        wrap.slider(&sts.num.x, 1, 1000); //Num x
+                        wrap.slider(&sts.num.y, 1, 1000); //num y
+                        wrap.slider(&sts.tw, 1, 1000); //twe
+                        wrap.slider(&sts.th, 1, 1000); //th
+                    }
+
+                    _ = wrap.checkbox("overlay unfocused", &self.draw_unfocused_overlay);
+                    if (wrap.button("Save file")) {
+                        const f = self.file_browser.?.file.?;
+                        const fname = "testoutput.json";
+                        var out_file = try f.dir.createFile(fname, .{});
+                        defer out_file.close();
+                        try std.json.stringify(atlas.atlas_data, .{}, out_file.writer());
+                        try gui.console.print("Saving to file: {s}", .{fname});
+                    }
+                    if (wrap.button("set current as default")) {
+                        self.new_ts_default = atlas.atlas_data.sets[self.atlas_index].tilesets[self.set_index];
+                        self.new_ts_default.description = "";
+                    }
+                    try wrap.enumDropdown(Mode, &self.mode);
+                    switch (self.mode) {
+                        .copy_range => {
+                            const max_index: f32 = @floatFromInt(atlas.atlas_data.sets[self.atlas_index].tilesets.len);
+
+                            wrap.slider(&self.copy_range_offset_x, -1000, 1000);
+                            wrap.slider(&self.copy_range_offset_y, -1000, 1000);
+                            wrap.slider(&self.copy_range_range_start, 0, max_index);
+                            wrap.slider(&self.copy_range_range_end, 0, max_index);
+                            //wrap.textbox(&self.copy_range_desc_prefix, self.alloc);
+                            _ = blk: {
+                                if (wrap.button("Push copy")) {
+                                    if (self.copy_range_desc_prefix.len == 0) {
+                                        try gui.console.print("error: Unable to copy tileset range without a description prefix", .{});
+                                        break :blk;
+                                    }
+                                    const current_sets = &atlas.atlas_data.sets[self.atlas_index].tilesets;
+                                    if (self.copy_range_range_end > current_sets.len) {
+                                        try gui.console.print("error: copy end range larger than current selected set", .{});
+                                        break :blk;
+                                    }
+                                    const copy_len = self.copy_range_range_end - self.copy_range_range_start;
+                                    if (copy_len == 0) {
+                                        try gui.console.print("error: Unable to copy zero length range", .{});
+                                        break :blk;
+                                    }
+
+                                    var new_sets: []graph.SubTileset = try self.alloc.alloc(graph.SubTileset, copy_len);
+                                    defer self.alloc.free(new_sets);
+                                    for (current_sets.*[self.copy_range_range_start..self.copy_range_range_end], 0..) |set, new_i| {
+                                        const st = set.start;
+                                        new_sets[new_i] = set;
+                                        new_sets[new_i].start = .{ .x = st.x + self.copy_range_offset_x, .y = st.y + self.copy_range_offset_y };
+                                        var new_name = std.ArrayList(u8).init(self.alloc);
+                                        try new_name.appendSlice(self.copy_range_desc_prefix);
+                                        try new_name.appendSlice(set.description);
+
+                                        new_sets[new_i].description = try new_name.toOwnedSlice();
+
+                                        try gui.console.print("copying \"{s}{s}\"", .{ self.copy_range_desc_prefix, set.description });
+                                    }
+
+                                    const cpy_start_i = current_sets.len;
+                                    current_sets.* = try self.alloc.realloc(current_sets.*, cpy_start_i + new_sets.len);
+                                    @memcpy(current_sets.*[cpy_start_i .. new_sets.len + cpy_start_i], new_sets);
+
+                                    try gui.console.print("success: Copied {d} tilesets", .{copy_len});
+                                }
+                            };
+                        },
+                        .add_image => {
+                            // try gui.textbox(&self.add_image_filename, self.alloc);
+
+                            if (wrap.button("add set")) {
+                                atlas.addSet(self.add_image_filename) catch |err| switch (err) {
+                                    error.FileNotFound => try gui.console.print("error: Unable to add set. Image file not found: {s}", .{self.add_image_filename}),
+                                    else => return err,
+                                };
+                            }
+                        },
+                        else => {},
+                    }
+                }
+                //inspector_scroll.layout.pushHeight(inspector_item_height * 50);
+                //gui.drawConsole(gui.console, inspector_item_height);
+            }
+        }
     }
 };
 
@@ -1955,7 +1966,7 @@ pub const Os9Gui = struct {
         }
     }
 
-    pub fn sliderOpts(self: *Self, value: anytype, min: anytype, max: anytype) void {
+    pub fn slider(self: *Self, value: anytype, min: anytype, max: anytype) void {
         const gui = self.gui;
         if (gui.sliderGeneric(value, min, max, .{
             .handle_w = os9shuttle.w * self.scale,
@@ -2002,7 +2013,7 @@ pub const Os9Gui = struct {
                     }
                 }
                 try d.endFieldList(gui);
-                self.scrollBar(dd.slider_ptr.?, d.slider_range.x, d.slider_range.y, .vertical);
+                self.scrollBar(dd.slider_ptr.?, d.slider_range.x, d.slider_range.y, .vertical, .{});
             } else {
                 gui.draw9Slice(d.area, os9drop, self.texture, self.scale);
                 const text = d.area.inset(3 * self.scale);
@@ -2075,7 +2086,7 @@ pub fn main() anyerror!void {
     defer _ = gpa.detectLeaks();
     const alloc = gpa.allocator();
 
-    var current_app: enum { keyboard_display, filebrowser, atlas_edit, gtest } = .atlas_edit;
+    var current_app: enum { keyboard_display, filebrowser, atlas_edit, gtest } = .filebrowser;
     var arg_it = try std.process.ArgIterator.initWithAllocator(alloc);
     defer arg_it.deinit();
     const Arg = ArgUtil.Arg;
@@ -2238,7 +2249,9 @@ pub fn main() anyerror!void {
             defer gui.endLayout();
             switch (current_app) {
                 .keyboard_display => try kbd.update(&os9gui),
-                .atlas_edit => {},
+                .atlas_edit => {
+                    try atlas_editor.update(&os9gui);
+                },
                 .gtest => {
                     try gt.update(&os9gui);
                 },
