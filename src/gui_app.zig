@@ -4,6 +4,8 @@ const Rect = graph.Rect;
 const Rec = graph.Rec;
 const itc = graph.itc;
 const Pad = graph.Padding;
+//TODO it would be usefull to have types with owners?
+//we get a string from lua
 
 const lua = @cImport({
     @cInclude("lua.h");
@@ -22,74 +24,6 @@ const fg = itc(0xffffffff);
 const bg4 = itc(0xff);
 const bg2 = itc(0xff);
 const bg0 = itc(0xff);
-
-pub const Test = struct {
-    const Col = [_]Color{
-        Color.Blue,
-        Color.Green,
-        Color.Red,
-        Color.Pink,
-        Color.Purple,
-        Color.White,
-    };
-    var color_counter: usize = 0;
-    pub const Split = struct {
-        orientation: graph.Orientation,
-        perc: f32,
-    };
-
-    pub const Lt = struct {
-        name: []const u8,
-        kind: ?enum { h, v } = null,
-        nodes: []const Lt,
-        percent: f32,
-    };
-
-    pub const Node = struct {
-        name: []const u8,
-        left: ?*const Node = null,
-        right: ?*const Node = null,
-        split: Split,
-    };
-
-    fn drawNode(gui: *Gui.Context, area: Rect) void {
-        const a = area.inset(10);
-        gui.drawRectFilled(a, Col[color_counter]);
-        gui.drawTextFmt("{d}", .{color_counter}, a, 40, Color.Black, .{});
-        color_counter = (color_counter + 1) % Col.len;
-    }
-
-    pub fn traverse(gui: *Gui.Context, area: Rect, n: Node) void {
-        //drawNode(gui, area);
-
-        const d = switch (n.split.orientation) {
-            .vertical => area.w,
-            .horizontal => area.h,
-        };
-        const p = area.split(n.split.orientation, n.split.perc * d);
-        drawNode(gui, p[0]);
-        drawNode(gui, p[1]);
-        if (n.left) |l| {
-            traverse(gui, p[0], l.*);
-        } else {}
-
-        if (n.right) |r| {
-            traverse(gui, p[1], r.*);
-        } else {}
-    }
-    //Root rect
-    //split
-
-    pub fn nothing() void {
-        const root = Rec(0, 0, 100, 100);
-        const my_layout = Node{
-            .split = .{ .orientation = .vertical, .pos = 20 },
-            .left = &.{ .split = .{ .orientation = .horizontal, .pos = 40 } },
-        };
-        _ = root;
-        traverse(my_layout);
-    }
-};
 
 pub const MyStruct = struct {
     my_color: graph.Hsva = .{ .h = 20, .s = 1, .v = 1, .a = 1 },
@@ -604,7 +538,7 @@ pub const FileBrowser = struct {
         const first_child = main_t.split(.horizontal, item_height + 6 * wrap.scale);
 
         const header_bar = first_child[0].insetV(6 * wrap.scale, 1 * wrap.scale);
-        const second_child = first_child[1].split(.horizontal, first_child[1].h - item_height);
+        const second_child = first_child[1].split(.horizontal, first_child[1].h - item_height * 2);
         const main_area = second_child[0].inset(6 * wrap.scale);
         const bottom_bar = second_child[1].insetV(6 * wrap.scale, 1 * wrap.scale);
 
@@ -1015,7 +949,7 @@ pub const KeyboardDisplay = struct {
                             const rr = Rect.new(r.x + x, r.y + y, ww, kh);
                             gui.draw9Slice(rr.inset(3), Os9Gui.outset9, wrap.texture, wrap.scale);
                             if (key.name) |n| {
-                                gui.drawText(n, rr.pos(), 10 * wrap.scale, Color.Black);
+                                gui.drawTextFmt("{s}", .{n}, rr, 10 * wrap.scale, Color.Black, .{});
                             }
                         },
                         .spacing => {},
@@ -1687,6 +1621,9 @@ pub const Os9Gui = struct {
 
     const win_warning = Rec(0, 60, 32, 32);
 
+    //lua specific state
+    vlayout: ?*Gui.VerticalLayout = null,
+
     texture: graph.Texture,
     scale: f32,
     gui: *Gui.Context,
@@ -1945,8 +1882,7 @@ pub const Os9Gui = struct {
         const color = if (params.disabled) text_disabled else Color.Black;
         gui.draw9Slice(d.area, sl1, self.texture, self.scale);
         const texta = d.area.inset(3 * self.scale);
-        const bounds = gui.font.textBounds(label_, texta.h);
-        gui.drawText(label_, texta.pos().add(.{ .x = (texta.w - bounds.x) / 2, .y = 0 }), texta.h, color);
+        gui.drawTextFmt("{s}", .{label_}, texta, texta.h, color, .{ .justify = .center });
 
         return (d.state == .click) and !params.disabled;
     }
@@ -1995,7 +1931,7 @@ pub const Os9Gui = struct {
                 os9checkbox,
                 self.texture,
             );
-            gui.drawText(label_, area.pos().add(.{ .x = area.h * 1.5, .y = 0 }), area.h, Color.Black);
+            gui.drawTextFmt("{s}", .{label_}, area, area.h, Color.Black, .{});
             if (checked.*)
                 gui.drawRectTextured(br.addV(2 * self.scale, 0), Color.White, os9check, self.texture);
             return d.changed;
@@ -2023,7 +1959,7 @@ pub const Os9Gui = struct {
             } else {
                 gui.draw9Slice(d.area, os9drop, self.texture, self.scale);
                 const text = d.area.inset(3 * self.scale);
-                gui.drawText(@tagName(enum_val.*), text.pos(), text.h, Color.Black);
+                gui.drawTextFmt("{s}", .{@tagName(enum_val.*)}, text, text.h, Color.Black, .{});
                 const ow = self.scale * os9drop.w / 3;
                 const oh = self.scale * os9drop.h / 3;
                 const btn_rec = Rec(d.area.x + d.area.w - ow - os9dropbtn.w * self.scale, d.area.y + oh, os9dropbtn.w * self.scale, os9dropbtn.h * self.scale);
@@ -2040,7 +1976,7 @@ pub const Os9Gui = struct {
             gui.draw9Slice(d.area, inset9, self.texture, self.scale);
             if (d.is_invalid)
                 gui.drawRectFilled(d.text_area, itc(0xff000086));
-            gui.drawText(d.slice, d.text_area.pos(), d.text_area.h, Color.Black);
+            gui.drawTextFmt("{s}", .{d.slice}, d.text_area, d.text_area.h, Color.Black, .{});
             if (d.caret) |of| {
                 gui.drawRectFilled(Rect.new(of + tr.x, tr.y + 2, 3, tr.h - 4), Color.Black);
             }
@@ -2055,7 +1991,7 @@ pub const Os9Gui = struct {
         if (try gui.textboxGeneric(contents, .{ .text_inset = 3 * self.scale })) |d| {
             const tr = d.text_area;
             gui.draw9Slice(d.area, inset9, self.texture, self.scale);
-            gui.drawText(d.slice, d.text_area.pos(), d.text_area.h, Color.Black);
+            gui.drawTextFmt("{s}", .{d.slice}, d.text_area, d.text_area.h, Color.Black, .{});
             if (d.caret) |of| {
                 gui.drawRectFilled(Rect.new(of + tr.x, tr.y + 2, 3, tr.h - 4), Color.Black);
             }
@@ -2090,39 +2026,227 @@ var os9_ctx: Os9Gui = undefined;
 
 pub const Lua = struct {
     const Ls = ?*lua.lua_State;
+    var zstring_buffer: [512]u8 = undefined;
 
-    //export fn drawRect()
-    fn pushRect(L: Ls, r: Rect) void {
-        const topush = [_]struct { [*c]const u8, f32 }{
-            .{ "x", r.x },
-            .{ "y", r.y },
-            .{ "w", r.w },
-            .{ "h", r.h },
-        };
-        lua.lua_newtable(L);
-        for (topush) |t| {
-            _ = lua.lua_pushstring(L, t[0]);
-            lua.lua_pushnumber(L, t[1]);
-            lua.lua_settable(L, -3);
+    pub fn checkError(L: Ls, err: c_int) void {
+        if (err != 0) {
+            var len: usize = 0;
+            const str = lua.lua_tolstring(L, 1, &len);
+            std.debug.print("{s}\n", .{str[0..len]});
+            lua.lua_pop(L, 1);
         }
     }
 
-    export fn getArea(L: Ls) c_int {
-        const area = os9_ctx.gui.getArea();
-        if (area) |a| {
-            pushRect(L, a);
-            return 1;
+    pub export fn printStack(L: Ls) c_int {
+        std.debug.print("STACK: \n", .{});
+        const top = lua.lua_gettop(L);
+        var i: i32 = 1;
+        while (i <= top) : (i += 1) {
+            const t = lua.lua_type(L, i);
+            switch (t) {
+                lua.LUA_TSTRING => std.debug.print("STRING: {s}\n", .{tostring(L, i)}),
+                lua.LUA_TBOOLEAN => std.debug.print("BOOL: {any}\n", .{lua.lua_toboolean(L, i)}),
+                lua.LUA_TNUMBER => std.debug.print("{d}\n", .{tonumber(L, i)}),
+                else => std.debug.print("{s}\n", .{lua.lua_typename(L, t)}),
+            }
         }
-        lua.lua_pushnil(L);
+        std.debug.print("END STACK\n", .{});
+        return 0;
+    }
+
+    pub fn tonumber(L: Ls, idx: c_int) lua.lua_Number {
+        var is_num: c_int = 0;
+        return lua.lua_tonumberx(L, idx, &is_num);
+    }
+
+    pub fn tostring(L: Ls, idx: c_int) []const u8 {
+        var len: usize = 0;
+        const str = lua.lua_tolstring(L, idx, &len);
+        return str[0..len];
+    }
+
+    pub fn zstring(str: []const u8) [*c]const u8 {
+        std.mem.copy(u8, &zstring_buffer, str);
+        zstring_buffer[str.len] = 0;
+        return &zstring_buffer[0];
+    }
+
+    pub fn register(L: Ls) void {
+        lua.lua_register(L, "printStack", printStack);
+        lua.lua_register(L, "label", Lua.label);
+        lua.lua_register(L, "checkbox", Lua.checkbox);
+        lua.lua_register(L, "getArea", Lua.getArea);
+        lua.lua_register(L, "beginV", Lua.beginVertical);
+        lua.lua_register(L, "pushHeight", Lua.pushHeight);
+        lua.lua_register(L, "endV", Lua.endVertical);
+        lua.lua_register(L, "button", Lua.button);
+        lua.lua_register(L, "slider", Lua.slider);
+        lua.lua_register(L, "getStruct", getStruct);
+        lua.lua_register(L, "giveData", giveData);
+    }
+
+    fn getArg(L: Ls, comptime s: type, idx: c_int) s {
+        const in = @typeInfo(s);
+        return switch (in) {
+            .Float => @floatCast(lua.luaL_checknumber(L, idx)),
+            .Int => std.math.lossyCast(s, lua.luaL_checkinteger(L, idx)),
+            .Enum => blk: {
+                var len: usize = 0;
+                const str = lua.luaL_checklstring(L, idx, &len);
+                const h = std.hash.Wyhash.hash;
+                inline for (in.Enum.fields) |f| {
+                    if (h(0, f.name) == h(0, str[0..len])) {
+                        break :blk @enumFromInt(f.value);
+                    }
+                }
+            },
+            .Bool => lua.lua_toboolean(L, idx) == 1,
+            .Pointer => |p| {
+                if (p.child == u8 and p.size == .Slice) {
+                    var len: usize = 0;
+                    const str = lua.luaL_checklstring(L, idx, &len);
+                    //defer lua.lua_pop(L, 1);
+                    return os9_ctx.gui.storeString(str[0..len]);
+                } else {
+                    @compileError("Can't get slice from lua " ++ p);
+                }
+            },
+            .Struct => {
+                var ret: s = undefined;
+                inline for (in.Struct.fields) |f| {
+                    const lt = lua.lua_getfield(L, idx, zstring(f.name));
+                    @field(ret, f.name) = switch (lt) {
+                        lua.LUA_TNIL => if (f.default_value) |d| @as(*const f.type, @ptrCast(@alignCast(d))).* else undefined,
+                        else => getArg(L, f.type, -1),
+                    };
+                    lua.lua_pop(L, 1);
+                }
+                return ret;
+            },
+            else => @compileError("getV type not supported " ++ @typeName(s)),
+        };
+    }
+
+    pub fn getGlobal(L: Ls, name: []const u8, comptime s: type) s {
+        _ = lua.lua_getglobal(L, zstring(name));
+        switch (@typeInfo(s)) {
+            .Struct => {
+                return getArg(L, s, 1);
+            },
+            else => @compileError("not supported"),
+        }
+    }
+
+    fn pushV(L: Ls, s: anytype) void {
+        const info = @typeInfo(@TypeOf(s));
+        switch (info) {
+            .Struct => |st| {
+                lua.lua_newtable(L);
+                inline for (st.fields) |f| {
+                    _ = lua.lua_pushstring(L, zstring(f.name));
+                    pushV(L, @field(s, f.name));
+                    lua.lua_settable(L, -3);
+                }
+            },
+            .Enum => {
+                const str = @tagName(s);
+                _ = lua.lua_pushlstring(L, zstring(str), str.len);
+            },
+            .Float => lua.lua_pushnumber(L, s),
+            .Bool => lua.lua_pushboolean(L, if (s) 1 else 0),
+            .Int => lua.lua_pushinteger(L, std.math.lossyCast(i64, s)),
+            .Pointer => |p| {
+                if (p.child == u8 and p.size == .Slice) {
+                    _ = lua.lua_pushlstring(L, zstring(s), s.len);
+                } else {
+                    @compileError("Can't send slice to lua " ++ p);
+                }
+            },
+            else => @compileError("don't work"),
+        }
+    }
+
+    pub export fn getStruct(L: Ls) c_int {
+        pushV(L, MyStruct{});
         return 1;
     }
-};
 
-export fn l_sin(L: ?*lua.lua_State) c_int {
-    const d = lua.luaL_checknumber(L, 1);
-    lua.lua_pushnumber(L, std.math.sin(d));
-    return 1;
-}
+    pub export fn giveData(L: Ls) c_int {
+        lua.lua_settop(L, 2);
+        const d2 = getArg(L, f32, 1);
+        const d3 = getArg(L, struct { num: f32, name: []const u8 }, 2);
+        lua.lua_pop(L, 2);
+        std.debug.print("{any} {any}\n", .{ d2, d3 });
+        return 0;
+    }
+
+    pub export fn checkbox(L: Ls) c_int {
+        lua.lua_settop(L, 2);
+        const str = getArg(L, []const u8, 1);
+        var boolean = getArg(L, bool, 2);
+        _ = os9_ctx.checkbox(str, &boolean);
+        pushV(L, boolean);
+        return 1;
+    }
+
+    pub export fn getArea(L: Ls) c_int {
+        const area = os9_ctx.gui.getArea();
+        if (area) |a| {
+            pushV(L, a);
+            return 1;
+        }
+        return 0;
+    }
+
+    pub export fn beginVertical(L: Ls) c_int {
+        _ = L;
+        os9_ctx.vlayout = os9_ctx.gui.beginLayout(Gui.VerticalLayout, .{ .item_height = 20 * os9_ctx.scale, .padding = .{ .bottom = 6 * os9_ctx.scale } }, .{}) catch unreachable;
+        return 0;
+    }
+
+    pub export fn pushHeight(L: Ls) c_int {
+        lua.lua_settop(L, 1);
+        const n = getArg(L, f32, 1);
+        if (os9_ctx.vlayout) |vl| {
+            vl.pushHeight(@floatCast(n));
+        }
+        return 0;
+    }
+
+    pub export fn endVertical(L: Ls) c_int {
+        _ = L;
+        os9_ctx.gui.endLayout();
+        os9_ctx.vlayout = null;
+        return 0;
+    }
+
+    pub export fn slider(L: Ls) c_int {
+        lua.lua_settop(L, 1);
+        //lua.lua_checktype(L, 1, lua.LUA_TTABLE);
+
+        _ = lua.lua_getfield(L, 1, "val");
+        var val: f64 = lua.luaL_checknumber(L, -1);
+        os9_ctx.slider(&val, 0, 100);
+        lua.lua_pushnumber(L, val);
+        lua.lua_setfield(L, 1, "val");
+
+        return 0;
+    }
+
+    pub export fn button(L: Ls) c_int {
+        lua.lua_settop(L, 1);
+        const str = getArg(L, []const u8, 1);
+        pushV(L, os9_ctx.button(str));
+        return 1;
+    }
+
+    pub export fn label(L: Ls) c_int {
+        lua.lua_settop(L, 1);
+        const str = getArg(L, []const u8, 1);
+        os9_ctx.label("{s}", .{str});
+        return 0;
+    }
+};
 
 pub fn main() anyerror!void {
     //_ = graph.MarioData.dd;
@@ -2135,7 +2259,7 @@ pub fn main() anyerror!void {
     defer arg_it.deinit();
     const Arg = ArgUtil.Arg;
     const cli_opts = (ArgUtil.parseArgs(&.{
-        Arg("test_bool", .flag, "fuck stain"),
+        Arg("scale", .number, "The scale of the gui"),
         ArgUtil.ArgCustom("app", @TypeOf(current_app), "Which gui app to run"),
     }, &arg_it) catch |err| switch (err) {
         error.printedHelp => return,
@@ -2147,18 +2271,7 @@ pub fn main() anyerror!void {
     if (cli_opts.app) |app|
         current_app = app;
 
-    //BEGIN LUA
-    var L = lua.luaL_newstate();
-    lua.luaL_openlibs(L);
-    lua.lua_register(L, "mysin", l_sin);
-    lua.lua_register(L, "getArea", Lua.getArea);
-    const lf = lua.luaL_loadfilex(L, "script.lua", "bt");
-    _ = lua.lua_pcallk(L, 0, lua.LUA_MULTRET, 0, 0, null);
-    _ = lf;
-
-    //END LUA
-
-    const scale = 2.0;
+    var scale = if (cli_opts.scale) |s| s else 2.0;
     var win = try graph.SDL.Window.createWindow("My window", .{
         .window_flags = &.{
             graph.c.SDL_WINDOW_BORDERLESS,
@@ -2257,7 +2370,20 @@ pub fn main() anyerror!void {
     var os9gui = try Os9Gui.init(alloc, scale, &gui);
     defer os9gui.deinit();
 
+    //NEEDS TO BE SET BEFORE LUA RUNS
     os9_ctx = os9gui;
+    //BEGIN LUA
+    var L = lua.luaL_newstate();
+    lua.luaL_openlibs(L);
+    Lua.register(L);
+    const lf = lua.luaL_loadfilex(L, "script.lua", "bt");
+    Lua.checkError(L, lua.lua_pcallk(L, 0, lua.LUA_MULTRET, 0, 0, null));
+    _ = lf;
+    const lparam = Lua.getGlobal(L, "params", struct { window_x: i32, window_y: i32, scale: f32 });
+    win.setWindowSize(lparam.window_x, lparam.window_y);
+    win.centerWindow();
+
+    //END LUA
 
     while (!win.should_exit) {
         try ctx.beginDraw(win.screen_width, win.screen_height, itc(0x2f2f2fff), true);
@@ -2298,8 +2424,17 @@ pub fn main() anyerror!void {
             switch (current_app) {
                 .keyboard_display => try kbd.update(&os9gui),
                 .lua_test => {
-                    _ = lua.lua_getglobal(L, "docrap");
-                    _ = lua.lua_pcallk(L, 0, 0, 0, 0, null);
+                    if (gui.getArea()) |win_area| {
+                        const border_area = win_area.inset(6 * os9_ctx.scale);
+                        const area = border_area.inset(6 * os9_ctx.scale);
+                        gui.draw9Slice(win_area, Os9Gui.os9win, os9_ctx.texture, os9_ctx.scale);
+                        gui.draw9Slice(border_area, Os9Gui.os9in, os9_ctx.texture, os9_ctx.scale);
+                        _ = try gui.beginLayout(Gui.SubRectLayout, .{ .rect = area }, .{});
+                        defer gui.endLayout();
+
+                        _ = lua.lua_getglobal(L, "docrap");
+                        Lua.checkError(L, lua.lua_pcallk(L, 0, 0, 0, 0, null));
+                    }
                 },
                 //.lua_test => try luaTest(alloc: std.mem.Allocator),
                 .atlas_edit => {

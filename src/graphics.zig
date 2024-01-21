@@ -694,6 +694,14 @@ pub const SDL = struct {
             }
         }
 
+        pub fn centerWindow(self: *Self) void {
+            c.SDL_SetWindowPosition(self.win, c.SDL_WINDOWPOS_CENTERED, c.SDL_WINDOWPOS_CENTERED);
+        }
+
+        pub fn setWindowSize(self: *Self, w: i32, h: i32) void {
+            c.SDL_SetWindowSize(self.win, w, h);
+        }
+
         pub fn glScissor(self: *Self, x: i32, y: i32, w: i32, h: i32) void {
             _ = self;
             c.glScissor(x, h - y, w, h);
@@ -3192,8 +3200,9 @@ pub const Font = struct {
                 },
                 else => {
                     const x = rel_coord.x;
-                    const y = rel_coord.y;
-                    if (x < x_bound + xw and x > x_bound and y < bounds.y + yw and y > bounds.y) {
+                    //const y = rel_coord.y;
+                    //if (x < x_bound + xw and x > x_bound and y < bounds.y + yw and y > bounds.y) {
+                    if (x < x_bound + xw and x > x_bound) {
                         return it.i;
                     }
                 },

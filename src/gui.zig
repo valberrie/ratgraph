@@ -1467,13 +1467,21 @@ pub const Context = struct {
         fbs.writer().print(fmt, args) catch unreachable;
         const slice = fbs.getWritten();
         const bounds = self.font.textBounds(slice, size);
-        const last_char_index = self.font.nearestGlyphX(slice, size, .{ .x = bounds.x, .y = bounds.y }) orelse slice.len;
+        const last_char_index = blk: {
+            if (self.font.nearestGlyphX(slice, size, .{ .x = area.w, .y = 0 })) |lci| {
+                if (lci > 0)
+                    break :blk lci - 1;
+                break :blk lci;
+            }
+            break :blk slice.len;
+        };
 
-        const x = switch (opts.justify) {
+        const x_ = switch (opts.justify) {
             .left => area.x,
             .right => area.x + area.w - bounds.x,
             .center => area.x + area.w / 2 - bounds.x / 2,
         };
+        const x = if (last_char_index < slice.len) area.x else x_;
         const sl = if (last_char_index < slice.len) slice[0..last_char_index] else slice;
         self.drawText(sl, Vec2f.new(x, area.y), size, color);
     }
