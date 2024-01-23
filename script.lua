@@ -11,7 +11,6 @@ end
 
 printStack()
 giveData( 32, {name = "fuck", num = 112})
-
 function docrap ()
     beginV()
         button("fuck")
@@ -20,6 +19,9 @@ function docrap ()
         end
         button("fuck")
         checked = checkbox("ficking", checked)
+        if checked then
+            button("this is the next")
+        end
         label("Hello") button("fuck")
         pushHeight(400);
         beginV()
@@ -27,3 +29,4 @@ function docrap ()
         endV()
     endV()
 end
+
