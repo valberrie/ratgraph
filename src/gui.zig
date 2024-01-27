@@ -177,6 +177,8 @@ fn opaqueSelf(comptime self: type, ptr: *anyopaque) *self {
     return @as(*self, @ptrCast(@alignCast(ptr)));
 }
 
+//TODO This should be replaced with something less hacky.
+//Many instances of begin (SubRectLayout) then begin(another layout) when laying out a window
 pub const SubRectLayout = struct {
     rect: Rect,
     index: u32 = 0,
@@ -1430,6 +1432,7 @@ pub const Context = struct {
         self.draw(.{ .rect_textured = .{ .r = r, .color = color, .uv = uv, .texture = t } });
     }
 
+    //Colors are wound ccw, starting at top left
     pub fn drawRectMultiColor(self: *Self, r: Rect, colors: [4]Color) void {
         self.draw(.{ .rect_filled_multi_color = .{ .r = r, .colors = colors } });
     }
@@ -2170,11 +2173,35 @@ pub const GuiDrawContext = struct {
         //     //parea.x + parea.w,
         //     //sb.h - parea.y,
         // ).toIntRect(i32, graph.IRect);
+        var dc_size: usize = 0;
+        graph.GraphicsContext.debug_batch_size = 0;
         for (gui.command_list.items) |command| {
-            //try drawCommand(command, &ctx, &font, rtext.w, rtext.h);
+            const info = @typeInfo(DrawCommand);
+            inline for (info.Union.fields, 0..) |ufield, i| {
+                if (@intFromEnum(command) == i) {
+                    dc_size += @sizeOf(ufield.type);
+                }
+            }
+            if (command == .text) {
+                dc_size += command.text.string.len;
+            }
+
             try self.drawCommand(command, ctx, font);
         }
         try ctx.flush(.{ .x = 0, .y = 0 }, null);
+        //std.debug.print("COMMAND SIZE {d}\n", .{csize});
+        //std.debug.print("Draw Size: {d}\n", .{graph.GraphicsContext.debug_batch_size});
+        //std.debug.print("Actual Ds: {d}\n", .{dc_size});
+        //std.debug.print("Ratio: {d}\n", .{@divFloor(graph.GraphicsContext.debug_batch_size, dc_size)});
+
+        //{
+        //    var lc_len: usize = 0;
+        //    var node = gui.layout_cache.first;
+        //    while (node) |n| : (node = n.next) {
+        //        lc_len += 1;
+        //    }
+        //    std.debug.print("num layouts: {d}\n", .{lc_len});
+        //}
 
         if (gui.popup) |p| {
             //try self.popup_rtexture.setSize(@as(i32, @intFromFloat(p.area.w)), @as(i32, @intFromFloat(p.area.w)));

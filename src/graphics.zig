@@ -1819,6 +1819,7 @@ pub const NewCtx = struct {
         b.vertices.append(.{ .pos = end_point, .color = color }) catch return;
     }
 
+    //TODO what is the winding order
     pub fn triangle(self: *Self, v1: Vec2f, v2: Vec2f, v3: Vec2f, color: u32) void {
         const b = &(self.getBatch(.{ .batch_kind = .color_tri, .params = .{ .shader = self.colored_tri_shader } }) catch unreachable).color_tri;
         const z = self.zindex;
@@ -3309,6 +3310,8 @@ fn logErr(msg: []const u8) void {
 //  mario
 pub const GraphicsContext = struct {
     const Self = @This();
+    const do_debug_batch_size: bool = true;
+    pub var debug_batch_size: usize = 0;
 
     const State = struct {
         const Mode = enum {
@@ -3449,6 +3452,16 @@ pub const GraphicsContext = struct {
 
     pub fn flush(self: *Self, offset: Vec2f, custom_camera: ?Rect) !void {
         const camera_bounds = if (custom_camera) |cc| cc else self.screen_bounds.toF32();
+
+        if (do_debug_batch_size) {
+            for (self.batches.items) |batch| {
+                debug_batch_size += switch (batch) {
+                    .TriTex => @sizeOf(VertexTextured) * batch.TriTex.vertices.items.len + batch.TriTex.indicies.items.len * 4,
+                    .Tri => @sizeOf(Vertex) * batch.Tri.vertices.items.len + batch.Tri.indicies.items.len * 4,
+                    else => 0,
+                };
+            }
+        }
 
         for (self.batches.items) |*batch| {
             switch (batch.*) {
@@ -3883,8 +3896,8 @@ pub const GraphicsContext = struct {
 //
 //triangleBatches[]
 
-const VertexTextured = packed struct { x: f32, y: f32, z: f32, u: f32, v: f32, r: f32, g: f32, b: f32, a: f32 };
-const Vertex = packed struct { x: f32, y: f32, z: f32, r: f32, g: f32, b: f32, a: f32 };
+pub const VertexTextured = packed struct { x: f32, y: f32, z: f32, u: f32, v: f32, r: f32, g: f32, b: f32, a: f32 };
+pub const Vertex = packed struct { x: f32, y: f32, z: f32, r: f32, g: f32, b: f32, a: f32 };
 
 pub fn vertex(x: f32, y: f32, z: f32, col: Color) Vertex {
     return .{ .x = x, .y = y, .z = z, .r = col[0], .g = col[1], .b = col[2], .a = col[3] };

@@ -25,6 +25,141 @@ const bg4 = itc(0xff);
 const bg2 = itc(0xff);
 const bg0 = itc(0xff);
 
+//A i3_layout is a parent area that is then recursivly split vertically or horizontally.
+//Each section can be given a name, not required though
+
+pub const SplitPlan = struct {
+    pub const SplitK = enum { v, h };
+    pub const split_pos_kind = union(enum) {
+        percent: f32,
+        left_size: f32,
+        right_size: f32,
+
+        pub fn getDim(self: @This(), dim: f32) f32 {
+            return switch (self) {
+                .percent => |p| dim * p,
+                .left_size => |l| if (l < dim) l else dim,
+                .right_size => |r| if (r < dim) dim - r else dim,
+            };
+        }
+    };
+    pub const split_pos = struct {
+        param_name: ?[]const u8 = null,
+        pos: split_pos_kind,
+    };
+
+    pub const Node = union(enum) {
+        split: struct {
+            k: SplitK,
+            pos: split_pos,
+            l: ?*const Node = null,
+            r: ?*const Node = null,
+        },
+        area: struct {
+            name: []const u8,
+        },
+
+        //pub fn draw(self: Node, ctx: *Gui.Context, area: Rect) void {
+        //    switch (self) {
+        //        .split => |s| {
+        //            const o: graph.Orientation = if (s.k == .v) .vertical else .horizontal;
+        //            const d = if (s.k == .v) area.w else area.h;
+        //            const sp = area.split(o, d * s.perc);
+        //            if (s.l) |l|
+        //                l.draw(ctx, sp[0]);
+        //            if (s.r) |r|
+        //                r.draw(ctx, sp[1]);
+        //        },
+        //        .area => |a| {
+        //            const ar = area.inset(4);
+        //            ctx.drawRectFilled(ar, Color.Blue);
+        //            ctx.drawTextFmt("{s}", .{a.name}, ar, 50, Color.Black, .{});
+        //        },
+        //    }
+        //}
+    };
+
+    pub fn A(name: []const u8) Node {
+        return .{ .area = .{ .name = name } };
+    }
+
+    pub fn S(k: SplitK, perc: f32, l: ?*const Node, r: ?*const Node) Node {
+        return .{ .split = .{ .k = k, .pos = .{ .pos = .{ .percent = perc } }, .l = l, .r = r } };
+    }
+
+    pub fn LS(k: SplitK, left_w: f32, l: ?*const Node, r: ?*const Node) Node {
+        return .{ .split = .{ .k = k, .pos = .{ .pos = .{ .left_size = left_w } }, .l = l, .r = r } };
+    }
+
+    pub fn LSP(k: SplitK, param: []const u8, l: ?*const Node, r: ?*const Node) Node {
+        return .{ .split = .{ .k = k, .pos = .{ .pos = .{ .percent = 0.5 }, .param_name = param }, .l = l, .r = r } };
+    }
+
+    fn countNames(comptime node: Node, comptime num_names: *usize) void {
+        switch (node) {
+            .split => |s| {
+                if (s.l) |l|
+                    countNames(l.*, num_names);
+                if (s.r) |r|
+                    countNames(r.*, num_names);
+            },
+            .area => num_names.* += 1,
+        }
+    }
+
+    fn insertNames(comptime node: Node, comptime index: *usize, comptime fields: []std.builtin.Type.StructField) void {
+        switch (node) {
+            .split => |s| {
+                if (s.l) |l|
+                    insertNames(l.*, index, fields);
+                if (s.r) |r|
+                    insertNames(r.*, index, fields);
+            },
+            .area => |a| {
+                fields[index.*] = .{ .name = a.name, .type = Rect, .default_value = null, .is_comptime = false, .alignment = @alignOf(Rect) };
+                index.* += 1;
+            },
+        }
+    }
+
+    pub fn createSplitPlan(comptime plan: Node) type {
+        var num_names: usize = 0;
+        countNames(plan, &num_names);
+        var fields: [num_names]std.builtin.Type.StructField = undefined;
+        var index: usize = 0;
+        insertNames(plan, &index, &fields);
+
+        return @Type(.{ .Struct = .{ .layout = .Auto, .fields = &fields, .decls = &.{}, .is_tuple = false } });
+    }
+
+    fn calcRecur(comptime node: Node, ret: anytype, area: Rect) void {
+        switch (node) {
+            .split => |s| {
+                const o: graph.Orientation = if (s.k == .v) .vertical else .horizontal;
+                const d = if (s.k == .v) area.w else area.h;
+                const sp = area.split(o, s.pos.pos.getDim(d));
+                if (s.l) |l|
+                    calcRecur(l.*, ret, sp[0]);
+                if (s.r) |r|
+                    calcRecur(r.*, ret, sp[1]);
+            },
+            .area => |a| {
+                @field(ret.*, a.name) = area.inset(4);
+            },
+        }
+    }
+
+    pub fn calculatePlan(comptime plan: Node, area: Rect, params: anytype) createSplitPlan(plan) {
+        _ = params;
+        var ret: createSplitPlan(plan) = undefined;
+        calcRecur(plan, &ret, area);
+        return ret;
+    }
+
+    area: Rect,
+    root: Node,
+};
+
 pub const MyStruct = struct {
     my_color: graph.Hsva = .{ .h = 20, .s = 1, .v = 1, .a = 1 },
     my_number: f32 = 11.2,
@@ -901,6 +1036,8 @@ pub const KeyboardDisplay = struct {
         .{ .x = 0, .y = 5.5, .keys = &Rows.ctrlkeys },
     };
 
+    w_perc: f32 = 0.5,
+
     pub fn init(alloc: std.mem.Allocator) Self {
         _ = alloc;
         return .{};
@@ -911,7 +1048,6 @@ pub const KeyboardDisplay = struct {
     }
 
     pub fn update(self: *Self, wrap: *Os9Gui) !void {
-        _ = self;
         const gui = wrap.gui;
         const win_area = gui.getArea() orelse return;
         const border_area = win_area.inset(6 * wrap.scale);
@@ -948,14 +1084,44 @@ pub const KeyboardDisplay = struct {
                         .key => {
                             const rr = Rect.new(r.x + x, r.y + y, ww, kh);
                             gui.draw9Slice(rr.inset(3), Os9Gui.outset9, wrap.texture, wrap.scale);
+                            const tr = rr.inset(Os9Gui.outset9.w / 3 * wrap.scale + 3);
+
                             if (key.name) |n| {
-                                gui.drawTextFmt("{s}", .{n}, rr, 10 * wrap.scale, Color.Black, .{});
+                                gui.drawTextFmt("{s}", .{n}, tr, 20 * wrap.scale, Color.Black, .{});
                             }
                         },
                         .spacing => {},
                     }
                     x += ww;
                 }
+            }
+            //gui.drawRectMultiColor(r, [_]Color{ itc(0xffffffff), itc(0xff0000ff), itc(0x00ff00ff), itc(0x0000ffff) });
+            //gui.drawRectMultiColor(r, [_]Color{ itc(0x888888ff), itc(0x222222ff), itc(0x222222ff), itc(0x888888ff) });
+            var unused: f32 = 0;
+            _ = gui.draggable(r, .{ .x = 1 / r.w, .y = 0 }, &(self.w_perc), &unused, .{ .x_min = 0.1, .x_max = 0.9 });
+            { //SplitPlan
+                const A = SplitPlan.A;
+                const S = SplitPlan.S;
+                const splits = comptime SplitPlan{
+                    .area = Rec(0, 0, 1000, 1000),
+                    .root = SplitPlan.LS(
+                        .v,
+                        1000,
+                        &A("left_panel"),
+                        &S(
+                            .h,
+                            0.2,
+                            &A("header_bar"),
+                            &S(.h, 0.9, &A("Main_area"), &A("bottom_bar")),
+                        ),
+                    ),
+                };
+                //const planT = SplitPlan.createSplitPlan(splits.root);
+                const sp = SplitPlan.calculatePlan(splits.root, r, .{});
+                gui.drawRectFilled(sp.left_panel, Color.Blue);
+                gui.drawRectFilled(sp.Main_area, Color.Black);
+                gui.drawRectFilled(sp.header_bar, Color.Red);
+                gui.drawRectFilled(sp.bottom_bar, Color.Green);
             }
         }
     }
@@ -2277,7 +2443,7 @@ pub fn main() anyerror!void {
             graph.c.SDL_WINDOW_BORDERLESS,
             graph.c.SDL_WINDOW_UTILITY,
         },
-        .window_size = .{ .x = 1600, .y = 1200 },
+        .window_size = .{ .x = 1920, .y = 1080 },
     });
     defer win.destroyWindow();
 
