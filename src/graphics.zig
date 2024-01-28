@@ -554,7 +554,7 @@ pub const SDL = struct {
             }
             c.glEnable(c.GL_MULTISAMPLE);
             c.glEnable(c.GL_DEPTH_TEST);
-            c.glEnable(c.GL_STENCIL_TEST);
+            //c.glEnable(c.GL_STENCIL_TEST);
             c.glEnable(c.GL_DEBUG_OUTPUT);
 
             return Self{
@@ -2585,6 +2585,7 @@ pub const RenderTexture = struct {
     const Self = @This();
     fb: c_uint,
     depth_rb: c_uint,
+    stencil_rb: c_uint,
     texture: Texture,
     w: i32,
     h: i32,
@@ -2595,16 +2596,23 @@ pub const RenderTexture = struct {
             .h = h,
             .fb = 0,
             .depth_rb = 0,
+            .stencil_rb = 0,
             .texture = Texture.initFromBuffer(null, w, h, .{ .min_filter = c.GL_LINEAR, .mag_filter = c.GL_NEAREST, .generate_mipmaps = false }),
             //.texture = Texture.
         };
         c.glGenFramebuffers(1, &ret.fb);
         c.glBindFramebuffer(c.GL_FRAMEBUFFER, ret.fb);
 
-        c.glGenRenderbuffers(1, &ret.depth_rb);
-        c.glBindRenderbuffer(c.GL_RENDERBUFFER, ret.depth_rb);
-        c.glRenderbufferStorage(c.GL_RENDERBUFFER, c.GL_DEPTH_COMPONENT, w, h);
-        c.glFramebufferRenderbuffer(c.GL_FRAMEBUFFER, c.GL_DEPTH_ATTACHMENT, c.GL_RENDERBUFFER, ret.depth_rb);
+        //c.glGenRenderbuffers(1, &ret.depth_rb);
+        //c.glBindRenderbuffer(c.GL_RENDERBUFFER, ret.depth_rb);
+        //c.glRenderbufferStorage(c.GL_RENDERBUFFER, c.GL_DEPTH_COMPONENT, w, h);
+        //c.glFramebufferRenderbuffer(c.GL_FRAMEBUFFER, c.GL_DEPTH_ATTACHMENT, c.GL_RENDERBUFFER, ret.depth_rb);
+
+        c.glGenRenderbuffers(1, &ret.stencil_rb);
+        c.glBindRenderbuffer(c.GL_RENDERBUFFER, ret.stencil_rb);
+        c.glRenderbufferStorage(c.GL_RENDERBUFFER, c.GL_DEPTH_STENCIL, w, h);
+        c.glFramebufferRenderbuffer(c.GL_FRAMEBUFFER, c.GL_STENCIL_ATTACHMENT, c.GL_RENDERBUFFER, ret.stencil_rb);
+
         c.glFramebufferTexture(c.GL_FRAMEBUFFER, c.GL_COLOR_ATTACHMENT0, ret.texture.id, 0);
         const draw_buffers = [_]c.GLenum{c.GL_COLOR_ATTACHMENT0};
         c.glDrawBuffers(draw_buffers.len, &draw_buffers[0]);
@@ -2632,6 +2640,7 @@ pub const RenderTexture = struct {
     pub fn deinit(self: *Self) void {
         c.glDeleteFramebuffers(1, &self.fb);
         c.glDeleteRenderbuffers(1, &self.depth_rb);
+        c.glDeleteRenderbuffers(1, &self.stencil_rb);
         c.glDeleteTextures(1, &self.texture.id);
     }
 

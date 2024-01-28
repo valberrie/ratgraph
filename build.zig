@@ -90,10 +90,14 @@ pub fn build(b: *std.Build) void {
     run_step.dependOn(&run_cmd.step);
 
     const unit_tests = b.addTest(.{
-        .root_source_file = .{ .path = "src/main.zig" },
+        .root_source_file = .{ .path = "src/tests.zig" },
         .target = target,
         .optimize = mode,
+        .link_libc = true,
     });
+    unit_tests.setExecCmd(&[_]?[]const u8{ "kcov", "kcov-output", null });
+    linkLibrary(unit_tests);
+    //unit_tests.setExecCmd(&.{ "echo", "fuckstain", null });
 
     const run_unit_tests = b.addRunArtifact(unit_tests);
 

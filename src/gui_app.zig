@@ -2416,7 +2416,7 @@ pub const Lua = struct {
 
 pub fn main() anyerror!void {
     //_ = graph.MarioData.dd;
-    var gpa = std.heap.GeneralPurposeAllocator(.{ .retain_metadata = true, .never_unmap = false, .verbose_log = false }){};
+    var gpa = std.heap.GeneralPurposeAllocator(.{ .retain_metadata = true, .never_unmap = false, .verbose_log = false, .stack_trace_frames = 8 }){};
     defer _ = gpa.detectLeaks();
     const alloc = gpa.allocator();
 
@@ -2439,6 +2439,7 @@ pub fn main() anyerror!void {
 
     var scale = if (cli_opts.scale) |s| s else 2.0;
     var win = try graph.SDL.Window.createWindow("My window", .{
+        .double_buffer = true,
         .window_flags = &.{
             graph.c.SDL_WINDOW_BORDERLESS,
             graph.c.SDL_WINDOW_UTILITY,

@@ -7,7 +7,7 @@ const Cache = @import("gui_cache.zig");
 
 const json = std.json;
 const clamp = std.math.clamp;
-const graph = @import("graphics.zig");
+pub const graph = @import("graphics.zig");
 const Vec2f = graph.Vec2f;
 const Vec2i = struct {
     const Self = @This();
@@ -120,43 +120,6 @@ pub const DrawCommand = union(enum) {
 
 pub const Justify = enum { right, left, center };
 pub const Orientation = graph.Orientation;
-
-//TODO Replace with std.EnumArray. Study how std.EnumMap uses "mixin"
-pub fn EnumMap(comptime Enum: type, comptime child_type: type) type {
-    const info = @typeInfo(Enum);
-    if (info != .Enum) @compileError("EnumMap expects an enum");
-    var struct_fields: [info.Enum.fields.len]std.builtin.Type.StructField = undefined;
-    for (info.Enum.fields, 0..) |field, i| {
-        if (i != field.value) @compileError("EnumMap only supports default valued enums");
-        struct_fields[i] = .{ .name = field.name, .type = child_type, .default_value = null, .is_comptime = false, .alignment = 0 };
-    }
-    const DataType = @Type(.{ .Struct = .{ .layout = .Auto, .fields = &struct_fields, .decls = &.{}, .is_tuple = false } });
-
-    return struct {
-        value: [info.Enum.fields.len]child_type,
-
-        pub fn new(values: DataType) @This() {
-            var arr: [info.Enum.fields.len]child_type = undefined;
-            inline for (info.Enum.fields, 0..) |field, i| {
-                arr[i] = @field(values, field.name);
-            }
-            return .{ .value = arr };
-        }
-
-        pub fn newSingle(val: child_type) @This() {
-            var arr: [info.Enum.fields.len]child_type = undefined;
-            std.mem.set(child_type, &arr, val);
-            return .{ .value = arr };
-        }
-
-        pub fn _switch(self: @This(), val: Enum) child_type {
-            const i = @intFromEnum(val);
-            return self.value[i];
-        }
-    };
-}
-
-pub const my_map = EnumMap(Justify, u8);
 
 pub const InputState = struct {
     pub const DefaultKeyboardState = graph.SDL.Window.KeyboardStateT.initEmpty();
@@ -532,7 +495,6 @@ pub const ClickState = enum(u8) {
     click_release,
     double,
 };
-pub const ClickStateColors = EnumMap(ClickState, Color);
 
 //TODO Some sort of drawMultiWidget(anywidget, list of args) would be cool
 //in order to be usefull a lambda function to transform items in a slice to argument lists would have to be provided
@@ -578,13 +540,37 @@ pub fn hashW(hasher: anytype, key: anytype, comptime strat: std.hash.Strategy) v
                 hashW(hasher, @field(key, field.name), strat);
             }
         },
-        .Pointer => {},
+        .Union => |info| {
+            if (info.tag_type == null) @compileError("Cannot hash untagged union");
+            inline for (info.fields, 0..) |field, i| {
+                if (i == @intFromEnum(key)) {
+                    hashW(hasher, @field(key, field.name), strat);
+                    break;
+                }
+            }
+        },
+        .Pointer => |info| {
+            switch (info.size) {
+                .Slice => {
+                    for (key) |element| {
+                        hashW(hasher, element, strat);
+                    }
+                },
+                else => {},
+                //else => @compileError("not supported pointer type to hashW " ++ @typeName(Key)),
+            }
+        },
+        .Array => {
+            for (key) |element|
+                hashW(hasher, element, strat);
+        },
         .Opaque => {},
         .Optional => if (key) |k| hashW(hasher, k, strat),
         .Float => {
             std.hash.autoHashStrat(hasher, @as(i32, @intFromFloat(key * 10)), strat);
         },
-        else => std.hash.autoHashStrat(hasher, key, strat),
+        .Int, .Bool => std.hash.autoHashStrat(hasher, key, strat),
+        else => @compileError("can't hash " ++ @typeName(Key)),
     }
 }
 
@@ -656,18 +642,18 @@ pub const OpaqueDataStore = struct {
     }
 };
 
-test "Opaque data store basic usage" {
-    const alloc = std.testing.allocator;
-    const expect = std.testing.expect;
-    var ds = OpaqueDataStore.init(alloc);
-    defer ds.deinit();
-
-    const val = try ds.store(i32, "my_var", 0);
-    try expect(val.* == 0);
-    const val2 = try ds.store(i32, "my_var", 0);
-    val2.* += 4;
-    try expect(val.* == 4);
-}
+//test "Opaque data store basic usage" {
+//    const alloc = std.testing.allocator;
+//    const expect = std.testing.expect;
+//    var ds = OpaqueDataStore.init(alloc);
+//    defer ds.deinit();
+//
+//    const val = try ds.store(i32, "my_var", 0);
+//    try expect(val.* == 0);
+//    const val2 = try ds.store(i32, "my_var", 0);
+//    val2.* += 4;
+//    try expect(val.* == 4);
+//}
 
 pub const Console = struct {
     const Self = @This();
@@ -804,6 +790,12 @@ pub const Context = struct {
     const LayoutCacheData = struct {
         const WidgetDataChildT = f32;
         const WidgetDataT = std.AutoHashMap(u64, WidgetDataChildT);
+        commands: std.ArrayList(DrawCommand) = undefined,
+        last_frame_cmd_hash: u64 = 0,
+        scissor: ?Rect = null,
+        draw_cmds: bool = true,
+        draw_backup: bool = false,
+
         hash: u64,
 
         rec: Rect,
@@ -824,16 +816,22 @@ pub const Context = struct {
             self.is_init = true;
             self.widget_hashes = std.ArrayList(u64).init(alloc);
             self.widget_data = WidgetDataT.init(alloc);
+            self.commands = std.ArrayList(DrawCommand).init(alloc);
         }
 
         pub fn deinit(self: *@This()) void {
             if (self.is_init) {
                 self.widget_data.deinit();
+                self.commands.deinit();
                 dealloc_count += 1;
                 self.widget_hashes.deinit();
             } else {
                 unreachable;
             }
+        }
+
+        pub fn hashCommands(self: *@This()) void {
+            self.last_frame_cmd_hash = dhash(self.commands.items);
         }
 
         pub fn getWidgetData(self: *@This(), init_value: WidgetDataChildT) !*WidgetDataChildT {
@@ -918,6 +916,7 @@ pub const Context = struct {
         }
     };
 
+    dirty_draw_depth: ?u32 = null,
     no_caching: bool = true,
 
     console: Console,
@@ -1117,6 +1116,7 @@ pub const Context = struct {
     }
 
     pub fn reset(self: *Self, input_state: InputState) !void {
+        self.dirty_draw_depth = null;
         self.str_index = 0;
         self.scroll_claimed_mouse = false;
 
@@ -1310,7 +1310,7 @@ pub const Context = struct {
     }
 
     //TODO ensure our new layout does not clip the previous layout, special case for scroll areas and popups as they can clip
-    pub fn beginLayout(self: *Self, comptime Layout_T: type, layout_data: Layout_T, opts: struct { bg: Color = itc(0x222222ff) }) !*Layout_T {
+    pub fn beginLayout(self: *Self, comptime Layout_T: type, layout_data: Layout_T, opts: struct { bg: Color = itc(0x222222ff), scissor: ?Rect = null }) !*Layout_T {
         const new_layout = try self.alloc.create(Layout_T);
         new_layout.* = layout_data;
 
@@ -1334,14 +1334,14 @@ pub const Context = struct {
 
         { //Layout cache
             const dirty = if (self.current_layout_cache_data) |ld| ld.dirty else false;
-            try self.layout_cache.push(.{ .hash = self.layout.hash(), .rec = self.layout.bounds });
+            try self.layout_cache.push(.{ .hash = self.layout.hash(), .rec = self.layout.bounds, .scissor = opts.scissor });
             self.current_layout_cache_data = self.layout_cache.getCacheDataPtr();
             const ld = self.current_layout_cache_data.?;
             ld.widget_index = 0;
             ld.widget_hash_index = 0;
 
             if (dirty or !ld.is_init or self.no_caching) {
-                _ = opts;
+                //_ = opts;
                 //self.drawRectFilled(self.layout.bounds, opts.bg);
             }
 
@@ -1350,6 +1350,8 @@ pub const Context = struct {
             } else {
                 ld.was_init = false;
             }
+            //ld.hashCommands();
+            try ld.commands.resize(0);
 
             ld.dirty = dirty;
         }
@@ -1357,12 +1359,28 @@ pub const Context = struct {
     }
 
     pub fn endLayout(self: *Self) void {
+        {
+            const ld = self.current_layout_cache_data.?;
+            const last_frame_hash = ld.last_frame_cmd_hash;
+            ld.hashCommands();
+            ld.draw_cmds = (ld.last_frame_cmd_hash != last_frame_hash);
+            self.dirty_draw_depth = if (ld.draw_cmds and self.layout_cache.depth > 0) self.layout_cache.depth - 1 else null;
+        }
+
         self.layout_cache.pop() catch unreachable;
         self.current_layout_cache_data = self.layout_cache.getCacheDataPtr();
         //const ld = self.current_layout_cache_data.?;
         //if()
         if (self.current_layout_cache_data) |ld| {
             if (!ld.is_init) unreachable;
+            if (self.dirty_draw_depth) |draw_depth| {
+                if (self.layout_cache.depth == draw_depth) {
+                    std.debug.print("draw backup\n", .{});
+                    ld.draw_backup = true;
+                    if (draw_depth > 0)
+                        self.dirty_draw_depth.? -= 1;
+                }
+            }
         }
         if (self.layout_stack.popFirst()) |layout| {
             self.layout = layout.data;
@@ -1394,7 +1412,10 @@ pub const Context = struct {
         if (self.in_popup) {
             self.command_list_popup.append(command) catch unreachable;
         } else {
-            self.command_list.append(command) catch unreachable;
+            if (self.current_layout_cache_data) |lcd| {
+                lcd.commands.append(command) catch unreachable;
+            }
+            //self.command_list.append(command) catch unreachable;
         }
     }
 
@@ -1403,7 +1424,9 @@ pub const Context = struct {
     }
 
     pub fn scissor(self: *Self, r: ?Rect) void {
-        self.draw(.{ .scissor = .{ .area = r } });
+        _ = self;
+        _ = r;
+        //self.draw(.{ .scissor = .{ .area = r } });
     }
 
     pub fn drawText(self: *Self, string: []const u8, pos: Vec2f, size: f32, color: Color) void {
@@ -1571,7 +1594,7 @@ pub const Context = struct {
         _ = try self.beginLayout(
             SubRectLayout,
             .{ .rect = graph.Rec(area.x - offset.x, area.y - offset.y, opts.scroll_area_w, opts.scroll_area_h) },
-            .{},
+            .{ .scissor = clipped_area },
         );
 
         return ScrollData{
@@ -2160,75 +2183,91 @@ pub const GuiDrawContext = struct {
     }
 
     pub fn draw(self: *Self, ctx: *graph.GraphicsContext, font: *graph.Font, parea: Rect, gui: *Context, win_w: i32, win_h: i32) !void {
-        // self.win_bounds = ctx.screen_bounds.toF32();
-        // try self.main_rtexture.setSize(@as(i32, @intFromFloat(parea.w)), @as(i32, @intFromFloat(parea.h)));
-        // self.main_rtexture.bind(true);
-        // const sb = ctx.screen_bounds.toF32();
-        // //ctx.screen_bounds = graph.Rec(parea.x, parea.y + parea.h, parea.x + parea.w, parea.y).toIntRect(i32, graph.IRect);
-        // ctx.screen_bounds = graph.Rec(
-        //     parea.x,
-        //     sb.h - (parea.y + parea.h),
-        //     parea.w,
-        //     parea.h,
-        //     //parea.x + parea.w,
-        //     //sb.h - parea.y,
-        // ).toIntRect(i32, graph.IRect);
-        var dc_size: usize = 0;
         graph.GraphicsContext.debug_batch_size = 0;
-        for (gui.command_list.items) |command| {
-            const info = @typeInfo(DrawCommand);
-            inline for (info.Union.fields, 0..) |ufield, i| {
-                if (@intFromEnum(command) == i) {
-                    dc_size += @sizeOf(ufield.type);
+        try self.main_rtexture.setSize(@as(i32, @intFromFloat(parea.w)), @as(i32, @intFromFloat(parea.h)));
+        const ignore_cache = false;
+        self.main_rtexture.bind(ignore_cache);
+        ctx.screen_bounds = graph.IRect.new(0, 0, @intFromFloat(parea.w), @intFromFloat(parea.h));
+        {
+            const c = graph.c;
+            c.glEnable(c.GL_STENCIL_TEST);
+            c.glColorMask(c.GL_FALSE, c.GL_FALSE, c.GL_FALSE, c.GL_FALSE);
+            c.glDepthMask(c.GL_FALSE);
+            c.glClearStencil(0xff);
+            c.glStencilFunc(c.GL_NEVER, 1, 0xFF);
+            c.glStencilOp(c.GL_REPLACE, c.GL_KEEP, c.GL_KEEP); // draw 1s on test fail (always)
+
+            c.glStencilMask(0xFF);
+            c.glClear(c.GL_STENCIL_BUFFER_BIT); // needs mask=0xFF
+
+            var node = gui.layout_cache.first;
+            while (node) |n| : (node = n.next) {
+                if (n.data.draw_cmds) {
+                    ctx.drawRect(n.data.rec, Color.Black);
                 }
             }
-            if (command == .text) {
-                dc_size += command.text.string.len;
+            try ctx.flush(.{ .x = 0, .y = 0 }, null);
+            c.glColorMask(c.GL_TRUE, c.GL_TRUE, c.GL_TRUE, c.GL_TRUE);
+            c.glDepthMask(c.GL_TRUE);
+            c.glStencilMask(0x00);
+            c.glStencilFunc(c.GL_EQUAL, 1, 0xFF);
+        }
+        ctx.drawRect(parea, Color.Blue);
+        {
+            var scissor: bool = false;
+            var scissor_depth: u32 = 0;
+            var node = gui.layout_cache.first;
+            while (node) |n| : (node = n.next) {
+                if (n.data.draw_cmds or ignore_cache or n.data.draw_backup) {
+                    if (n.data.scissor) |sz| {
+                        scissor = true;
+                        scissor_depth = n.depth;
+                        try self.drawCommand(.{ .scissor = .{ .area = sz } }, ctx, font);
+                    }
+                    for (n.data.commands.items) |command| {
+                        try self.drawCommand(command, ctx, font);
+                    }
+                }
+                if (n.data.scissor == null) {
+                    if (scissor and n.depth <= scissor_depth) {
+                        scissor = false;
+                        try self.drawCommand(.{ .scissor = .{ .area = null } }, ctx, font);
+                    }
+                }
+                n.data.draw_backup = false;
             }
-
-            try self.drawCommand(command, ctx, font);
         }
         try ctx.flush(.{ .x = 0, .y = 0 }, null);
-        //std.debug.print("COMMAND SIZE {d}\n", .{csize});
-        //std.debug.print("Draw Size: {d}\n", .{graph.GraphicsContext.debug_batch_size});
-        //std.debug.print("Actual Ds: {d}\n", .{dc_size});
-        //std.debug.print("Ratio: {d}\n", .{@divFloor(graph.GraphicsContext.debug_batch_size, dc_size)});
+        graph.c.glDisable(graph.c.GL_STENCIL_TEST);
+        //if (graph.GraphicsContext.debug_batch_size > 0)
+        //    std.debug.print("Size {d}\n", .{graph.GraphicsContext.debug_batch_size});
 
-        //{
-        //    var lc_len: usize = 0;
-        //    var node = gui.layout_cache.first;
-        //    while (node) |n| : (node = n.next) {
-        //        lc_len += 1;
-        //    }
-        //    std.debug.print("num layouts: {d}\n", .{lc_len});
-        //}
-
-        if (gui.popup) |p| {
-            //try self.popup_rtexture.setSize(@as(i32, @intFromFloat(p.area.w)), @as(i32, @intFromFloat(p.area.w)));
-            //self.popup_rtexture.bind(true);
-
-            _ = p;
-            //ctx.screen_bounds = graph.Rec(p.area.x, p.area.y + p.area.h, p.area.x + p.area.w, p.area.y).toIntRect(i32, graph.IRect);
-            for (gui.command_list_popup.items) |command| {
-                try self.drawCommand(command, ctx, font);
-            }
-            try ctx.flush(.{ .x = 0, .y = 0 }, null);
-        }
-
-        for (gui.tooltip_state.command_list.items) |tt| {
-            try self.drawCommand(tt, ctx, font);
-            try ctx.flush(.{ .x = 0, .y = 0 }, null);
-        }
         ctx.screen_bounds = graph.IRect.new(0, 0, win_w, win_h);
         graph.c.glBindFramebuffer(graph.c.GL_FRAMEBUFFER, 0);
         graph.c.glViewport(0, 0, win_w, win_h);
 
+        const tr = self.main_rtexture.texture.rect();
+        try ctx.drawRectTex(parea, graph.Rec(0, 0, tr.w, -tr.h), Color.White, self.main_rtexture.texture);
+
+        //if (gui.popup) |p| {
+        //    //try self.popup_rtexture.setSize(@as(i32, @intFromFloat(p.area.w)), @as(i32, @intFromFloat(p.area.w)));
+        //    //self.popup_rtexture.bind(true);
+
+        //    _ = p;
+        //    //ctx.screen_bounds = graph.Rec(p.area.x, p.area.y + p.area.h, p.area.x + p.area.w, p.area.y).toIntRect(i32, graph.IRect);
+        //    for (gui.command_list_popup.items) |command| {
+        //        try self.drawCommand(command, ctx, font);
+        //    }
+        //    try ctx.flush(.{ .x = 0, .y = 0 }, null);
+        //}
+
+        //for (gui.tooltip_state.command_list.items) |tt| {
+        //    try self.drawCommand(tt, ctx, font);
+        //    try ctx.flush(.{ .x = 0, .y = 0 }, null);
+        //}
+
         //try ctx.drawRectTex(parea, parea, Color.White, self.main_rtexture.texture);
 
-        const tr = self.main_rtexture.texture.rect();
-        _ = parea;
-        _ = tr;
-        //try ctx.drawRectTex(parea, graph.Rec(0, 0, tr.w, -tr.h), Color.White, self.main_rtexture.texture);
         //try ctx.drawRectTex(parea, graph.Rec(0, 0, self.main_rtexture.texture.w, self.main_rtexture.texture.h), Color.White, self.main_rtexture.texture);
         //if (gui.popup) |p| {
         //    try ctx.drawRectTex(p.area, graph.Rec(0, 0, self.popup_rtexture.w, self.popup_rtexture.h), Color.White, self.popup_rtexture.texture);

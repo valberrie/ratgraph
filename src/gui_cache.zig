@@ -179,10 +179,18 @@ pub fn StackCache(comptime NodeData: type, comptime eql_fn: fn (NodeData, NodeDa
                         const cont_cache = findNextNonChildNode(first);
                         self.dangle = cont_cache;
                         self.dealloc_till(first.next, cont_cache);
-                        first.next = null;
-                        first.data = new_data;
-                        first.depth = self.depth;
-                        self.caret = first;
+
+                        self.destroy_node(first);
+                        const new_node = try self.create_node();
+                        new_node.* = .{ .data = new_data, .depth = self.depth };
+
+                        self.first = new_node;
+                        self.caret = self.first;
+
+                        //first.next = null;
+                        // first.data = new_data;
+                        // first.depth = self.depth;
+                        // self.caret = first;
                     }
                 } else { //List empty
                     logOut("fresh list ", .{});
@@ -323,7 +331,7 @@ fn testLcEqlFn(a: u8, b: u8) bool {
     return a == b;
 }
 const TestLc = StackCache(u8, testLcEqlFn, .{
-    .log_debug = true,
+    .log_debug = false,
 });
 test "StackCache init and same cache" {
     const alloc = std.testing.allocator;
