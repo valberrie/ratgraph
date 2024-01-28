@@ -1364,7 +1364,13 @@ pub const Context = struct {
             const last_frame_hash = ld.last_frame_cmd_hash;
             ld.hashCommands();
             ld.draw_cmds = (ld.last_frame_cmd_hash != last_frame_hash);
-            self.dirty_draw_depth = if (ld.draw_cmds and self.layout_cache.depth > 0) self.layout_cache.depth - 1 else null;
+            const dde = if (ld.draw_cmds and self.layout_cache.depth > 0) self.layout_cache.depth - 1 else null;
+            if (self.dirty_draw_depth) |dd| {
+                if (dd > dde orelse 0)
+                    self.dirty_draw_depth = dd;
+            } else {
+                self.dirty_draw_depth = dde;
+            }
         }
 
         self.layout_cache.pop() catch unreachable;
@@ -1375,7 +1381,6 @@ pub const Context = struct {
             if (!ld.is_init) unreachable;
             if (self.dirty_draw_depth) |draw_depth| {
                 if (self.layout_cache.depth == draw_depth) {
-                    std.debug.print("draw backup\n", .{});
                     ld.draw_backup = true;
                     if (draw_depth > 0)
                         self.dirty_draw_depth.? -= 1;
@@ -1626,9 +1631,7 @@ pub const Context = struct {
         return null;
     }
 
-    pub fn endVLayoutScroll(
-        self: *Self,
-    ) void {
+    pub fn endVLayoutScroll(self: *Self) void {
         self.endLayout();
         self.endScroll();
     }
@@ -2201,9 +2204,19 @@ pub const GuiDrawContext = struct {
             c.glClear(c.GL_STENCIL_BUFFER_BIT); // needs mask=0xFF
 
             var node = gui.layout_cache.first;
+            var redraw_depth: ?u32 = null;
             while (node) |n| : (node = n.next) {
+                if (redraw_depth) |dep| {
+                    if (n.depth > dep) {
+                        n.data.draw_cmds = true;
+                        continue;
+                    } else {
+                        redraw_depth = null;
+                    }
+                }
                 if (n.data.draw_cmds) {
-                    ctx.drawRect(n.data.rec, Color.Black);
+                    ctx.drawRect(if (n.data.scissor) |s| s else n.data.rec, Color.Black);
+                    redraw_depth = n.depth;
                 }
             }
             try ctx.flush(.{ .x = 0, .y = 0 }, null);
