@@ -4,6 +4,8 @@ pub const za = @import("zalgebra");
 
 pub const Tiled = @import("tiled.zig");
 
+pub const mcblockatlas = @import("mc_block_atlas.zig");
+
 const Alloc = std.mem.Allocator;
 const Dir = std.fs.Dir;
 
@@ -315,7 +317,7 @@ pub const Camera3D = struct {
 
         self.pos = self.pos.add(move_vec.norm().scale(self.move_speed));
         const mdelta = win.mouse.delta.smul(0.1);
-        self.move_speed = std.math.clamp(self.move_speed + win.mouse.wheel_delta * (self.move_speed / 10), 0.01, 10);
+        self.move_speed = std.math.clamp(self.move_speed + win.mouse.wheel_delta.y * (self.move_speed / 10), 0.01, 10);
 
         self.yaw += mdelta.x;
         self.pitch = std.math.clamp(self.pitch - mdelta.y, -89, 89);
@@ -1341,7 +1343,7 @@ pub const Bitmap = struct {
 
     pub fn writeToBmpFile(self: *Self, alloc: Alloc, dir: Dir, file_name: []const u8) !void {
         if (self.format != .rgba_8) return error.unsupportedFormat;
-        var path = std.ArrayList(u8).init(alloc).fromOwnedSlice(alloc, try dir.realpathAlloc(file_name));
+        var path = std.ArrayList(u8).fromOwnedSlice(alloc, try dir.realpathAlloc(alloc, file_name));
         defer path.deinit();
         try path.append(0);
 

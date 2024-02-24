@@ -101,7 +101,7 @@ pub fn buildAtlas(alloc: std.mem.Allocator) !McAtlas {
 
         const entry_w = 16;
         const width = @as(u32, @intFromFloat(@ceil(@sqrt(@as(f32, @floatFromInt(pngs.items.len))))));
-        var atlas_bitmap = try graph.Bitmap.initBlank(alloc, width * entry_w, width * entry_w);
+        var atlas_bitmap = try graph.Bitmap.initBlank(alloc, width * entry_w, width * entry_w, .rgba_8);
         defer atlas_bitmap.data.deinit();
 
         var proto_map = std.ArrayList(u16).init(alloc);
@@ -136,7 +136,8 @@ pub fn buildAtlas(alloc: std.mem.Allocator) !McAtlas {
                 try strcat.append('/');
                 try strcat.appendSlice(pngs.items[matches.items[0].index]);
 
-                var bmp = try graph.loadPngBitmap(strcat.items, alloc);
+                var bmp = try graph.Bitmap.initFromPngFile(alloc, itdir.dir, pngs.items[matches.items[0].index]);
+                //var bmp = try graph.loadPngBitmap(strcat.items, alloc);
                 defer bmp.data.deinit();
                 bmp.copySub(
                     0,
@@ -154,12 +155,10 @@ pub fn buildAtlas(alloc: std.mem.Allocator) !McAtlas {
                 left_out_count += 1;
             }
         }
-        try atlas_bitmap.writeToBmpFile(alloc, "debug/mcatlas.bmp");
+        try atlas_bitmap.writeToBmpFile(alloc, std.fs.cwd(), "debug/mcatlas.bmp");
         std.debug.print("left out: {d}\n", .{left_out_count});
         return McAtlas{
-            .texture = graph.Texture.fromArray(atlas_bitmap.data.items, @as(i32, @intCast(atlas_bitmap.w)), @as(i32, @intCast(atlas_bitmap.h)), .{
-                .mag_filter = graph.c.GL_NEAREST,
-            }),
+            .texture = graph.Texture.initFromBitmap(atlas_bitmap, .{ .mag_filter = graph.c.GL_NEAREST }),
             .protocol_id_to_atlas_map = try proto_map.toOwnedSlice(),
             .entry_w = entry_w,
             .entry_span = width,
