@@ -63,8 +63,8 @@ pub const McAtlas = struct {
 };
 
 pub fn buildAtlas(alloc: std.mem.Allocator) !McAtlas {
-    //const block_file_slice = try readFileCwd(alloc, "minecraft/blocks.json");
-    //defer alloc.free(block_file_slice);
+    const block_file_slice = try readFileCwd(alloc, "minecraft/blocks.json");
+    defer alloc.free(block_file_slice);
 
     //var ts = std.json.TokenStream.init(block_file_slice);
 
@@ -73,7 +73,7 @@ pub fn buildAtlas(alloc: std.mem.Allocator) !McAtlas {
     //const json = try std.json.parse([]BlockEntry, &ts, parse_opts);
     //defer std.json.parseFree([]BlockEntry, json, parse_opts);
 
-    const json_p = try std.json.parseFromSlice([]BlockEntry, alloc, "minecraft/blocks.json", .{});
+    const json_p = try std.json.parseFromSlice([]BlockEntry, alloc, block_file_slice, .{ .ignore_unknown_fields = true });
     defer json_p.deinit();
     const json = json_p.value;
     {

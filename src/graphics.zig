@@ -306,13 +306,13 @@ pub const Camera3D = struct {
             move_vec = move_vec.add(za.Vec3.new(0, -1, 0));
         if (win.keydown(.SPACE))
             move_vec = move_vec.add(za.Vec3.new(0, 1, 0));
-        if (win.keydown(.COMMA))
+        if (win.keydown(.W))
             move_vec = move_vec.add(self.front);
-        if (win.keydown(.O))
+        if (win.keydown(.S))
             move_vec = move_vec.add(self.front.scale(-1));
         if (win.keydown(.A))
             move_vec = move_vec.add(self.front.cross(.{ .data = .{ 0, 1, 0 } }).norm().scale(-1));
-        if (win.keydown(.E))
+        if (win.keydown(.D))
             move_vec = move_vec.add(self.front.cross(.{ .data = .{ 0, 1, 0 } }).norm());
 
         self.pos = self.pos.add(move_vec.norm().scale(self.move_speed));
@@ -320,6 +320,7 @@ pub const Camera3D = struct {
         self.move_speed = std.math.clamp(self.move_speed + win.mouse.wheel_delta.y * (self.move_speed / 10), 0.01, 10);
 
         self.yaw += mdelta.x;
+        self.yaw = @mod(self.yaw, 360);
         self.pitch = std.math.clamp(self.pitch - mdelta.y, -89, 89);
 
         const sin = std.math.sin;
@@ -475,7 +476,7 @@ pub const SDL = struct {
 
         pub fn grabMouse(self: *const Self, should: bool) void {
             _ = self;
-            _ = c.SDL_SetRelativeMouseMode(if (should) 1 else 0);
+            _ = c.SDL_SetRelativeMouseMode(if (should) c.SDL_TRUE else c.SDL_FALSE);
             //c.SDL_SetWindowMouseGrab(self.win, if (should) 1 else 0);
             //_ = c.SDL_ShowCursor(if (!should) 1 else 0);
         }
@@ -610,9 +611,11 @@ pub const SDL = struct {
                 var x: c_int = undefined;
                 var y: c_int = undefined;
                 self.mouse.setButtons(c.SDL_GetMouseState(&x, &y));
-                const old_pos = self.mouse.pos;
                 self.mouse.pos = .{ .x = @floatFromInt(x), .y = @floatFromInt(y) };
-                self.mouse.delta = self.mouse.pos.sub(old_pos);
+
+                _ = c.SDL_GetRelativeMouseState(&x, &y);
+
+                self.mouse.delta = .{ .x = @floatFromInt(x), .y = @floatFromInt(y) };
 
                 self.mouse.wheel_delta = .{ .x = 0, .y = 0 };
             }
@@ -2474,6 +2477,8 @@ pub fn normalizeTexRect(tr: Rect, tx_w: i32, tx_h: i32) Rect {
     };
 }
 
+//pub fn shaded_cube()[24]VertexTextured
+
 pub fn cube(px: f32, py: f32, pz: f32, sx: f32, sy: f32, sz: f32, tr: Rect, tx_w: u32, tx_h: u32, colorsopt: ?[]const CharColor) [24]VertexTextured {
     const colors = if (colorsopt) |cc| cc else &[6]CharColor{
         itc(0x888888ff), //Front
@@ -4001,7 +4006,7 @@ pub const Cubes = struct {
     indicies: std.ArrayList(u32),
 
     shader: glID,
-    texture: glID,
+    texture: Texture,
     vao: c_uint = undefined,
     vbo: c_uint = undefined,
     ebo: c_uint = undefined,
@@ -4020,7 +4025,7 @@ pub const Cubes = struct {
         c.glUseProgram(b.shader);
         c.glBindVertexArray(b.vao);
 
-        c.glBindTexture(c.GL_TEXTURE_2D, b.texture);
+        c.glBindTexture(c.GL_TEXTURE_2D, b.texture.id);
 
         GL.passUniform(b.shader, "view", view);
         GL.passUniform(b.shader, "model", model);
@@ -4028,7 +4033,7 @@ pub const Cubes = struct {
         c.glDrawElements(c.GL_TRIANGLES, @as(c_int, @intCast(b.indicies.items.len)), c.GL_UNSIGNED_INT, null);
     }
 
-    pub fn init(alloc: Alloc, texture: glID, shader: glID) @This() {
+    pub fn init(alloc: Alloc, texture: Texture, shader: glID) @This() {
         var ret = Self{
             .vertices = std.ArrayList(VertexTextured).init(alloc),
             .indicies = std.ArrayList(u32).init(alloc),
@@ -4048,6 +4053,71 @@ pub const Cubes = struct {
         GL.bufferData(c.GL_ARRAY_BUFFER, ret.vbo, VertexTextured, ret.vertices.items);
         GL.bufferData(c.GL_ELEMENT_ARRAY_BUFFER, ret.ebo, u32, ret.indicies.items);
         return ret;
+    }
+
+    //pub fn shaded_cube(self: *Self, pos: Vec3f, extents: Vec3f, tr: Rect) !void {
+    //    const p = pos;
+    //    const e = extents;
+    //    const white = charColorToFloat(itc(0xffffffff));
+    //    const u = normalizeTexRect(tr, @as(i32, @intCast(self.texture.w)), @as(i32, @intCast(self.texture.h)));
+    //    try self.vertices.appendSlice(&.{
+    //        vertexTextured(p.x, p.y, p.z, u.x, u.y, white),
+    //        vertexTextured(p.x, p.y, p.z + e.z, u.x, u.y, white),
+    //    });
+    //}
+
+    pub fn cube(self: *Self, px: f32, py: f32, pz: f32, sx: f32, sy: f32, sz: f32, tr: Rect, colorsopt: ?[]const CharColor) !void {
+        const tx_w = self.texture.w;
+        const tx_h = self.texture.h;
+        const colors = if (colorsopt) |cc| cc else &[6]CharColor{
+            itc(0x888888ff), //Front
+            itc(0x888888ff), //Back
+            itc(0x666666ff), //Bottom
+            itc(0xffffffff), //Top
+            itc(0xaaaaaaff),
+            itc(0xaaaaaaff),
+        };
+        const un = normalizeTexRect(tr, @as(i32, @intCast(tx_w)), @as(i32, @intCast(tx_h)));
+        try self.indicies.appendSlice(&genCubeIndicies(@as(u32, @intCast(self.vertices.items.len))));
+        // zig fmt: off
+        try self.vertices.appendSlice(&.{
+            // front
+            vertexTextured(px + sx, py + sy, pz, un.x + un.w, un.y + un.h, charColorToFloat(colors[0])), //0
+            vertexTextured(px + sx, py     , pz, un.x + un.w, un.y       , charColorToFloat(colors[0])), //1
+            vertexTextured(px     , py     , pz, un.x       , un.y       , charColorToFloat(colors[0])), //2
+            vertexTextured(px     , py + sy, pz, un.x       , un.y + un.h, charColorToFloat(colors[0])), //3
+
+            // back
+            vertexTextured(px     , py + sy, pz + sz, un.x       , un.y + un.h, charColorToFloat(colors[1])), //3
+            vertexTextured(px     , py     , pz + sz, un.x       , un.y       , charColorToFloat(colors[1])), //2
+            vertexTextured(px + sx, py     , pz + sz, un.x + un.w, un.y       , charColorToFloat(colors[1])), //1
+            vertexTextured(px + sx, py + sy, pz + sz, un.x + un.w, un.y + un.h, charColorToFloat(colors[1])), //0
+
+
+            vertexTextured(px + sx, py, pz,      un.x+un.w,un.y + un.h, charColorToFloat(colors[2])),
+            vertexTextured(px + sx, py, pz + sz, un.x+un.w,un.y, charColorToFloat(colors[2])),
+            vertexTextured(px     , py, pz + sz, un.x,un.y, charColorToFloat(colors[2])),
+            vertexTextured(px     , py, pz     , un.x,un.y + un.h, charColorToFloat(colors[2])),
+
+            vertexTextured(px     , py + sy, pz     , un.x,un.y + un.h, charColorToFloat(colors[3])),
+            vertexTextured(px     , py + sy, pz + sz, un.x,un.y, charColorToFloat(colors[3])),
+            vertexTextured(px + sx, py + sy, pz + sz, un.x + un.w,un.y, charColorToFloat(colors[3])),
+            vertexTextured(px + sx, py + sy, pz, un.x + un.w,   un.y + un.h , charColorToFloat(colors[3])),
+
+            vertexTextured(px, py + sy, pz, un.x + un.w,un.y + un.h,charColorToFloat(colors[4])),
+            vertexTextured(px, py , pz, un.x + un.w,un.y,charColorToFloat(colors[4])),
+            vertexTextured(px, py , pz + sz, un.x,un.y,charColorToFloat(colors[4])),
+            vertexTextured(px, py + sy , pz + sz, un.x,un.y + un.h,charColorToFloat(colors[4])),
+
+            vertexTextured(px + sx, py + sy , pz + sz, un.x,un.y + un.h,charColorToFloat(colors[5])),
+            vertexTextured(px + sx, py , pz + sz, un.x,un.y,charColorToFloat(colors[5])),
+            vertexTextured(px + sx, py , pz, un.x + un.w,un.y,charColorToFloat(colors[5])),
+            vertexTextured(px + sx, py + sy, pz, un.x + un.w,un.y + un.h,charColorToFloat(colors[5])),
+
+
+        });
+    // zig fmt: on
+
     }
 
     pub fn deinit(self: *Self) void {
