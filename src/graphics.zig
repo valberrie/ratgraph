@@ -4,8 +4,6 @@ pub const za = @import("zalgebra");
 
 pub const Tiled = @import("tiled.zig");
 
-pub const mcblockatlas = @import("mc_block_atlas.zig");
-
 const Alloc = std.mem.Allocator;
 const Dir = std.fs.Dir;
 
