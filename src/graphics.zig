@@ -13,6 +13,7 @@ pub const SparseSet = @import("sparse_set.zig").SparseSet;
 pub const MarioData = @import("data_mario.zig");
 pub const Collision = @import("col.zig");
 pub const Ecs = @import("registry.zig");
+pub const Lua = @import("lua.zig").Lua;
 //TODO write functions for
 //drawing debug information on the screen. Lots of strings, some sort of table.
 //like minecraft f3
