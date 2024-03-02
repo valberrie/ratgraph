@@ -169,17 +169,30 @@ pub const Lua = struct {
                 const str = @tagName(s);
                 _ = lua.lua_pushlstring(L, zstring(str), str.len);
             },
+            .Optional => {
+                if (s == null) {
+                    lua.lua_pushnil(L);
+                } else {
+                    pushV(L, s.?);
+                }
+            },
+            .Union => lua.lua_pushnil(L),
             .Float => lua.lua_pushnumber(L, s),
             .Bool => lua.lua_pushboolean(L, if (s) 1 else 0),
             .Int => lua.lua_pushinteger(L, std.math.lossyCast(i64, s)),
             .Pointer => |p| {
-                if (p.child == u8 and p.size == .Slice) {
-                    _ = lua.lua_pushlstring(L, zstring(s), s.len);
+                if (p.size == .Slice) {
+                    if (p.child == u8) {
+                        _ = lua.lua_pushlstring(L, zstring(s), s.len);
+                    } else {
+                        lua.lua_pushnil(L);
+                        return;
+                    }
                 } else {
-                    @compileError("Can't send slice to lua " ++ p);
+                    //@compileError("Can't send slice to lua " ++ p);
                 }
             },
-            else => @compileError("don't work"),
+            else => @compileError("pusnhV don't work with: " ++ s),
         }
     }
 
