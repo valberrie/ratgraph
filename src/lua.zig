@@ -34,9 +34,11 @@ pub fn loadAndRunFile(self: *Self, filename: [*c]const u8) void {
 }
 
 pub fn callLuaFunction(self: *Self, fn_name: [*c]const u8) !void {
+    lua.lua_pushcfunction(self.state, handleError);
     _ = lua.lua_getglobal(self.state, fn_name);
-    const err = lua.lua_pcallk(self.state, 0, 0, 0, 0, null);
-    checkError(self.state, err);
+    const err = lua.lua_pcallk(self.state, 0, 0, -2, 0, null);
+    checkErrorTb(self.state, err);
+    lua.lua_pop(self.state, 1); //pushCFunction
     if (err != 0)
         return error.luaError;
 }
@@ -51,6 +53,23 @@ pub fn regN(self: *Self, fns: []const struct { [*c]const u8, ?*const fn (Ls) cal
     }
 }
 
+pub export fn handleError(L: Ls) c_int {
+    var len: usize = 0;
+    const str = lua.lua_tolstring(L, 1, &len);
+    lua.luaL_traceback(L, L, str, 1);
+    lua.lua_remove(L, -2);
+    return 1;
+}
+
+pub fn checkErrorTb(L: Ls, err: c_int) void {
+    if (err != lua.LUA_OK) {
+        var len: usize = 0;
+        const tb = lua.lua_tolstring(L, -1, &len);
+        std.debug.print("TRACEBACK {s}\n", .{tb[0..len]});
+        lua.lua_pop(L, 1);
+    }
+}
+
 pub fn checkError(L: Ls, err: c_int) void {
     if (err != 0) {
         var len: usize = 0;
@@ -60,12 +79,13 @@ pub fn checkError(L: Ls, err: c_int) void {
     }
 }
 
-pub export fn printStack(L: Ls) c_int {
+pub fn printStack(L: Ls) void {
     std.debug.print("STACK: \n", .{});
     const top = lua.lua_gettop(L);
     var i: i32 = 1;
     while (i <= top) : (i += 1) {
         const t = lua.lua_type(L, i);
+        std.debug.print("{d} ", .{i});
         switch (t) {
             lua.LUA_TSTRING => std.debug.print("STRING: {s}\n", .{tostring(L, i)}),
             lua.LUA_TBOOLEAN => std.debug.print("BOOL: {any}\n", .{lua.lua_toboolean(L, i)}),
@@ -74,7 +94,6 @@ pub export fn printStack(L: Ls) c_int {
         }
     }
     std.debug.print("END STACK\n", .{});
-    return 0;
 }
 
 pub fn tonumber(L: Ls, idx: c_int) lua.lua_Number {
@@ -110,6 +129,24 @@ pub fn getArg(self: *Self, L: Ls, comptime s: type, idx: c_int) s {
             }
         },
         .Bool => lua.lua_toboolean(L, idx) == 1,
+        .Union => |u| {
+            const eql = std.mem.eql;
+            lua.luaL_checktype(L, idx, c.LUA_TTABLE);
+            lua.lua_pushnil(L);
+            _ = lua.lua_next(L, -2);
+            var slen: usize = 0;
+            const zname = lua.lua_tolstring(L, -2, &slen);
+            const name = zname[0..slen];
+            defer lua.lua_pop(L, 2);
+
+            inline for (u.fields) |f| {
+                if (eql(u8, f.name, name)) {
+                    return @unionInit(s, f.name, self.getArg(L, f.type, -1));
+                }
+            }
+            _ = lua.luaL_error(L, "invalid union value");
+            return undefined;
+        },
         .Pointer => |p| {
             if (p.size == .Slice) {
                 if (p.child == u8) {
@@ -117,15 +154,21 @@ pub fn getArg(self: *Self, L: Ls, comptime s: type, idx: c_int) s {
                     const str = lua.luaL_checklstring(L, idx, &len);
                     return str[0..len];
                 } else {
+                    lua.luaL_checktype(L, idx, c.LUA_TTABLE);
                     lua.lua_len(L, idx); //len on stack
-                    const len = lua.lua_tointeger(L, -1);
-                    lua.lua_pop(L, 2);
+                    var is_num: c_int = 0;
+                    const len: usize = @intCast(lua.lua_tointegerx(L, -1, &is_num));
+                    lua.lua_pop(L, 1);
+                    const alloc = self.fba.allocator();
+                    const slice = alloc.alloc(p.child, len) catch unreachable;
 
                     for (1..len + 1) |i| {
-                        const lt = lua.lua_geti(L, -1, i);
+                        const lt = lua.lua_geti(L, -1, @intCast(i));
                         _ = lt;
-                        self.getArg(L, p.child, -1);
+                        slice[i - 1] = self.getArg(L, p.child, -1);
+                        lua.lua_pop(L, 1);
                     }
+                    return slice;
                 }
             } else {
                 @compileError("Can't get slice from lua " ++ p);
