@@ -80,7 +80,7 @@ pub fn checkError(L: Ls, err: c_int) void {
 }
 
 pub fn printStack(L: Ls) void {
-    std.debug.print("STACK: \n", .{});
+    std.debug.print("BEGIN STACK DUMP: \n", .{});
     const top = lua.lua_gettop(L);
     var i: i32 = 1;
     while (i <= top) : (i += 1) {

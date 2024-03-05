@@ -380,6 +380,7 @@ pub fn writeBmp(file_name: [*c]const u8, w: i32, h: i32, component_count: i32, d
 
 //Ideally I don't want to make any c.SDL calls in my application
 pub const SDL = struct {
+    const log = std.log.scoped(.SDL);
     /// These names are less ambiguous than "pressed" "released" "held"
     pub const ButtonState = enum {
         rising,
@@ -463,7 +464,7 @@ pub const SDL = struct {
         text_input: []const u8,
 
         fn sdlLogErr() void {
-            std.debug.print("SDL ERROR:\n{s}\n", .{c.SDL_GetError()});
+            log.err("{s}", .{c.SDL_GetError()});
         }
 
         fn setAttr(attr: c.SDL_GLattr, val: c_int) !void {
@@ -501,6 +502,7 @@ pub const SDL = struct {
             gl_flags: []const u32 = &.{c.SDL_GL_CONTEXT_DEBUG_FLAG},
             window_flags: []const u32 = &.{},
         }) !Self {
+            log.info("Attempting to create window: {s}", .{title});
             if (c.SDL_Init(c.SDL_INIT_VIDEO) < 0) {
                 sdlLogErr();
                 return error.SDLInit;
@@ -542,10 +544,23 @@ pub const SDL = struct {
             };
             errdefer c.SDL_GL_DeleteContext(context);
 
+            {
+                log.info("gl renderer: {s}", .{c.glGetString(c.GL_RENDERER)});
+                log.info("gl vendor: {s}", .{c.glGetString(c.GL_VENDOR)});
+                log.info("gl version: {s}", .{c.glGetString(c.GL_VERSION)});
+                log.info("gl shader version: {s}", .{c.glGetString(c.GL_SHADING_LANGUAGE_VERSION)});
+
+                //var num_ext: i64 = 0;
+                //c.glGetInteger64v(c.GL_NUM_EXTENSIONS, &num_ext);
+                //for (0..@intCast(num_ext)) |i| {
+                //    log.info("ext: {s}", .{c.glGetStringi(c.GL_EXTENSIONS, @intCast(i))});
+                //}
+            }
+
             if (c.SDL_GL_SetSwapInterval(@intFromEnum(options.frame_sync)) < 0) {
                 sdlLogErr();
                 if (options.frame_sync == .adaptave_vsync) {
-                    std.debug.print("SDL failed to set adaptive sync, trying vsync\n", .{});
+                    log.warn("Failed to set adaptive sync, attempting to set vsync", .{});
                     if (c.SDL_GL_SetSwapInterval(1) < 0) {
                         sdlLogErr();
                         return error.SetSwapInterval;
@@ -592,7 +607,7 @@ pub const SDL = struct {
 
         pub fn enableNativeIme(self: *const Self, enable: bool) bool {
             _ = self;
-            _ = c.SDL_SetHint("SDL_HINT_IME_INTERNAL_EDITING", "1");
+            //_ = c.SDL_SetHint("SDL_HINT_IME_INTERNAL_EDITING", "1");
             return (c.SDL_SetHint("SDL_HINT_IME_SHOW_UI", if (enable) "1" else "0") == 1);
         }
 
@@ -661,14 +676,16 @@ pub const SDL = struct {
                     c.SDL_TEXTEDITING => {
                         const ed = event.edit;
                         const slice = std.mem.sliceTo(&ed.text, 0);
-                        std.debug.print("{s} start: {d} length: {d}\n", .{ slice, ed.start, ed.length });
+                        _ = slice;
                     },
                     c.SDL_TEXTINPUT => {
                         const slice = std.mem.sliceTo(&event.text.text, 0);
                         std.mem.copy(u8, &self.text_input_buffer, slice);
                         self.text_input = self.text_input_buffer[0..slice.len];
                     },
-                    c.SDL_KEYMAPCHANGED => {},
+                    c.SDL_KEYMAPCHANGED => {
+                        log.warn("keymap changed", .{});
+                    },
                     c.SDL_MOUSEWHEEL => {
                         self.mouse.wheel_delta = Vec2f.new(event.wheel.preciseX, event.wheel.preciseY);
                     },
@@ -1313,7 +1330,6 @@ pub const Bitmap = struct {
         const decoded = try alloc.alloc(u8, len);
         defer alloc.free(decoded);
         std.mem.copy(u8, decoded, img_buf[0..len]);
-        std.debug.print("Num format {d}\n", .{num_channel});
 
         return try initFromBuffer(alloc, decoded, x, y, switch (num_channel) {
             4 => .rgba_8,
@@ -1443,6 +1459,7 @@ pub const Bitmap = struct {
 };
 
 pub const GL = struct {
+    const log = std.log.scoped(GL);
     pub const PrimitiveMode = enum(u32) {
         points = c.GL_POINTS,
         line_strip = c.GL_LINE_STRIP,
@@ -1471,7 +1488,7 @@ pub const GL = struct {
                 c.GL_STACK_OVERFLOW => "An attempt has been made to perform an operation that would cause an internal stack to overflow.",
                 else => unreachable,
             };
-            std.debug.print("glGetError: {s}\n", .{str});
+            log.warn("glGetError: {s}", .{str});
         }
     }
 
@@ -1848,8 +1865,6 @@ pub const NewCtx = struct {
             .{ .pos = end_p, .z = z, .color = color },
         }) catch return;
     }
-
-    //pub fn flush(self: *Self, )
 
     pub fn end(self: *Self, screenW: i32, screenH: i32, camera: za.Mat4) void {
         const view = za.orthographic(0, @as(f32, @floatFromInt(screenW)), @as(f32, @floatFromInt(screenH)), 0, -100000, 1);

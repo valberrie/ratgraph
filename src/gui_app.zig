@@ -2510,9 +2510,6 @@ pub fn main() anyerror!void {
     var rbuf = graph.RingBuffer(3, u64, 0){};
     var dcall_count: usize = 0;
 
-    const type_name = @typeName(std.ArrayList(void));
-    std.debug.print("{s}\n", .{type_name});
-
     var atlas_editor = AtlasEditor.init(alloc);
     defer atlas_editor.deinit();
 
