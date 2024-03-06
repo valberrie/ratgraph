@@ -271,3 +271,20 @@ pub fn pushV(L: Ls, s: anytype) void {
         else => @compileError("pusnhV don't work with: " ++ s),
     }
 }
+
+pub fn registerAllStruct(self: *Self, comptime api_struct: type) void {
+    const info = @typeInfo(api_struct);
+    inline for (info.Struct.decls) |decl| {
+        var buf: [128]u8 = undefined;
+        if (buf.len <= decl.name.len)
+            @compileError("function name to long");
+        @memcpy(buf[0..decl.name.len], decl.name);
+        buf[decl.name.len] = 0;
+        const tinfo = @typeInfo(@TypeOf(@field(api_struct, decl.name)));
+        const lua_name = @as([*c]const u8, @ptrCast(&buf[0]));
+        switch (tinfo) {
+            .Fn => self.reg(lua_name, @field(api_struct, decl.name)),
+            else => self.setGlobal(lua_name, @field(api_struct, decl.name)),
+        }
+    }
+}

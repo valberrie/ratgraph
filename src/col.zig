@@ -26,14 +26,6 @@ pub fn simulateMove(game: anytype, cols: *std.ArrayList(Collision), id: u32, dx:
         }
     }
 
-    //var col_it = game.ecs.iterator(.collision_type);
-    //while (col_it.next()) |other_opt| {
-    //    if (other_opt.i == id) continue;
-    //    const col = detectCollision(pl, try game.ecs.get(other_opt.i, .col_rect), .{ .x = pl.x + dx, .y = pl.y + dy }, other_opt.i);
-    //    if (col.x != null or col.y != null or col.overlaps) {
-    //        try cols.append(col);
-    //    }
-    //}
     if (cols.items.len > 1) {
         std.sort.insertion(Collision, cols.items, Vec2f{ .x = 0, .y = 0 }, sortByCompletion);
     }

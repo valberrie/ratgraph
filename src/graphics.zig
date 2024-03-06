@@ -2275,6 +2275,10 @@ pub fn charColorToFloat(col: CharColor) Color {
     };
 }
 
+pub fn charColorToInt(co: CharColor) u32 {
+    return (@as(u32, @intCast(co.r)) << 24) | (@as(u32, @intCast(co.g)) << 16) | (@as(u32, @intCast(co.b)) << 8) | co.a;
+}
+
 pub const itc = intToColor;
 
 pub fn intToColor(color: u32) CharColor {
@@ -2703,6 +2707,7 @@ pub const Texture = struct {
         border_color: [4]f32 = .{ 0, 0, 0, 1.0 },
     };
 
+    //Todo write tests does this actually work
     pub fn initFromImgFile(alloc: Alloc, dir: Dir, sub_path: []const u8, o: Options) !Texture {
         var file = try dir.openFile(sub_path, .{});
         defer file.close();
