@@ -2550,7 +2550,7 @@ pub fn main() anyerror!void {
     //END LUA
 
     while (!win.should_exit) {
-        try ctx.beginDraw(win.screen_width, win.screen_height, itc(0x2f2f2fff), true);
+        try ctx.beginDraw(win.screen_dimensions.x, win.screen_dimensions.y, itc(0x2f2f2fff), true);
         defer dcall_count = ctx.call_count;
         win.pumpEvents(); //Important that this is called after beginDraw for input lag reasons
 
@@ -2579,7 +2579,7 @@ pub fn main() anyerror!void {
         rbuf.put(gui_time);
 
         {
-            const r = graph.Rec(0, 0, win.screen_width, win.screen_height);
+            const r = graph.Rec(0, 0, win.screen_dimensions.x, win.screen_dimensions.y);
             parent_area = r;
             //parent_area = graph.Rec(r.x + r.w / 4, r.y + r.h / 4, r.w / 2, r.h / 2);
             //_ = try gui.beginLayout(Gui.SubRectLayout, .{ .rect = parent_area }, .{});
@@ -2623,7 +2623,7 @@ pub fn main() anyerror!void {
             }
         }
 
-        try gui_draw_context.draw(&ctx, &font, parent_area, &gui, win.screen_width, win.screen_height);
+        try gui_draw_context.draw(&ctx, &font, parent_area, &gui, win.screen_dimensions.x, win.screen_dimensions.y);
         const fs = 40;
         var cy = struct {
             val: f32 = 300,

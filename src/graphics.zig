@@ -1706,8 +1706,7 @@ pub const NewCtx = struct {
         return res.value_ptr;
     }
 
-    pub fn begin(self: *Self, bg_color: u32, screen_dim: Vec2f) !void {
-        self.screen_dimensions = screen_dim;
+    pub fn clearBuffers(self: *Self) !void {
         for (self.batches.values()) |*b| {
             inline for (@typeInfo(Batches).Union.fields, 0..) |ufield, i| {
                 if (i == @intFromEnum(b.*)) {
@@ -1715,6 +1714,11 @@ pub const NewCtx = struct {
                 }
             }
         }
+    }
+
+    pub fn begin(self: *Self, bg_color: u32, screen_dim: Vec2f) !void {
+        self.screen_dimensions = screen_dim;
+        try self.clearBuffers();
 
         self.zindex = 1;
         std.time.sleep(16 * std.time.ns_per_ms);
@@ -1865,13 +1869,10 @@ pub const NewCtx = struct {
         }) catch return;
     }
 
-    //pub fn flush(self: *Self, )
-
-    pub fn end(self: *Self, camera: za.Mat4) void {
+    pub fn flush(self: *Self) !void {
         const view = za.orthographic(0, self.screen_dimensions.x, self.screen_dimensions.y, 0, -100000, 1);
         const model = za.Mat4.identity();
         //TODO annotate batches with camera or view
-        _ = camera;
 
         const sortctx = MapKeySortCtx{ .items = self.batches.keys() }; // Sort the batches by params.draw_priority
         self.batches.sort(sortctx);
@@ -1884,6 +1885,11 @@ pub const NewCtx = struct {
                 }
             }
         }
+        try self.clearBuffers();
+    }
+
+    pub fn end(self: *Self) !void {
+        try self.flush();
     }
 };
 

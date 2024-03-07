@@ -192,7 +192,7 @@ const LuaDraw = struct {
 };
 
 pub fn main() !void {
-    if (false) {
+    if (true) {
         try gui_app.main();
         return;
     }
@@ -231,7 +231,7 @@ pub fn main() !void {
 
         try lvm.callLuaFunction("loop");
 
-        draw.end(graph.za.Mat4.identity());
+        try draw.end();
         win.swap();
     }
 }
