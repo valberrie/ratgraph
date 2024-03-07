@@ -125,7 +125,7 @@ const LuaDraw = struct {
 
         pub export fn getScreenSize(L: Lua.Ls) c_int {
             const self = lua_draw;
-            Lua.pushV(L, graph.Vec2f.new(self.win.screen_width, self.win.screen_height));
+            Lua.pushV(L, self.win.screen_dimensions);
             return 1;
         }
 
@@ -192,6 +192,11 @@ const LuaDraw = struct {
 };
 
 pub fn main() !void {
+    if (false) {
+        try gui_app.main();
+        return;
+    }
+
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.detectLeaks();
     const alloc = gpa.allocator();
@@ -221,12 +226,12 @@ pub fn main() !void {
     lvm.loadAndRunFile("test.lua");
 
     while (!win.should_exit) {
-        try draw.begin(ldraw.clear_color);
+        try draw.begin(ldraw.clear_color, win.screen_dimensions.toF());
         win.pumpEvents();
 
         try lvm.callLuaFunction("loop");
 
-        draw.end(win.screen_width, win.screen_height, graph.za.Mat4.identity());
+        draw.end(graph.za.Mat4.identity());
         win.swap();
     }
 }

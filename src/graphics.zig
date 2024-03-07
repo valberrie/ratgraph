@@ -448,8 +448,7 @@ pub const SDL = struct {
         ctx: *anyopaque,
 
         //TODO move to a vector
-        screen_width: i32 = 0,
-        screen_height: i32 = 0,
+        screen_dimensions: Vec2i = .{ .x = 0, .y = 0 },
 
         should_exit: bool = false,
 
@@ -695,9 +694,9 @@ pub const SDL = struct {
                     c.SDL_WINDOWEVENT => {
                         switch (event.window.event) {
                             c.SDL_WINDOWEVENT_RESIZED => {
-                                self.screen_width = event.window.data1;
-                                self.screen_height = event.window.data2;
-                                c.glViewport(0, 0, self.screen_width, self.screen_height);
+                                self.screen_dimensions.x = event.window.data1;
+                                self.screen_dimensions.y = event.window.data2;
+                                c.glViewport(0, 0, self.screen_dimensions.x, self.screen_dimensions.y);
                             },
                             c.SDL_WINDOWEVENT_SIZE_CHANGED => {},
                             c.SDL_WINDOWEVENT_CLOSE => self.should_exit = true,
@@ -706,9 +705,9 @@ pub const SDL = struct {
                         var x: c_int = undefined;
                         var y: c_int = undefined;
                         c.SDL_GetWindowSize(self.win, &x, &y);
-                        self.screen_width = x;
-                        self.screen_height = y;
-                        c.glViewport(0, 0, self.screen_width, self.screen_height);
+                        self.screen_dimensions.x = x;
+                        self.screen_dimensions.y = y;
+                        c.glViewport(0, 0, self.screen_dimensions.x, self.screen_dimensions.y);
                     },
                     else => continue,
                 }
@@ -1655,8 +1654,6 @@ pub const NewCtx = struct {
     textured_tri_shader: c_uint,
     dpi: f32,
 
-    delete_me_font_tex: ?Texture = null,
-
     alloc: Alloc,
     //TODO comptime function where you specify the indicies or verticies you want to append to by a string name, handles setting error flags and everything
 
@@ -1666,6 +1663,8 @@ pub const NewCtx = struct {
         no,
         yes,
     } = .no,
+
+    screen_dimensions: Vec2f = .{ .x = 0, .y = 0 },
 
     pub fn init(alloc: Alloc, dpi: f32) Self {
         return Self{
@@ -1707,7 +1706,8 @@ pub const NewCtx = struct {
         return res.value_ptr;
     }
 
-    pub fn begin(self: *Self, bg_color: u32) !void {
+    pub fn begin(self: *Self, bg_color: u32, screen_dim: Vec2f) !void {
+        self.screen_dimensions = screen_dim;
         for (self.batches.values()) |*b| {
             inline for (@typeInfo(Batches).Union.fields, 0..) |ufield, i| {
                 if (i == @intFromEnum(b.*)) {
@@ -1768,7 +1768,6 @@ pub const NewCtx = struct {
     }
 
     pub fn text(self: *Self, pos: Vec2f, str: []const u8, font: *Font, pt_size: f32, col: u32) void {
-        self.delete_me_font_tex = font.texture;
         const SF = (pt_size / font.font_size);
         const fac = 1;
         const x = pos.x;
@@ -1866,8 +1865,10 @@ pub const NewCtx = struct {
         }) catch return;
     }
 
-    pub fn end(self: *Self, screenW: i32, screenH: i32, camera: za.Mat4) void {
-        const view = za.orthographic(0, @as(f32, @floatFromInt(screenW)), @as(f32, @floatFromInt(screenH)), 0, -100000, 1);
+    //pub fn flush(self: *Self, )
+
+    pub fn end(self: *Self, camera: za.Mat4) void {
+        const view = za.orthographic(0, self.screen_dimensions.x, self.screen_dimensions.y, 0, -100000, 1);
         const model = za.Mat4.identity();
         //TODO annotate batches with camera or view
         _ = camera;
