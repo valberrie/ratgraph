@@ -5,6 +5,7 @@ const lua = @cImport({
     @cInclude("lualib.h");
 });
 
+//TODO have a allocator on hand if we exceed fba
 const Self = @This();
 pub const c = lua;
 pub const Ls = ?*lua.lua_State;
@@ -113,6 +114,8 @@ pub fn zstring(str: []const u8) [*c]const u8 {
     return &zstring_buffer[0];
 }
 
+//TODO are we allowed to return these strings without duping them?
+//don't think so because we pop
 pub fn getArg(self: *Self, L: Ls, comptime s: type, idx: c_int) s {
     const in = @typeInfo(s);
     return switch (in) {
@@ -192,12 +195,13 @@ pub fn getArg(self: *Self, L: Ls, comptime s: type, idx: c_int) s {
 
 pub fn getGlobal(self: *Self, L: Ls, name: []const u8, comptime s: type) s {
     _ = lua.lua_getglobal(L, zstring(name));
-    switch (@typeInfo(s)) {
-        .Struct => {
-            return self.getArg(self.state, s, 1);
-        },
-        else => @compileError("not supported"),
-    }
+    return self.getArg(self.state, s, 1);
+    // switch (@typeInfo(s)) {
+    //     .Struct => {
+    //         return self.getArg(self.state, s, 1);
+    //     },
+    //     else => @compileError("not supported"),
+    // }
 }
 
 pub fn setGlobal(self: *Self, name: [*c]const u8, item: anytype) void {
