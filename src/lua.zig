@@ -27,8 +27,8 @@ pub fn clearAlloc(self: *Self) void {
     self.fba.reset();
 }
 
-pub fn loadAndRunFile(self: *Self, filename: [*c]const u8) void {
-    const lf = lua.luaL_loadfilex(self.state, filename, "bt");
+pub fn loadAndRunFile(self: *Self, filename: []const u8) void {
+    const lf = lua.luaL_loadfilex(self.state, zstring(filename), "bt");
     checkError(self.state, lua.lua_pcallk(self.state, 0, lua.LUA_MULTRET, 0, 0, null));
     _ = lf;
 }
