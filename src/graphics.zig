@@ -4043,10 +4043,10 @@ pub const Cubes = struct {
         GL.bufferData(c.GL_ELEMENT_ARRAY_BUFFER, self.ebo, u32, self.indicies.items);
     }
 
-    pub fn draw(b: *Self, screenw: i32, screenh: i32, view: za.Mat4) void {
+    pub fn draw(b: *Self, screen_dim: Vec2i, view: za.Mat4) void {
         //const view = za.orthographic(0, @intToFloat(f32, screenw), @intToFloat(f32, screenh), 0, -100000, 1).translate(za.Vec3.new(0, 0, 0));
 
-        c.glViewport(0, 0, screenw, screenh);
+        c.glViewport(0, 0, screen_dim.x, screen_dim.y);
         const model = za.Mat4.identity();
         c.glUseProgram(b.shader);
         c.glBindVertexArray(b.vao);
