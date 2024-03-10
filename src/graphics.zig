@@ -4091,6 +4091,18 @@ pub const Cubes = struct {
     //        vertexTextured(p.x, p.y, p.z + e.z, u.x, u.y, white),
     //    });
     //}
+    pub fn cubeVec(self: *Self, pos: anytype, scale: anytype, tr: Rect) !void {
+        try self.cube(
+            lcast(f32, pos.x),
+            lcast(f32, pos.y),
+            lcast(f32, pos.z),
+            lcast(f32, scale.x),
+            lcast(f32, scale.y),
+            lcast(f32, scale.z),
+            tr,
+            null,
+        );
+    }
 
     pub fn cube(self: *Self, px: f32, py: f32, pz: f32, sx: f32, sy: f32, sz: f32, tr: Rect, colorsopt: ?[]const CharColor) !void {
         const tx_w = self.texture.w;
@@ -4370,6 +4382,7 @@ pub fn GenerateBindingEnum(comptime map: BindList) type {
 //var testmap = graph.Bind(&.{.{ "my_key_binding", "a" }}).init();
 pub fn Bind(comptime map: BindList) type {
     return struct {
+        pub const Map = map;
         const bind_enum = GenerateBindingEnum(map);
 
         scancode_table: [@intFromEnum(keycodes.Scancode.ODES)]bind_enum,

@@ -80,6 +80,10 @@ pub fn checkError(L: Ls, err: c_int) void {
     }
 }
 
+pub fn putError(self: *Self, msg: []const u8) void {
+    _ = lua.luaL_error(self.state, zstring(msg));
+}
+
 pub fn printStack(L: Ls) void {
     std.debug.print("BEGIN STACK DUMP: \n", .{});
     const top = lua.lua_gettop(L);
