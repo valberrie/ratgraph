@@ -29,9 +29,13 @@ pub fn clearAlloc(self: *Self) void {
 }
 
 pub fn loadAndRunFile(self: *Self, filename: []const u8) void {
+    lua.lua_pushcfunction(self.state, handleError);
+
     const lf = lua.luaL_loadfilex(self.state, zstring(filename), "bt");
-    checkError(self.state, lua.lua_pcallk(self.state, 0, lua.LUA_MULTRET, 0, 0, null));
     _ = lf;
+    const err = lua.lua_pcallk(self.state, 0, 0, -2, 0, null);
+    checkErrorTb(self.state, err);
+    lua.lua_pop(self.state, 1); //pushCFunction
 }
 
 pub fn callLuaFunction(self: *Self, fn_name: [*c]const u8) !void {
@@ -292,6 +296,8 @@ pub fn registerAllStruct(self: *Self, comptime api_struct: type) void {
         const lua_name = @as([*c]const u8, @ptrCast(&buf[0]));
         switch (tinfo) {
             .Fn => self.reg(lua_name, @field(api_struct, decl.name)),
+            //else => |crass| @compileError("Cannot export to lua: " ++ @tagName(crass)),
+            //@typeName(@TypeOf(@field(api_struct, decl.name)))),
             else => self.setGlobal(lua_name, @field(api_struct, decl.name)),
         }
     }
