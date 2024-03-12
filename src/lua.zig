@@ -88,6 +88,13 @@ pub fn putError(self: *Self, msg: []const u8) void {
     _ = lua.luaL_error(self.state, zstring(msg));
 }
 
+pub fn putErrorFmt(self: *Self, comptime fmt: []const u8, args: anytype) void {
+    var buff: [256]u8 = undefined;
+    var fbs = std.io.FixedBufferStream([]u8){ .buffer = &buff, .pos = 0 };
+    fbs.writer().print(fmt, args) catch unreachable;
+    self.putError(fbs.getWritten());
+}
+
 pub fn printStack(L: Ls) void {
     std.debug.print("BEGIN STACK DUMP: \n", .{});
     const top = lua.lua_gettop(L);
@@ -203,6 +210,7 @@ pub fn getArg(self: *Self, L: Ls, comptime s: type, idx: c_int) s {
 
 pub fn getGlobal(self: *Self, L: Ls, name: []const u8, comptime s: type) s {
     _ = lua.lua_getglobal(L, zstring(name));
+    defer lua.lua_pop(L, 1);
     return self.getArg(self.state, s, 1);
     // switch (@typeInfo(s)) {
     //     .Struct => {
