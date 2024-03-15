@@ -97,7 +97,6 @@ pub fn build(b: *std.Build) void {
     });
     unit_tests.setExecCmd(&[_]?[]const u8{ "kcov", "kcov-output", null });
     linkLibrary(unit_tests);
-    //unit_tests.setExecCmd(&.{ "echo", "fuckstain", null });
 
     const run_unit_tests = b.addRunArtifact(unit_tests);
 

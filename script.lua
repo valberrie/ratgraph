@@ -6,16 +6,16 @@ local checked = false;
 
 function docrap ()
     beginV()
-        button("fuck")
-        if button("CLICK ME AND I WILL print;") then
+        button("test")
+        if button("click me and i will print;") then
             print("hello")
         end
-        button("fuck")
-        checked = checkbox("ficking", checked)
+        button("test2")
+        checked = checkbox("check box", checked)
         if checked then
             button("this is the next")
         end
-        label("Hello") button("fuck")
+        label("Hello") button("another button")
         pushHeight(400);
         beginV()
             slider(v)
