@@ -12,6 +12,8 @@ Graphics code.
 * [stb](https://github.com/nothings/stb)
 * [libsbng](https://github.com/randy408/libspng)
 * [freetype](https://freetype.org/)
+* [remix icon](https://github.com/Remix-Design/RemixIcon)
+* [Roboto font](https://fonts.google.com/specimen/Roboto)
 
 ### Current functionality
 * AABB collision detection
