@@ -729,7 +729,7 @@ pub const SDL = struct {
 
         pub fn bindScreenFramebuffer(self: *Self) void {
             c.glBindFramebuffer(c.GL_FRAMEBUFFER, 0);
-            c.glViewport(0, 0, self.screen_width, self.screen_height);
+            c.glViewport(0, 0, self.screen_dimensions.x, self.screen_dimensions.y);
         }
 
         pub fn startTextInput(self: *const Self) void {
@@ -1858,6 +1858,39 @@ pub const NewCtx = struct {
 
     //TODO
     // fn fixedBitmapText?
+    pub fn bitmapText(self: *Self, x: f32, y: f32, h: f32, str: []const u8, font: FixedBitmapFont, col: u32) void {
+        const b = &(self.getBatch(.{
+            .batch_kind = .color_tri_tex,
+            //Text should always be drawn last for best transparency
+            .params = .{ .shader = self.textured_tri_shader, .texture = font.texture.id, .draw_priority = 0xff },
+        }) catch unreachable).color_tri_tex;
+        const z = self.zindex;
+        self.zindex += 1;
+
+        var i: u32 = 0;
+        for (str) |char| {
+            if (char == ' ' or char == '_') {
+                i += 1;
+                continue;
+            }
+
+            const ind = font.translation_table[std.ascii.toUpper(char)];
+            const fi = @as(f32, @floatFromInt(i));
+            const tr = font.sts.getTexRec(if (ind == 127) continue else ind);
+            const un = normalizeTexRect(tr, font.texture.w, font.texture.h);
+            const r = Rec(x + fi * h, y, h, h);
+
+            b.indicies.appendSlice(&genQuadIndices(@as(u32, @intCast(b.vertices.items.len)))) catch unreachable;
+            b.vertices.appendSlice(&.{
+                .{ .pos = .{ .x = r.x + r.w, .y = r.y + r.h }, .z = z, .uv = .{ .x = un.x + un.w, .y = un.y + un.h }, .color = col }, //0
+                .{ .pos = .{ .x = r.x + r.w, .y = r.y }, .z = z, .uv = .{ .x = un.x + un.w, .y = un.y }, .color = col }, //1
+                .{ .pos = .{ .x = r.x, .y = r.y }, .z = z, .uv = .{ .x = un.x, .y = un.y }, .color = col }, //2
+                .{ .pos = .{ .x = r.x, .y = r.y + r.h }, .z = z, .uv = .{ .x = un.x, .y = un.y + un.h }, .color = col }, //3
+            }) catch return;
+
+            i += 1;
+        }
+    }
 
     pub fn line(self: *Self, start_p: Vec2f, end_p: Vec2f, color: u32) void {
         const b = &(self.getBatch(.{ .batch_kind = .color_line, .params = .{ .shader = self.colored_tri_shader } }) catch unreachable).color_line;
@@ -1869,8 +1902,23 @@ pub const NewCtx = struct {
         }) catch return;
     }
 
-    pub fn flush(self: *Self) !void {
-        const view = za.orthographic(0, self.screen_dimensions.x, self.screen_dimensions.y, 0, -100000, 1);
+    pub fn setViewport(self: *Self, vo: ?Rect) void {
+        const sb = self.screen_dimensions;
+        if (vo) |v| {
+            c.glViewport(
+                @as(i32, @intFromFloat(v.x)),
+                @as(i32, @intFromFloat(sb.y - (v.y + v.h))),
+                @as(i32, @intFromFloat(v.w)),
+                @as(i32, @intFromFloat(v.h)),
+            );
+        } else {
+            self.setViewport(Rec(0, 0, sb.x, sb.y));
+        }
+    }
+
+    pub fn flush(self: *Self, custom_camera: ?Rect) !void {
+        const cb = if (custom_camera) |cc| cc else Rec(0, 0, self.screen_dimensions.x, self.screen_dimensions.y);
+        const view = za.orthographic(cb.x, cb.x + cb.w, cb.y + cb.h, cb.y, -100000, 1);
         const model = za.Mat4.identity();
         //TODO annotate batches with camera or view
 
@@ -1889,7 +1937,7 @@ pub const NewCtx = struct {
     }
 
     pub fn end(self: *Self) !void {
-        try self.flush();
+        try self.flush(null);
     }
 };
 
