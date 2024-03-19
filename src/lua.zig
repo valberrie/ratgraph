@@ -139,12 +139,10 @@ pub fn getArg(self: *Self, L: Ls, comptime s: type, idx: c_int) s {
         .Enum => blk: {
             var len: usize = 0;
             const str = lua.luaL_checklstring(L, idx, &len);
-            const h = std.hash.Wyhash.hash;
-            inline for (in.Enum.fields) |f| {
-                if (h(0, f.name) == h(0, str[0..len])) {
-                    break :blk @enumFromInt(f.value);
-                }
-            }
+            const enum_ = std.meta.stringToEnum(s, str[0..len]);
+            if (enum_) |e|
+                break :blk e;
+            self.putErrorFmt("Invalid enum value: {s}", .{str});
         },
         .Bool => lua.lua_toboolean(L, idx) == 1,
         .Union => |u| {
@@ -204,6 +202,13 @@ pub fn getArg(self: *Self, L: Ls, comptime s: type, idx: c_int) s {
             }
             return ret;
         },
+        .Optional => |o| {
+            const t = lua.lua_type(L, idx);
+            if (t == lua.LUA_TNIL) {
+                return null;
+            }
+            return self.getArg(L, o.child, idx);
+        },
         else => @compileError("getV type not supported " ++ @typeName(s)),
     };
 }
@@ -226,7 +231,8 @@ pub fn setGlobal(self: *Self, name: [*c]const u8, item: anytype) void {
 }
 
 pub fn pushV(L: Ls, s: anytype) void {
-    const info = @typeInfo(@TypeOf(s));
+    const sT = @TypeOf(s);
+    const info = @typeInfo(sT);
     switch (info) {
         .Struct => |st| {
             lua.lua_newtable(L);
@@ -234,6 +240,9 @@ pub fn pushV(L: Ls, s: anytype) void {
                 _ = lua.lua_pushstring(L, zstring(f.name));
                 pushV(L, @field(s, f.name));
                 lua.lua_settable(L, -3);
+            }
+            if (comptime std.meta.trait.hasFn("setLuaTable")(sT)) {
+                @field(sT, "setLuaTable")(L);
             }
         },
         .Enum => {
