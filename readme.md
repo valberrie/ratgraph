@@ -4,6 +4,10 @@
 Graphics code.
 
 ## Using this library
+        # make sure you have the following libraries installed system-wide:
+        # libepoxy
+        # sdl2
+        # freetype
         git submodule update --init --recursive
         zig build run
 
@@ -14,6 +18,10 @@ Graphics code.
 * [freetype](https://freetype.org/)
 * [remix icon](https://github.com/Remix-Design/RemixIcon)
 * [Roboto font](https://fonts.google.com/specimen/Roboto)
+* [libepoxy](https://github.com/anholt/libepoxy)
+* [sdl2](https://www.libsdl.org/)
+
+
 
 ### Current functionality
 * AABB collision detection
