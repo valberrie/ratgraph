@@ -1,6 +1,7 @@
 const std = @import("std");
 pub const c = @import("c.zig");
 pub const za = @import("zalgebra");
+pub const ArgGen = @import("arg_gen.zig");
 
 pub const Tiled = @import("tiled.zig");
 

@@ -117,7 +117,8 @@ pub fn parseArgs(comptime arg_list: []const ArgItem, arg_it: anytype) !generateA
             inline for (arg_list) |field| {
                 std.debug.print("{s}:{s}\t{s}\n", .{ field.name, @tagName(field.arg_type), field.doc });
             }
-            return error.printedHelp;
+            std.process.exit(0);
+            //return error.printedHelp;
         }
     }
 
