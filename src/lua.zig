@@ -24,6 +24,10 @@ pub fn init() @This() {
     };
 }
 
+pub fn getAlloc(self: *Self) std.mem.Allocator {
+    return self.fba.allocator();
+}
+
 pub fn clearAlloc(self: *Self) void {
     self.fba.reset();
 }
