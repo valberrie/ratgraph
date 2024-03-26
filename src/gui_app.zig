@@ -2443,11 +2443,6 @@ pub fn main() anyerror!void {
     });
     defer win.destroyWindow();
 
-    var ctx = try graph.GraphicsContext.init(
-        alloc,
-        163,
-    );
-    defer ctx.deinit();
     graph.c.glLineWidth(1);
 
     var dpix: u32 = @as(u32, @intFromFloat(win.getDpi()));
@@ -2489,21 +2484,21 @@ pub fn main() anyerror!void {
     var gui_draw_context = try Gui.GuiDrawContext.init();
     defer gui_draw_context.deinit();
 
-    var nctx = graph.NewCtx.init(alloc, win.getDpi());
-    defer nctx.deinit();
+    var draw = graph.NewCtx.init(alloc, win.getDpi());
+    defer draw.deinit();
 
     var parent_area = graph.Rec(0, 0, 0, 0);
 
     var percent_usage: f32 = 0;
 
-    var draw_line_debug: bool = false;
+    //var draw_line_debug: bool = false;
 
     const gui_frac: f32 = 0.3;
     _ = gui_frac * 0.1;
     var gui_timer = try std.time.Timer.start();
     var gui_time: u64 = 0;
     var rbuf = graph.RingBuffer(3, u64, 0){};
-    var dcall_count: usize = 0;
+    //var dcall_count: usize = 0;
 
     var atlas_editor = AtlasEditor.init(alloc);
     defer atlas_editor.deinit();
@@ -2544,9 +2539,9 @@ pub fn main() anyerror!void {
 
     //END LUA
 
+    //graph.c.glPolygonMode(graph.c.GL_FRONT_AND_BACK, graph.c.GL_LINE);
     while (!win.should_exit) {
-        try ctx.beginDraw(win.screen_dimensions.x, win.screen_dimensions.y, itc(0x2f2f2fff), true);
-        defer dcall_count = ctx.call_count;
+        try draw.begin(0x2f2f2fff, win.screen_dimensions.toF());
         win.pumpEvents(); //Important that this is called after beginDraw for input lag reasons
 
         switch (gui.text_input_state.state) {
@@ -2618,15 +2613,17 @@ pub fn main() anyerror!void {
             }
         }
 
-        try gui_draw_context.draw(&ctx, &font, parent_area, &gui, win.screen_dimensions.x, win.screen_dimensions.y);
-        const fs = 40;
-        var cy = struct {
-            val: f32 = 300,
-            fn get(self: *@This()) f32 {
-                self.val += fs;
-                return self.val;
-            }
-        }{};
+        //draw.test9(Rec(0, 0, 400, 400), 0xffffffff);
+        //draw.test9(Rec(0, 0, 400, 400), Os9Gui.os9win, os9_ctx.texture, 5);
+        try gui_draw_context.drawGui(&draw, &font, parent_area, &gui, win.screen_dimensions.x, win.screen_dimensions.y);
+        //const fs = 40;
+        //var cy = struct {
+        //    val: f32 = 300,
+        //    fn get(self: *@This()) f32 {
+        //        self.val += fs;
+        //        return self.val;
+        //    }
+        //}{};
 
         //ctx.drawRect(graph.Rec(0, 0, 1000, 1000), Color.Green);
         //ctx.drawTextFmt(0, cy.get(), "Popped: {any}", .{gui.last_frame_had_popup}, &font, fs, Color.White);
@@ -2641,28 +2638,28 @@ pub fn main() anyerror!void {
 
         graph.c.glDisable(graph.c.GL_STENCIL_TEST);
         //try ctx.drawRectTex(graph.Rec(0, 0, 1000, 1000), ts_tex.rect(), itc(0xffffffff), ts_tex);
-        if (draw_line_debug) {
-            var y: f32 = cy.get();
-            var it = gui.layout_cache.first;
-            while (it != null) : (it = it.?.next) {
-                const color = if (gui.mouse_grab_id) |h| if (h.layout_hash == it.?.data.hash) Color.Blue else Color.White else Color.White;
-                if (it.?.data.was_init) {
-                    ctx.drawRect(graph.Rec(0, y, fs, fs), Color.Red);
-                }
-                ctx.drawTextFmt(0, y, "{s}{d}", .{ nspace(it.?.depth * 2), it.?.data.hash & 0xfff }, &font, fs, color);
-                y = cy.get();
-                const dd = it.?.data.rec;
-                const xx = dd.x - 400 + @as(f32, @floatFromInt(it.?.depth)) * 40;
-                const h = dd.h;
-                const of = h * 0.2;
-                try ctx.drawLine(.{ .x = @as(f32, @floatFromInt(it.?.depth)) * fs + 30, .y = y - fs / 2 }, .{ .x = xx, .y = dd.y + dd.h / 2 }, Color.Red);
-                try ctx.drawLine(.{ .x = xx, .y = dd.y + of }, .{ .x = xx, .y = dd.y + dd.h - 2 * of }, Color.Blue);
-                try ctx.drawLine(.{ .x = xx, .y = dd.y + of }, .{ .x = dd.x, .y = dd.y }, Color.Blue);
-                try ctx.drawLine(.{ .x = xx, .y = dd.y + dd.h - 2 * of }, .{ .x = dd.x, .y = dd.y + dd.h }, Color.Blue);
-            }
-        }
+        //if (draw_line_debug) {
+        //    var y: f32 = cy.get();
+        //    var it = gui.layout_cache.first;
+        //    while (it != null) : (it = it.?.next) {
+        //        const color = if (gui.mouse_grab_id) |h| if (h.layout_hash == it.?.data.hash) Color.Blue else Color.White else Color.White;
+        //        if (it.?.data.was_init) {
+        //            ctx.drawRect(graph.Rec(0, y, fs, fs), Color.Red);
+        //        }
+        //        ctx.drawTextFmt(0, y, "{s}{d}", .{ nspace(it.?.depth * 2), it.?.data.hash & 0xfff }, &font, fs, color);
+        //        y = cy.get();
+        //        const dd = it.?.data.rec;
+        //        const xx = dd.x - 400 + @as(f32, @floatFromInt(it.?.depth)) * 40;
+        //        const h = dd.h;
+        //        const of = h * 0.2;
+        //        try ctx.drawLine(.{ .x = @as(f32, @floatFromInt(it.?.depth)) * fs + 30, .y = y - fs / 2 }, .{ .x = xx, .y = dd.y + dd.h / 2 }, Color.Red);
+        //        try ctx.drawLine(.{ .x = xx, .y = dd.y + of }, .{ .x = xx, .y = dd.y + dd.h - 2 * of }, Color.Blue);
+        //        try ctx.drawLine(.{ .x = xx, .y = dd.y + of }, .{ .x = dd.x, .y = dd.y }, Color.Blue);
+        //        try ctx.drawLine(.{ .x = xx, .y = dd.y + dd.h - 2 * of }, .{ .x = dd.x, .y = dd.y + dd.h }, Color.Blue);
+        //    }
+        //}
 
-        ctx.endDraw(null);
+        try draw.end();
         win.swap();
     }
 }

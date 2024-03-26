@@ -1757,7 +1757,100 @@ pub const NewCtx = struct {
         };
     }
 
-    pub fn rectTex(self: *Self, r: Rect, tr: Rect, col: u32, texture: Texture) void {
+    pub fn nineSlice(self: *Self, r: Rect, tr: Rect, texture: Texture, scale: f32) void {
+        const un = normalizeTexRect(tr, texture.w, texture.h);
+        const tbw = un.w / 3;
+        const tbh = un.h / 3;
+        const bw = tr.w / 3 * scale;
+        const bh = tr.h / 3 * scale;
+        const Uv = [_]Vec2f{
+            //row 1
+            .{ .y = un.y, .x = un.x + 0 },
+            .{ .y = un.y, .x = un.x + tbw },
+            .{ .y = un.y, .x = un.x + un.w - tbw },
+            .{ .y = un.y, .x = un.x + un.w },
+            //row 2
+            .{ .y = un.y + tbh, .x = un.x + 0 },
+            .{ .y = un.y + tbh, .x = un.x + tbw },
+            .{ .y = un.y + tbh, .x = un.x + un.w - tbw },
+            .{ .y = un.y + tbh, .x = un.x + un.w },
+            //row 3
+            .{ .y = un.y + un.h - tbh, .x = un.x + 0 },
+            .{ .y = un.y + un.h - tbh, .x = un.x + tbw },
+            .{ .y = un.y + un.h - tbh, .x = un.x + un.w - tbw },
+            .{ .y = un.y + un.h - tbh, .x = un.x + un.w },
+            //row 4
+            .{ .y = un.y + un.h, .x = un.x + 0 },
+            .{ .y = un.y + un.h, .x = un.x + tbw },
+            .{ .y = un.y + un.h, .x = un.x + un.w - tbw },
+            .{ .y = un.y + un.h, .x = un.x + un.w },
+        };
+        const b = &(self.getBatch(.{ .batch_kind = .color_tri_tex, .params = .{ .shader = self.textured_tri_shader, .texture = texture.id } }) catch return).color_tri_tex;
+        const z = self.zindex;
+        self.zindex += 1;
+        //br, tr, tl, bl
+        const i: u32 = @intCast(b.vertices.items.len);
+        b.indicies.appendSlice(&.{
+            //tl
+            i + 0,  i + 4,  i + 1,  i + 4,  i + 5,  i + 1,
+            //tm
+            i + 1,  i + 5,  i + 2,  i + 5,  i + 6,  i + 2,
+            //tr
+            i + 2,  i + 6,  i + 3,  i + 6,  i + 7,  i + 3,
+            //ml
+            i + 4,  i + 8,  i + 5,  i + 8,  i + 9,  i + 5,
+            //mm
+            i + 5,  i + 9,  i + 6,  i + 9,  i + 10, i + 6,
+            //mr
+            i + 6,  i + 10, i + 7,  i + 10, i + 11, i + 7,
+            //bl
+            i + 8,  i + 12, i + 9,  i + 12, i + 13, i + 9,
+            //bm
+            i + 13, i + 10, i + 9,  i + 13, i + 14, i + 10,
+            //br
+            i + 10, i + 14, i + 11, i + 14, i + 15, i + 11,
+        }) catch {
+            self.draw_fn_error = .yes;
+            return;
+        };
+
+        b.vertices.appendSlice(&.{}) catch {
+            self.draw_fn_error = .yes;
+            return;
+        };
+
+        b.vertices.appendSlice(&.{
+            //Row 1
+            .{ .z = z, .color = 0xffffffff, .uv = Uv[0], .pos = .{ .y = r.y, .x = r.x } },
+            .{ .z = z, .color = 0xffffffff, .uv = Uv[1], .pos = .{ .y = r.y, .x = r.x + bw } },
+            .{ .z = z, .color = 0xffffffff, .uv = Uv[2], .pos = .{ .y = r.y, .x = r.x + r.w - bw } },
+            .{ .z = z, .color = 0xffffffff, .uv = Uv[3], .pos = .{ .y = r.y, .x = r.x + r.w } },
+            //Row 2
+            .{ .z = z, .color = 0xffffffff, .uv = Uv[4], .pos = .{ .y = r.y + bh, .x = r.x } },
+            .{ .z = z, .color = 0xffffffff, .uv = Uv[5], .pos = .{ .y = r.y + bh, .x = r.x + bw } },
+            .{ .z = z, .color = 0xffffffff, .uv = Uv[6], .pos = .{ .y = r.y + bh, .x = r.x + r.w - bw } },
+            .{ .z = z, .color = 0xffffffff, .uv = Uv[7], .pos = .{ .y = r.y + bh, .x = r.x + r.w } },
+            //Row 3
+            .{ .z = z, .color = 0xffffffff, .uv = Uv[8], .pos = .{ .y = r.y + r.h - bh, .x = r.x } },
+            .{ .z = z, .color = 0xffffffff, .uv = Uv[9], .pos = .{ .y = r.y + r.h - bh, .x = r.x + bw } },
+            .{ .z = z, .color = 0xffffffff, .uv = Uv[10], .pos = .{ .y = r.y + r.h - bh, .x = r.x + r.w - bw } },
+            .{ .z = z, .color = 0xffffffff, .uv = Uv[11], .pos = .{ .y = r.y + r.h - bh, .x = r.x + r.w } },
+            ////Row 4
+            .{ .z = z, .color = 0xffffffff, .uv = Uv[12], .pos = .{ .y = r.y + r.h, .x = r.x } },
+            .{ .z = z, .color = 0xffffffff, .uv = Uv[13], .pos = .{ .y = r.y + r.h, .x = r.x + bw } },
+            .{ .z = z, .color = 0xffffffff, .uv = Uv[14], .pos = .{ .y = r.y + r.h, .x = r.x + r.w - bw } },
+            .{ .z = z, .color = 0xffffffff, .uv = Uv[15], .pos = .{ .y = r.y + r.h, .x = r.x + r.w } },
+        }) catch {
+            self.draw_fn_error = .yes;
+            return;
+        };
+    }
+
+    pub fn rectTex(self: *Self, r: Rect, tr: Rect, texture: Texture) void {
+        self.rectTexTint(r, tr, 0xffffffff, texture);
+    }
+
+    pub fn rectTexTint(self: *Self, r: Rect, tr: Rect, col: u32, texture: Texture) void {
         const b = &(self.getBatch(.{ .batch_kind = .color_tri_tex, .params = .{ .shader = self.textured_tri_shader, .texture = texture.id } }) catch return).color_tri_tex;
         const z = self.zindex;
         self.zindex += 1;
@@ -1773,7 +1866,8 @@ pub const NewCtx = struct {
     }
 
     pub fn text(self: *Self, pos: Vec2f, str: []const u8, font: *Font, pt_size: f32, col: u32) void {
-        const SF = (pt_size / font.font_size);
+        //const SF = (pt_size / font.font_size);
+        const SF = (pxToPt(self.dpi, pt_size)) / font.font_size;
         const fac = 1;
         const x = pos.x;
         const y = pos.y;
@@ -1844,7 +1938,7 @@ pub const NewCtx = struct {
         b.vertices.append(.{ .pos = end_point, .color = color }) catch return;
     }
 
-    //TODO what is the winding order
+    // Winding order should be CCW
     pub fn triangle(self: *Self, v1: Vec2f, v2: Vec2f, v3: Vec2f, color: u32) void {
         const b = &(self.getBatch(.{ .batch_kind = .color_tri, .params = .{ .shader = self.colored_tri_shader } }) catch unreachable).color_tri;
         const z = self.zindex;
@@ -3391,6 +3485,8 @@ fn lerpVec(start: Vec2f, end: Vec2f, ratio: f32) Vec2f {
 fn logErr(msg: []const u8) void {
     std.debug.print("ERROR: {s}\n", .{msg});
 }
+
+//TODO asset packing and loading with metadata
 
 //TODO I want to destroy GraphicsContext
 //What projects are using it?

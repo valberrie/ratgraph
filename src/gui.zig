@@ -48,6 +48,7 @@ const SRect = struct {
 
 const Hsva = graph.Hsva;
 const Color = graph.CharColor;
+const Colori = graph.Colori;
 const itc = graph.itc;
 
 //TODO reduce memory footprint of these structs?
@@ -2185,12 +2186,12 @@ pub const GuiDrawContext = struct {
         self.popup_rtexture.deinit();
     }
 
-    pub fn draw(self: *Self, ctx: *graph.GraphicsContext, font: *graph.Font, parea: Rect, gui: *Context, win_w: i32, win_h: i32) !void {
-        graph.GraphicsContext.debug_batch_size = 0;
+    pub fn drawGui(self: *Self, draw: *graph.NewCtx, font: *graph.Font, parea: Rect, gui: *Context, win_w: i32, win_h: i32) !void {
         try self.main_rtexture.setSize(@as(i32, @intFromFloat(parea.w)), @as(i32, @intFromFloat(parea.h)));
         const ignore_cache = false;
         self.main_rtexture.bind(ignore_cache);
-        ctx.screen_bounds = graph.IRect.new(0, 0, @intFromFloat(parea.w), @intFromFloat(parea.h));
+        //ctx.screen_bounds = graph.IRect.new(0, 0, @intFromFloat(parea.w), @intFromFloat(parea.h));
+        draw.screen_dimensions = .{ .x = parea.w, .y = parea.h };
         {
             const c = graph.c;
             c.glEnable(c.GL_STENCIL_TEST);
@@ -2215,17 +2216,17 @@ pub const GuiDrawContext = struct {
                     }
                 }
                 if (n.data.draw_cmds) {
-                    ctx.drawRect(if (n.data.scissor) |s| s else n.data.rec, Color.Black);
+                    draw.rect(if (n.data.scissor) |s| s else n.data.rec, Colori.Black);
                     redraw_depth = n.depth;
                 }
             }
-            try ctx.flush(.{ .x = 0, .y = 0 }, null);
+            try draw.flush(null);
             c.glColorMask(c.GL_TRUE, c.GL_TRUE, c.GL_TRUE, c.GL_TRUE);
             c.glDepthMask(c.GL_TRUE);
             c.glStencilMask(0x00);
             c.glStencilFunc(c.GL_EQUAL, 1, 0xFF);
         }
-        ctx.drawRect(parea, Color.Blue);
+        draw.rect(parea, Colori.Blue);
         {
             var scissor: bool = false;
             var scissor_depth: u32 = 0;
@@ -2235,32 +2236,30 @@ pub const GuiDrawContext = struct {
                     if (n.data.scissor) |sz| {
                         scissor = true;
                         scissor_depth = n.depth;
-                        try self.drawCommand(.{ .scissor = .{ .area = sz } }, ctx, font);
+                        try self.drawCommand(.{ .scissor = .{ .area = sz } }, draw, font);
                     }
                     for (n.data.commands.items) |command| {
-                        try self.drawCommand(command, ctx, font);
+                        try self.drawCommand(command, draw, font);
                     }
                 }
                 if (n.data.scissor == null) {
                     if (scissor and n.depth <= scissor_depth) {
                         scissor = false;
-                        try self.drawCommand(.{ .scissor = .{ .area = null } }, ctx, font);
+                        try self.drawCommand(.{ .scissor = .{ .area = null } }, draw, font);
                     }
                 }
                 n.data.draw_backup = false;
             }
         }
-        try ctx.flush(.{ .x = 0, .y = 0 }, null);
+        try draw.flush(null);
         graph.c.glDisable(graph.c.GL_STENCIL_TEST);
-        //if (graph.GraphicsContext.debug_batch_size > 0)
-        //    std.debug.print("Size {d}\n", .{graph.GraphicsContext.debug_batch_size});
 
-        ctx.screen_bounds = graph.IRect.new(0, 0, win_w, win_h);
+        draw.screen_dimensions = .{ .x = @as(f32, @floatFromInt(win_w)), .y = @as(f32, @floatFromInt(win_h)) };
         graph.c.glBindFramebuffer(graph.c.GL_FRAMEBUFFER, 0);
         graph.c.glViewport(0, 0, win_w, win_h);
 
         const tr = self.main_rtexture.texture.rect();
-        try ctx.drawRectTex(parea, graph.Rec(0, 0, tr.w, -tr.h), Color.White, self.main_rtexture.texture);
+        draw.rectTex(parea, graph.Rec(0, 0, tr.w, -tr.h), self.main_rtexture.texture);
 
         //if (gui.popup) |p| {
         //    //try self.popup_rtexture.setSize(@as(i32, @intFromFloat(p.area.w)), @as(i32, @intFromFloat(p.area.w)));
@@ -2287,42 +2286,45 @@ pub const GuiDrawContext = struct {
         //}
     }
 
-    pub fn drawCommand(self: *Self, command: DrawCommand, ctx: *graph.GraphicsContext, font: *graph.Font) !void {
+    pub fn drawCommand(self: *Self, command: DrawCommand, draw: *graph.NewCtx, font: *graph.Font) !void {
+        const cc = graph.charColorToInt;
         _ = font;
         switch (command) {
             .rect_filled => |rf| {
-                ctx.drawRect(rf.r, rf.color);
+                draw.rect(rf.r, cc(rf.color));
             },
             .text => |t| {
                 const p = t.pos.toF();
 
-                ctx.drawText(p.x, p.y, t.string, t.font, t.size, t.color);
+                draw.text(p, t.string, t.font, t.size, cc(t.color));
             },
             .line => |l| {
-                try ctx.drawLine(l.a, l.b, l.color);
+                draw.line(l.a, l.b, cc(l.color));
             },
             .rect_textured => |t| {
-                try ctx.drawRectTex(t.r, t.uv, t.color, t.texture);
+                draw.rectTexTint(t.r, t.uv, cc(t.color), t.texture);
             },
             .rect_outline => |rl| {
                 const r = rl.r;
-                try ctx.drawLine(r.topL(), r.topR(), rl.color);
-                try ctx.drawLine(r.topR(), r.botR(), rl.color);
-                try ctx.drawLine(r.botR(), r.botL(), rl.color);
-                try ctx.drawLine(r.botL(), r.topL(), rl.color);
+                draw.line(r.topL(), r.topR(), cc(rl.color));
+                draw.line(r.topR(), r.botR(), cc(rl.color));
+                draw.line(r.botR(), r.botL(), cc(rl.color));
+                draw.line(r.botL(), r.topL(), cc(rl.color));
             },
             .set_camera => |sc| {
-                try ctx.flush(sc.offset, sc.cam_area);
-                ctx.setViewport(sc.win_area);
+                try draw.flush(sc.cam_area);
+                //try ctx.flush(sc.offset, sc.cam_area);
+                draw.setViewport(sc.win_area);
             },
             .scissor => |s| {
                 const c = graph.c;
-                try ctx.flush(self.camera_offset, self.camera_bounds);
+                try draw.flush(self.camera_bounds);
+                //try ctx.flush(self.camera_offset, self.camera_bounds);
                 if (s.area) |ar| {
                     c.glEnable(c.GL_SCISSOR_TEST);
                     c.glScissor(
                         @as(i32, @intFromFloat(ar.x)),
-                        ctx.screen_bounds.h - @as(i32, @intFromFloat((ar.y + ar.h))),
+                        @as(i32, @intFromFloat(draw.screen_dimensions.y - (ar.y + ar.h))),
                         //@floatToInt(i32, ar.y + ar.h) - ctx.screen_bounds.h,
                         @as(i32, @intFromFloat(ar.w)),
                         @as(i32, @intFromFloat(ar.h)),
@@ -2333,13 +2335,18 @@ pub const GuiDrawContext = struct {
                 }
             },
             .rect_filled_multi_color => |rf| {
-                ctx.drawRectCol(rf.r, rf.colors);
+                draw.rect(rf.r, 0xffffffff);
+                //TODO  reimplement
+                //ctx.drawRectCol(rf.r, rf.colors);
             },
             .rect_9slice => |s| {
-                try ctx.draw9Slice(s.r, s.uv, s.texture, s.scale);
+                draw.nineSlice(s.r, s.uv, s.texture, s.scale);
+                //try ctx.draw9Slice(s.r, s.uv, s.texture, s.scale);
             },
             .rect_9border => |s| {
-                try ctx.draw9Border(s.r, s.uv, s.texture, s.scale, s.cutout_start, s.cutout_end);
+                _ = s;
+                //draw.rectTex(s.r, s.uv, s.texture);
+                //try ctx.draw9Border(s.r, s.uv, s.texture, s.scale, s.cutout_start, s.cutout_end);
             },
         }
     }
