@@ -2881,7 +2881,10 @@ pub const Font = struct {
 
         pub const AsciiExtended = [_]CharMapEntry{.{ .range = .{ 128, 254 } }};
 
+        pub const EssentialUnicode = [_]CharMapEntry{ .{ .unicode = std.unicode.replacement_character }, .{ .unicode = 0x2026 } };
+
         pub const AsciiBasic = AsciiUpperAlpha ++ AsciiLowerAlpha ++ AsciiNumeric ++ AsciiPunctiation;
+        pub const Default = AsciiBasic ++ EssentialUnicode;
 
         pub const Apple = [_]CharMapEntry{
             .{ .unicode = 0xF8FF },
@@ -2933,7 +2936,7 @@ pub const Font = struct {
     }
 
     pub fn init(alloc: Alloc, dir: Dir, filename: []const u8, point_size: f32, dpi: u32, options: struct {
-        codepoints_to_load: []const CharMapEntry = &(CharMaps.AsciiBasic),
+        codepoints_to_load: []const CharMapEntry = &(CharMaps.Default),
         pack_factor: f32 = 1.3,
         debug_dir: ?Dir = null,
     }) !Self {

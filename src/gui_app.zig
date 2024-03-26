@@ -524,7 +524,7 @@ pub const FileBrowser = struct {
                     const ir = graph.Rec(r.x + ico.w, r.y, r.w - ico.w, r.h);
                     if (gui.font.nearestGlyphX(entry.name, rec.h, .{ .x = col.width - ico.w, .y = rec.h / 2 })) |glyph_index| {
                         if (glyph_index > 2)
-                            gui.drawTextFmt("{s}…", .{entry.name[0 .. glyph_index - 2]}, ir, rec.h, Color.Black, .{});
+                            gui.drawTextFmt("{s}…", .{entry.name[0..glyph_index]}, ir, rec.h, Color.Black, .{});
                     } else {
                         gui.drawTextFmt("{s}", .{entry.name}, ir, rec.h, Color.Black, .{});
                     }
@@ -2424,16 +2424,11 @@ pub fn main() anyerror!void {
     var arg_it = try std.process.ArgIterator.initWithAllocator(alloc);
     defer arg_it.deinit();
     const Arg = ArgUtil.Arg;
-    const cli_opts = (ArgUtil.parseArgs(&.{
+    const cli_opts = try (ArgUtil.parseArgs(&.{
         Arg("scale", .number, "The scale of the gui"),
         ArgUtil.ArgCustom("app", @TypeOf(current_app), "Which gui app to run"),
-    }, &arg_it) catch |err| switch (err) {
-        error.printedHelp => return,
-        else => {
-            std.debug.print("Error while parsing args, exiting.\nUse --help for info\n", .{});
-            return;
-        },
-    });
+    }, &arg_it));
+
     if (cli_opts.app) |app|
         current_app = app;
 
@@ -2458,7 +2453,7 @@ pub fn main() anyerror!void {
     var dpix: u32 = @as(u32, @intFromFloat(win.getDpi()));
     //const init_size = graph.pxToPt(win.getDpi(), 100);
     const init_size = 8;
-    var font = try graph.Font.init(alloc, std.fs.cwd(), "fonts/din.otf", init_size, dpix, .{
+    var font = try graph.Font.init(alloc, std.fs.cwd(), "fonts/roboto.ttf", init_size, dpix, .{
         .debug_dir = std.fs.cwd(),
     });
     defer font.deinit();

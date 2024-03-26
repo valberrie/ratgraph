@@ -118,7 +118,6 @@ pub fn parseArgs(comptime arg_list: []const ArgItem, arg_it: anytype) !generateA
                 std.debug.print("{s}:{s}\t{s}\n", .{ field.name, @tagName(field.arg_type), field.doc });
             }
             std.process.exit(0);
-            //return error.printedHelp;
         }
     }
 
