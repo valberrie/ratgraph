@@ -1,5 +1,5 @@
 const std = @import("std");
-const SparseSet = @import("sparse_set.zig").SparseSet;
+const SparseSet = @import("graphics/sparse_set.zig").SparseSet;
 
 pub const MapField = struct {
     ftype: type,

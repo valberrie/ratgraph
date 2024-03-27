@@ -1266,7 +1266,7 @@ pub const MapEditor = struct {
                         break :blk &self.canvas_cam.?;
                     }
                 };
-                if (gui.mouse_grabbed_by_hash == null and graph.rectContainsPoint(canvas, gui.input_state.mouse_pos)) {
+                if (gui.mouse_grabbed_by_hash == null and canvas.containsPoint(gui.input_state.mouse_pos)) {
                     {
                         const zf = 0.1;
                         const md = gui.input_state.mouse_wheel_delta;
@@ -1442,7 +1442,7 @@ pub const AtlasEditor = struct {
                     break :blk &self.canvas_cam.?;
                 }
             };
-            if (gui.mouse_grab_id == null and graph.rectContainsPoint(canvas, gui.input_state.mouse_pos)) {
+            if (gui.mouse_grab_id == null and canvas.containsPoint(gui.input_state.mouse_pos)) {
                 {
                     const zf = 0.1;
                     const md = gui.input_state.mouse_wheel_delta;
@@ -1946,7 +1946,7 @@ pub const Os9Gui = struct {
         const sd = scroll_data.data;
         const max = scroll_data.layout.current_h - scroll_data.area.h;
         if (max > 0) {
-            if (self.gui.mouse_grab_id == null and !self.gui.scroll_claimed_mouse and graph.rectContainsPoint(self.gui.scroll_bounds.?, self.gui.input_state.mouse_pos)) {
+            if (self.gui.mouse_grab_id == null and !self.gui.scroll_claimed_mouse and self.gui.scroll_bounds.?.containsPoint(self.gui.input_state.mouse_pos)) {
                 self.gui.scroll_claimed_mouse = true;
                 const pixel_per_line = 20 * self.scale;
                 sd.offset.y = std.math.clamp(sd.offset.y + self.gui.input_state.mouse_wheel_delta * -pixel_per_line * 3, 0, max);
@@ -2496,7 +2496,6 @@ pub fn main() anyerror!void {
     _ = gui_frac * 0.1;
     var gui_timer = try std.time.Timer.start();
     var gui_time: u64 = 0;
-    var rbuf = graph.RingBuffer(3, u64, 0){};
     //var dcall_count: usize = 0;
 
     var atlas_editor = AtlasEditor.init(alloc);
@@ -2565,7 +2564,6 @@ pub fn main() anyerror!void {
         defer percent_usage = @as(f32, @floatFromInt(stack_alloc.end_index)) / 1000;
 
         gui_time = gui_timer.read();
-        rbuf.put(gui_time);
 
         {
             const r = graph.Rec(0, 0, win.screen_dimensions.x, win.screen_dimensions.y);

@@ -999,7 +999,7 @@ pub const Context = struct {
     }
 
     pub fn isCursorInRect(self: *Self, r: Rect) bool {
-        return graph.rectContainsPoint(r, self.input_state.mouse_pos);
+        return r.containsPoint(self.input_state.mouse_pos);
     }
 
     pub fn qualifyName(self: *const Self, name: []const u8) ![]const u8 {
@@ -1146,7 +1146,7 @@ pub const Context = struct {
         self.click_timer += 1;
 
         if (self.popup) |p| {
-            if (self.input_state.mouse_left_clicked and !graph.rectContainsPoint(p.area, self.input_state.mouse_pos)) {
+            if (self.input_state.mouse_left_clicked and !p.area.containsPoint(self.input_state.mouse_pos)) {
                 self.popup = null;
                 self.popup_id = null;
             }
@@ -1201,10 +1201,10 @@ pub const Context = struct {
         if (self.popup) |p| {
             //TODO this will fail sometimes because we can't garantee popup has been called before this click widget
             //Can set layout to have popup flag or something
-            if (!self.in_popup and graph.rectContainsPoint(p.area, self.input_state.mouse_pos)) return .{ .click = .none, .id = id };
+            if (!self.in_popup and p.area.containsPoint(self.input_state.mouse_pos)) return .{ .click = .none, .id = id };
         }
 
-        const containsCursor = graph.rectContainsPoint(rec, self.input_state.mouse_pos);
+        const containsCursor = rec.containsPoint(self.input_state.mouse_pos);
         const clicked = self.input_state.mouse_left_clicked;
 
         if (self.mouse_grab_id) |grab_id| {
@@ -1219,11 +1219,11 @@ pub const Context = struct {
             }
         } else {
             if (self.scroll_bounds) |sb| {
-                if (!graph.rectContainsPoint(sb, self.input_state.mouse_pos))
+                if (!sb.containsPoint(self.input_state.mouse_pos))
                     return .{ .click = .none, .id = id };
             }
             if (opts.teleport_area) |parent_area| {
-                if (clicked and !containsCursor and graph.rectContainsPoint(parent_area, self.input_state.mouse_pos)) {
+                if (clicked and !containsCursor and parent_area.containsPoint(self.input_state.mouse_pos)) {
                     self.mouse_grab_id = id;
                     return .{ .click = .click_teleport, .id = id };
                 }
@@ -1707,7 +1707,7 @@ pub const Context = struct {
             (if (is_horiz) handle.x else handle.y) = params.handle_offset_x + rec.x + (val - lmin) * scale;
         }
 
-        if (self.mouse_grab_id == null and !self.scroll_claimed_mouse and graph.rectContainsPoint(arec, self.input_state.mouse_pos)) {
+        if (self.mouse_grab_id == null and !self.scroll_claimed_mouse and arec.containsPoint(self.input_state.mouse_pos)) {
             self.scroll_claimed_mouse = true;
             switch (number_t) {
                 .float => {},
@@ -2287,7 +2287,7 @@ pub const GuiDrawContext = struct {
     }
 
     pub fn drawCommand(self: *Self, command: DrawCommand, draw: *graph.ImmediateDrawingContext, font: *graph.Font) !void {
-        const cc = graph.charColorToInt;
+        const cc = graph.ptypes.charColorToInt;
         _ = font;
         switch (command) {
             .rect_filled => |rf| {
