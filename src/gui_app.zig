@@ -2519,6 +2519,7 @@ pub fn main() anyerror!void {
     const Arg = ArgUtil.Arg;
     const cli_opts = try (ArgUtil.parseArgs(&.{
         Arg("scale", .number, "The scale of the gui"),
+        Arg("wireframe", .flag, "draw in wireframe"),
         ArgUtil.ArgCustom("app", @TypeOf(current_app), "Which gui app to run"),
     }, &arg_it));
 
@@ -2634,7 +2635,8 @@ pub fn main() anyerror!void {
     //END LUA
     var win_pos: Vec2f = .{ .x = 0, .y = 0 };
 
-    //graph.c.glPolygonMode(graph.c.GL_FRONT_AND_BACK, graph.c.GL_LINE);
+    if (cli_opts.wireframe != null)
+        graph.c.glPolygonMode(graph.c.GL_FRONT_AND_BACK, graph.c.GL_LINE);
     while (!win.should_exit) {
         try draw.begin(0x2f2f2fff, win.screen_dimensions.toF());
         win.pumpEvents(); //Important that this is called after beginDraw for input lag reasons

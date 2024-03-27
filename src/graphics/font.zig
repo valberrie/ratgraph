@@ -352,89 +352,39 @@ pub const Font = struct {
 
         const elapsed = timer.read();
         try log.print("Rendered {d} glyphs in {d} ms, {d} ms avg\n", .{ result.glyph_set.dense.items.len, @as(f32, @floatFromInt(elapsed)) / std.time.ns_per_ms, @as(f32, @floatFromInt(elapsed)) / std.time.ns_per_ms / @as(f32, @floatFromInt(result.glyph_set.dense.items.len)) });
-        if (false) {
-            var num_pixels: usize = 0;
-            for (pack_ctx.rects.items) |r| {
-                num_pixels += (@as(usize, @intCast(r.w)) * @as(usize, @intCast(r.h)));
-            }
-            result.texture.w = @as(i32, @intFromFloat(@sqrt(@as(f32, @floatFromInt(num_pixels)) * options.pack_factor)));
-            result.texture.h = @as(i32, @intFromFloat(@sqrt(@as(f32, @floatFromInt(num_pixels)) * options.pack_factor)));
-            try log.print("Texture size: {d} x {d}\n", .{ result.texture.w, result.texture.h });
+        //Each glyph takes up result.max_advance x result.line_gap + padding
+        const w_c: i32 = @intFromFloat(@ceil(@sqrt(@as(f32, @floatFromInt(pack_ctx.rects.items.len)))));
+        const g_width: i32 = @intFromFloat(result.max_advance);
+        const g_height = result.height;
+        result.texture.w = w_c * (padding + @as(i32, @intFromFloat(result.max_advance)));
+        result.texture.h = w_c * (padding + g_height);
+        var texture_bitmap = try Bitmap.initBlank(alloc, result.texture.w, result.texture.h, .g_8);
+        defer texture_bitmap.deinit();
 
-            try pack_ctx.pack(@intCast(result.texture.w), @intCast(result.texture.h));
-
-            {
-                var texture_bitmap = try Bitmap.initBlank(alloc, result.texture.w, result.texture.h, .g_8);
-                defer texture_bitmap.deinit();
-
-                for (pack_ctx.rects.items, 0..) |rect, i| {
-                    const g = try result.glyph_set.getPtr(@as(u21, @intCast(rect.id)));
-                    g.tr.x = @as(f32, @floatFromInt(@as(u32, @intCast(rect.x)) + padding)) - @as(f32, @floatFromInt(padding)) / 2;
-                    g.tr.y = @as(f32, @floatFromInt(@as(u32, @intCast(rect.y)) + padding)) - @as(f32, @floatFromInt(padding)) / 2;
-                    const bitmap = &bitmaps.items[i];
-                    if (bitmap.data.items.len > 0) {
-                        var row: usize = 0;
-                        var col: usize = 0;
-                        while (row < rect.h) : (row += 1) {
-                            while (col < rect.w) : (col += 1) {
-                                if (row < bitmap.h + padding and col < bitmap.w + padding and row >= padding and col >= padding) {
-                                    const dat = bitmap.data.items[((row - padding) * bitmap.w) + col - padding];
-                                    texture_bitmap.data.items[(@as(u32, @intCast(result.texture.w)) * (row + @as(usize, @intCast(rect.y)))) + col + @as(usize, @intCast(rect.x))] = dat;
-                                } else {
-                                    texture_bitmap.data.items[(@as(u32, @intCast(result.texture.h)) * (row + @as(usize, @intCast(rect.y)))) + col + @as(usize, @intCast(rect.x))] = 0;
-                                }
-                            }
-                            col = 0;
-                        }
-                    }
-                }
-
-                if (options.debug_dir) |ddir|
-                    try texture_bitmap.writeToPngFile(ddir, "debug/freetype.png");
-
-                result.texture = Texture.initFromBitmap(texture_bitmap, .{
-                    .pixel_store_alignment = 1,
-                    .internal_format = c.GL_RED,
-                    .pixel_format = c.GL_RED,
-                    .min_filter = c.GL_LINEAR,
-                    .mag_filter = c.GL_LINEAR,
-                });
-            }
-        } else {
-            //Each glyph takes up result.max_advance x result.line_gap + padding
-            const w_c: i32 = @intFromFloat(@ceil(@sqrt(@as(f32, @floatFromInt(pack_ctx.rects.items.len)))));
-            const g_width: i32 = @intFromFloat(result.max_advance);
-            const g_height = result.height;
-            result.texture.w = w_c * (padding + @as(i32, @intFromFloat(result.max_advance)));
-            result.texture.h = w_c * (padding + g_height);
-            var texture_bitmap = try Bitmap.initBlank(alloc, result.texture.w, result.texture.h, .g_8);
-            defer texture_bitmap.deinit();
-
-            //var xi:u32 = 0;
-            //var yi:u32 = 0;
-            const w_ci: i32 = @intCast(w_c);
-            for (pack_ctx.rects.items, 0..) |rect, i| {
-                const ii: i32 = @intCast(i);
-                const gbmp = &bitmaps.items[i];
-                const cx: u32 = @intCast(@mod(ii, w_ci) * (g_width + padding));
-                const cy: u32 = @intCast(@divFloor(ii, w_ci) * (g_height + padding));
-                const g = try result.glyph_set.getPtr(@as(u21, @intCast(rect.id)));
-                g.tr.x = @floatFromInt(cx);
-                g.tr.y = @floatFromInt(cy);
-                Bitmap.copySubR(1, &texture_bitmap, cx, cy, gbmp, 0, 0, gbmp.w, gbmp.h);
-            }
-            if (options.debug_dir) |ddir| {
-                try texture_bitmap.writeToPngFile(ddir, "debug/freetype.png");
-            }
-
-            result.texture = Texture.initFromBitmap(texture_bitmap, .{
-                .pixel_store_alignment = 1,
-                .internal_format = c.GL_RED,
-                .pixel_format = c.GL_RED,
-                .min_filter = c.GL_LINEAR,
-                .mag_filter = c.GL_LINEAR,
-            });
+        //var xi:u32 = 0;
+        //var yi:u32 = 0;
+        const w_ci: i32 = @intCast(w_c);
+        for (pack_ctx.rects.items, 0..) |rect, i| {
+            const ii: i32 = @intCast(i);
+            const gbmp = &bitmaps.items[i];
+            const cx: u32 = @intCast(@mod(ii, w_ci) * (g_width + padding));
+            const cy: u32 = @intCast(@divFloor(ii, w_ci) * (g_height + padding));
+            const g = try result.glyph_set.getPtr(@as(u21, @intCast(rect.id)));
+            g.tr.x = @floatFromInt(cx);
+            g.tr.y = @floatFromInt(cy);
+            Bitmap.copySubR(1, &texture_bitmap, cx, cy, gbmp, 0, 0, gbmp.w, gbmp.h);
         }
+        if (options.debug_dir) |ddir| {
+            try texture_bitmap.writeToPngFile(ddir, "debug/freetype.png");
+        }
+
+        result.texture = Texture.initFromBitmap(texture_bitmap, .{
+            .pixel_store_alignment = 1,
+            .internal_format = c.GL_RED,
+            .pixel_format = c.GL_RED,
+            .min_filter = c.GL_LINEAR,
+            .mag_filter = c.GL_LINEAR,
+        });
 
         return result;
     }

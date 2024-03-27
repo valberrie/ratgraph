@@ -941,7 +941,7 @@ pub const Context = struct {
     old_namespace: []const u8 = "",
 
     scratch_buf_pos: usize = 0,
-    scratch_buf: [256]u8 = undefined,
+    scratch_buf: [2048]u8 = undefined,
     strings: [2048]u8 = undefined,
     str_index: usize = 0,
 
