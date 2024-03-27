@@ -577,6 +577,7 @@ pub const ImmediateDrawingContext = struct {
     colored_tri_shader: c_uint,
     colored_line3d_shader: c_uint,
     textured_tri_shader: c_uint,
+    textured_tri_3d_shader: c_uint,
     dpi: f32,
 
     alloc: Alloc,
@@ -596,6 +597,8 @@ pub const ImmediateDrawingContext = struct {
             .alloc = alloc,
             .batches = MapT.init(alloc),
             .dpi = dpi,
+
+            .textured_tri_3d_shader = Shader.simpleShader(@embedFile(SD ++ "alpha_texturequad.vert"), @embedFile(SD ++ "texturequad.frag")),
 
             .colored_tri_shader = Shader.simpleShader(@embedFile(SD ++ "newtri.vert"), @embedFile(SD ++ "colorquad.frag")),
             .colored_line3d_shader = Shader.simpleShader(@embedFile(SD ++ "line3d.vert"), @embedFile(SD ++ "colorquad.frag")),
