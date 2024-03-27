@@ -1018,6 +1018,10 @@ pub fn NewBatch(comptime vertex_type: type, comptime batch_options: BatchOptions
                 self.indicies.deinit();
         }
 
+        pub fn dirty(self: *Self) bool {
+            return self.vertices.items.len != 0;
+        }
+
         pub fn pushVertexData(self: *Self) void {
             c.glBindVertexArray(self.vao);
             GL.bufferData(c.GL_ARRAY_BUFFER, self.vbo, vertex_type, self.vertices.items);

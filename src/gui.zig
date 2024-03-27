@@ -940,6 +940,7 @@ pub const Context = struct {
     //TODO change naming system, state from last frame should be prefixed with last_frame or exist inside a last_frame_state struct
     old_namespace: []const u8 = "",
 
+    scratch_buf_pos: usize = 0,
     scratch_buf: [256]u8 = undefined,
     strings: [2048]u8 = undefined,
     str_index: usize = 0,
@@ -979,6 +980,13 @@ pub const Context = struct {
     /// it is always clipped to exist inside the parent scroll_bounds
     scroll_bounds: ?Rect = null,
     scroll_claimed_mouse: bool = false,
+
+    pub fn scratchPrint(self: *Self, comptime fmt: []const u8, args: anytype) []const u8 {
+        var fbs = std.io.FixedBufferStream([]u8){ .buffer = self.scratch_buf[self.scratch_buf_pos..], .pos = 0 };
+        fbs.writer().print(fmt, args) catch unreachable;
+        self.scratch_buf_pos += fbs.pos;
+        return fbs.getWritten();
+    }
 
     pub fn storeString(self: *Self, str: []const u8) []const u8 {
         if (str.len + self.str_index >= self.strings.len) {
@@ -1119,6 +1127,7 @@ pub const Context = struct {
     pub fn reset(self: *Self, input_state: InputState) !void {
         self.dirty_draw_depth = null;
         self.str_index = 0;
+        self.scratch_buf_pos = 0;
         self.scroll_claimed_mouse = false;
 
         try self.layout_cache.begin();
@@ -1426,7 +1435,8 @@ pub const Context = struct {
     }
 
     pub fn drawSetCamera(self: *Self, cam: DrawCommand) void {
-        self.command_list.append(cam) catch unreachable;
+        self.draw(cam);
+        //self.command_list.append(cam) catch unreachable;
     }
 
     pub fn scissor(self: *Self, r: ?Rect) void {
@@ -1495,9 +1505,8 @@ pub const Context = struct {
         color: Color,
         opts: struct { justify: Justify = .left },
     ) void {
-        var fbs = std.io.FixedBufferStream([]u8){ .pos = 0, .buffer = &self.scratch_buf };
-        fbs.writer().print(fmt, args) catch unreachable;
-        const slice = fbs.getWritten();
+        const slice = self.scratchPrint(fmt, args);
+        //const slice = fbs.getWritten();
         const bounds = self.font.textBounds(slice, size);
         const last_char_index = blk: {
             if (self.font.nearestGlyphX(slice, size, .{ .x = area.w, .y = 0 })) |lci| {
@@ -1863,9 +1872,10 @@ pub const Context = struct {
             }
             ret.slice = self.storeString(sl);
         } else {
-            var fbs = std.io.FixedBufferStream([]u8){ .pos = 0, .buffer = &self.scratch_buf };
-            try fbs.writer().print("{d}", .{number_ptr.*});
-            ret.slice = fbs.getWritten();
+            ret.slice = self.scratchPrint("{d}", .{number_ptr.*});
+            //var fbs = std.io.FixedBufferStream([]u8){ .pos = 0, .buffer = &self.scratch_buf };
+            //try fbs.writer().print("{d}", .{number_ptr.*});
+            //ret.slice = fbs.getWritten();
         }
         if (click == .click) {
             if (!self.isActiveTextinput(id)) {
@@ -2188,8 +2198,41 @@ pub const GuiDrawContext = struct {
 
     pub fn drawGui(self: *Self, draw: *graph.ImmediateDrawingContext, font: *graph.Font, parea: Rect, gui: *Context, win_w: i32, win_h: i32) !void {
         try self.main_rtexture.setSize(@as(i32, @intFromFloat(parea.w)), @as(i32, @intFromFloat(parea.h)));
-        const ignore_cache = false;
+        const ignore_cache = true;
         self.main_rtexture.bind(ignore_cache);
+        self.camera_bounds = parea;
+        {
+            var scissor: bool = false;
+            var scissor_depth: u32 = 0;
+            var node = gui.layout_cache.first;
+            while (node) |n| : (node = n.next) {
+                if (n.data.scissor) |sz| {
+                    scissor = true;
+                    scissor_depth = n.depth;
+                    try self.drawCommand(.{ .scissor = .{ .area = sz } }, draw, font);
+                }
+                if (n.data.scissor == null) {
+                    if (scissor and n.depth <= scissor_depth) {
+                        scissor = false;
+                        try self.drawCommand(.{ .scissor = .{ .area = null } }, draw, font);
+                    }
+                }
+                for (n.data.commands.items) |command| {
+                    try self.drawCommand(command, draw, font);
+                }
+                n.data.draw_backup = false;
+            }
+        }
+        try draw.flush(parea);
+        draw.screen_dimensions = .{ .x = @as(f32, @floatFromInt(win_w)), .y = @as(f32, @floatFromInt(win_h)) };
+        graph.c.glBindFramebuffer(graph.c.GL_FRAMEBUFFER, 0);
+        graph.c.glViewport(0, 0, win_w, win_h);
+
+        const tr = self.main_rtexture.texture.rect();
+        draw.rectTex(graph.Rec(parea.x, parea.y, parea.w, parea.h), graph.Rec(0, 0, tr.w, -tr.h), self.main_rtexture.texture);
+
+        if (true)
+            return;
         //ctx.screen_bounds = graph.IRect.new(0, 0, @intFromFloat(parea.w), @intFromFloat(parea.h));
         draw.screen_dimensions = .{ .x = parea.w, .y = parea.h };
         {
@@ -2251,15 +2294,7 @@ pub const GuiDrawContext = struct {
                 n.data.draw_backup = false;
             }
         }
-        try draw.flush(null);
         graph.c.glDisable(graph.c.GL_STENCIL_TEST);
-
-        draw.screen_dimensions = .{ .x = @as(f32, @floatFromInt(win_w)), .y = @as(f32, @floatFromInt(win_h)) };
-        graph.c.glBindFramebuffer(graph.c.GL_FRAMEBUFFER, 0);
-        graph.c.glViewport(0, 0, win_w, win_h);
-
-        const tr = self.main_rtexture.texture.rect();
-        draw.rectTex(parea, graph.Rec(0, 0, tr.w, -tr.h), self.main_rtexture.texture);
 
         //if (gui.popup) |p| {
         //    //try self.popup_rtexture.setSize(@as(i32, @intFromFloat(p.area.w)), @as(i32, @intFromFloat(p.area.w)));
@@ -2296,7 +2331,7 @@ pub const GuiDrawContext = struct {
             .text => |t| {
                 const p = t.pos.toF();
 
-                draw.textPx(p, t.string, t.font, t.size, cc(t.color));
+                draw.textPx(p, t.string, t.font, t.size * 0.7, cc(t.color));
             },
             .line => |l| {
                 draw.line(l.a, l.b, cc(l.color));
@@ -2323,8 +2358,9 @@ pub const GuiDrawContext = struct {
                 if (s.area) |ar| {
                     c.glEnable(c.GL_SCISSOR_TEST);
                     c.glScissor(
-                        @as(i32, @intFromFloat(ar.x)),
-                        @as(i32, @intFromFloat(draw.screen_dimensions.y - (ar.y + ar.h))),
+                        @as(i32, @intFromFloat(ar.x - self.camera_bounds.?.x)),
+                        //@as(i32, @intFromFloat(draw.screen_dimensions.y - (ar.y + ar.h))),
+                        @as(i32, @intFromFloat(self.camera_bounds.?.h - (ar.y + ar.h) + self.camera_bounds.?.y)),
                         //@floatToInt(i32, ar.y + ar.h) - ctx.screen_bounds.h,
                         @as(i32, @intFromFloat(ar.w)),
                         @as(i32, @intFromFloat(ar.h)),

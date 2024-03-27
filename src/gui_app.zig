@@ -25,6 +25,10 @@ const bg4 = itc(0xff);
 const bg2 = itc(0xff);
 const bg0 = itc(0xff);
 
+inline fn F(a: anytype) f32 {
+    return std.math.lossyCast(f32, a);
+}
+
 //A i3_layout is a parent area that is then recursivly split vertically or horizontally.
 //Each section can be given a name, not required though
 
@@ -2169,6 +2173,8 @@ pub const GuiTest = struct {
     const Self = @This();
 
     arr: std.ArrayList(u8),
+    count: usize = 0,
+    temp_f: f32 = 60,
     pub fn init(alloc: std.mem.Allocator) Self {
         return .{ .arr = std.ArrayList(u8).init(alloc) };
     }
@@ -2183,8 +2189,34 @@ pub const GuiTest = struct {
         gui.draw9Slice(area, Os9Gui.os9win, wrap.texture, scale);
         var vl = try wrap.beginSubLayout(area.inset(6 * scale), Gui.VerticalLayout, .{ .item_height = 20 * scale, .padding = .{ .bottom = 6 * scale } });
         defer wrap.endSubLayout();
+        {
+            _ = try gui.beginLayout(Gui.HorizLayout, .{ .count = 2 }, .{});
+            defer gui.endLayout();
+            wrap.labelEx("{d}", .{self.count}, .{});
+            //try wrap.textbox(&self.arr);
+            if (wrap.button("Count")) {
+                self.count += 1;
+            }
+        }
+        {
+            _ = try gui.beginLayout(Gui.HorizLayout, .{ .count = 4 }, .{});
+            defer gui.endLayout();
+            wrap.labelEx("Farenheit = ", .{}, .{});
+            var temp_f = self.temp_f;
+            try wrap.textboxNumber(&temp_f);
+            if (temp_f != self.temp_f)
+                self.temp_f = temp_f;
+            const temp_ci: f32 = (temp_f - 32) * (5.0 / 9.0);
+            var temp_c = temp_ci;
+            wrap.labelEx("Celsius = ", .{}, .{});
+            try wrap.textboxNumber(&temp_c);
+            if (temp_c != temp_ci)
+                self.temp_f = temp_c * (9.0 / 5.0) + 32;
+            // C = (F - 32) * (5/9)
+            //  F = C * (9/5) + 32.
+            //try wrap.textbox(&self.arr);
+        }
         _ = vl;
-        try wrap.textbox(&self.arr);
     }
 };
 
@@ -2420,7 +2452,7 @@ pub fn main() anyerror!void {
     defer _ = gpa.detectLeaks();
     const alloc = gpa.allocator();
 
-    var current_app: enum { keyboard_display, filebrowser, atlas_edit, gtest, lua_test } = .filebrowser;
+    var current_app: enum { keyboard_display, filebrowser, atlas_edit, gtest, lua_test } = .gtest;
     var arg_it = try std.process.ArgIterator.initWithAllocator(alloc);
     defer arg_it.deinit();
     const Arg = ArgUtil.Arg;
@@ -2535,7 +2567,11 @@ pub fn main() anyerror!void {
     win.setWindowSize(lparam.window_x, lparam.window_y);
     win.centerWindow();
 
+    var test_tex = try graph.Texture.initFromImgFile(alloc, std.fs.cwd(), "icon.png", .{});
+    defer test_tex.deinit();
+
     //END LUA
+    var win_pos: Vec2f = .{ .x = 0, .y = 0 };
 
     //graph.c.glPolygonMode(graph.c.GL_FRONT_AND_BACK, graph.c.GL_LINE);
     while (!win.should_exit) {
@@ -2565,9 +2601,20 @@ pub fn main() anyerror!void {
 
         gui_time = gui_timer.read();
 
-        {
-            const r = graph.Rec(0, 0, win.screen_dimensions.x, win.screen_dimensions.y);
+        if (true) {
+            const winarea = graph.Rec(0, 0, win.screen_dimensions.x, win.screen_dimensions.y);
+            const sp = winarea.split(.vertical, winarea.w / 2);
+
+            const r = sp[1];
+            //draw.rect(sp[1], 0xff000fff);
+            //const r = graph.Rec(0, 0, @divTrunc(win.screen_dimensions.x, 2), win.screen_dimensions.y);
             parent_area = r;
+            parent_area.x = win_pos.x;
+            parent_area.y = win_pos.y;
+            if (win.keydown(.LSHIFT) and parent_area.containsPoint(win.mouse.pos)) {
+                win_pos = win_pos.add(win.mouse.delta);
+            }
+
             //parent_area = graph.Rec(r.x + r.w / 4, r.y + r.h / 4, r.w / 2, r.h / 2);
             //_ = try gui.beginLayout(Gui.SubRectLayout, .{ .rect = parent_area }, .{});
             _ = try gui.beginLayout(Gui.SubRectLayout, .{ .rect = parent_area }, .{});
@@ -2608,53 +2655,33 @@ pub fn main() anyerror!void {
                     }
                 },
             }
+            try gui_draw_context.drawGui(&draw, &font, parent_area, &gui, win.screen_dimensions.x, win.screen_dimensions.y);
+
+            if (false) {
+                var node = gui.layout_cache.first;
+                const rr = sp[0];
+                const ix = rr.x;
+                var cursor = Rec(ix, rr.y, rr.w / 5, 40);
+                while (node) |n| : (node = n.next) {
+                    var color: u32 = 0xffffffff;
+                    if (n.data.rec.containsPoint(win.mouse.pos)) {
+                        color = 0xff0000ff;
+                        if (win.keydown(.A)) {
+                            draw.rect(n.data.rec, 0xff55);
+                        }
+                    }
+
+                    cursor.x = ix + F(n.depth) * 100;
+                    draw.rect(cursor.inset(4), color);
+                    cursor.y += cursor.h;
+                }
+            }
         }
 
-        //draw.test9(Rec(0, 0, 400, 400), 0xffffffff);
-        //draw.test9(Rec(0, 0, 400, 400), Os9Gui.os9win, os9_ctx.texture, 5);
-        try gui_draw_context.drawGui(&draw, &font, parent_area, &gui, win.screen_dimensions.x, win.screen_dimensions.y);
-        //const fs = 40;
-        //var cy = struct {
-        //    val: f32 = 300,
-        //    fn get(self: *@This()) f32 {
-        //        self.val += fs;
-        //        return self.val;
-        //    }
-        //}{};
-
-        //ctx.drawRect(graph.Rec(0, 0, 1000, 1000), Color.Green);
-        //ctx.drawTextFmt(0, cy.get(), "Popped: {any}", .{gui.last_frame_had_popup}, &font, fs, Color.White);
-        //ctx.drawTextFmt(0, cy.get(), "Time : {d:.2}ms", .{@intToFloat(f32, rbuf.avg()) / std.time.ns_per_ms}, &font, fs, Color.White);
-        //ctx.drawTextFmt(0, cy.get(), "Cache: {d:.2}ms", .{@intToFloat(f32, gui.layout_cache.last_time) / std.time.ns_per_ms}, &font, fs, Color.White);
-        //ctx.drawTextFmt(0, cy.get(), "Hash: {d:.2}ms", .{@intToFloat(f32, Gui.hash_time) / std.time.ns_per_ms}, &font, fs, Color.White);
-        //ctx.drawTextFmt(0, cy.get(), "Calls {d}", .{dcall_count}, &font, fs, Color.White);
-        //ctx.drawTextFmt(0, cy.get(), "Cmds  {d}", .{gui.command_list.items.len}, &font, fs, Color.White);
-        //ctx.drawTextFmt(0, cy.get(), "size: {d} {d}", .{ parent_area.w, parent_area.h }, &font, fs, Color.White);
-        //ctx.drawTextFmt(0, cy.get(), "Str space: {d}%", .{@intToFloat(f32, gui.str_index) / @intToFloat(f32, gui.strings.len) * 100}, &font, fs, Color.White);
-        //ctx.drawTextFmt(0, cy.get(), "{u}", .{0xEB7B}, &icons, fs, Color.White);
+        //const c = graph.c;
+        //c.glEnable(c.GL_SCISSOR_T)
 
         graph.c.glDisable(graph.c.GL_STENCIL_TEST);
-        //try ctx.drawRectTex(graph.Rec(0, 0, 1000, 1000), ts_tex.rect(), itc(0xffffffff), ts_tex);
-        //if (draw_line_debug) {
-        //    var y: f32 = cy.get();
-        //    var it = gui.layout_cache.first;
-        //    while (it != null) : (it = it.?.next) {
-        //        const color = if (gui.mouse_grab_id) |h| if (h.layout_hash == it.?.data.hash) Color.Blue else Color.White else Color.White;
-        //        if (it.?.data.was_init) {
-        //            ctx.drawRect(graph.Rec(0, y, fs, fs), Color.Red);
-        //        }
-        //        ctx.drawTextFmt(0, y, "{s}{d}", .{ nspace(it.?.depth * 2), it.?.data.hash & 0xfff }, &font, fs, color);
-        //        y = cy.get();
-        //        const dd = it.?.data.rec;
-        //        const xx = dd.x - 400 + @as(f32, @floatFromInt(it.?.depth)) * 40;
-        //        const h = dd.h;
-        //        const of = h * 0.2;
-        //        try ctx.drawLine(.{ .x = @as(f32, @floatFromInt(it.?.depth)) * fs + 30, .y = y - fs / 2 }, .{ .x = xx, .y = dd.y + dd.h / 2 }, Color.Red);
-        //        try ctx.drawLine(.{ .x = xx, .y = dd.y + of }, .{ .x = xx, .y = dd.y + dd.h - 2 * of }, Color.Blue);
-        //        try ctx.drawLine(.{ .x = xx, .y = dd.y + of }, .{ .x = dd.x, .y = dd.y }, Color.Blue);
-        //        try ctx.drawLine(.{ .x = xx, .y = dd.y + dd.h - 2 * of }, .{ .x = dd.x, .y = dd.y + dd.h }, Color.Blue);
-        //    }
-        //}
 
         try draw.end();
         win.swap();
