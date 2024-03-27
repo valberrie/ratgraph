@@ -7,6 +7,7 @@ const ptypes = @import("types.zig");
 const SDL = @import("SDL.zig");
 const Rect = ptypes.Rect;
 const Vec2f = ptypes.Vec2f;
+const Vec2i = ptypes.Vec2i;
 const lcast = std.math.lossyCast;
 const intToColor = ptypes.intToColor;
 const glID = SDL.glID;
@@ -546,6 +547,8 @@ pub const RectPack = struct {
     rects: std.ArrayList(RectType),
     nodes: std.ArrayList(NodeType),
 
+    running_size: usize = 0,
+
     pub fn init(alloc: Alloc) Self {
         return Self{
             .rects = std.ArrayList(RectType).init(alloc),
@@ -567,6 +570,29 @@ pub const RectPack = struct {
             .w = std.math.lossyCast(RectDimType, w),
             .h = std.math.lossyCast(c_int, h),
         });
+        self.running_size += w * h;
+    }
+
+    pub fn packOptimalSize(self: *Self) !Vec2i {
+        var safety_factor: f32 = 1.1;
+        const safety_factor_inc = 0.3;
+        const max_fails = 3;
+        for (0..max_fails) |_| {
+            const fsize: f32 = @floatFromInt(self.running_size);
+            const w: u32 = @intFromFloat(@ceil(@sqrt(fsize)) * safety_factor);
+            self.pack(w, w) catch |err| {
+                switch (err) {
+                    error.rectPackFailed => {
+                        std.debug.print("Rect pack failed, trying again\n", .{});
+                        safety_factor += safety_factor_inc;
+                        continue;
+                    },
+                    else => return err,
+                }
+            };
+            return Vec2i{ .x = @intCast(w), .y = @intCast(w) };
+        }
+        return error.rectPackFailed;
     }
 
     pub fn pack(self: *Self, parent_area_w: u32, parent_area_h: u32) !void {
@@ -611,6 +637,10 @@ pub const Bitmap = struct {
     data: std.ArrayList(u8),
     w: u32,
     h: u32,
+
+    pub fn rect(self: Self) Rect {
+        return Rec(0, 0, self.w, self.h);
+    }
 
     pub fn initBlank(alloc: Alloc, width: anytype, height: anytype, format: ImageFormat) !Self {
         var ret = Self{ .format = format, .data = std.ArrayList(u8).init(alloc), .w = lcast(u32, width), .h = lcast(u32, height) };

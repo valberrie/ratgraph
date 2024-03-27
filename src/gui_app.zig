@@ -2216,6 +2216,8 @@ pub const GuiTest = struct {
             //  F = C * (9/5) + 32.
             //try wrap.textbox(&self.arr);
         }
+        wrap.slider(&wrap.scale, 1, 10);
+        try wrap.textboxNumber(&wrap.scale);
         _ = vl;
     }
 };
@@ -2445,6 +2447,65 @@ pub const Lua = struct {
         return 0;
     }
 };
+
+// Resource packer.
+// Associate a zig struct with json
+// simple:
+// directory tree with a single manifest.json
+// this json can optionally add metadata to resources
+// Example metadata we need
+// defining animation
+// defining slot positions for mc
+// defining nine slices
+//
+// don't want the overhead of a union?
+//
+// simple imp:
+// given a directory generate an atlas of pngs and a hash_map mapping names to texture slice
+//
+// adding metadata to this model?
+pub fn assetLoad(alloc: std.mem.Allocator) !void {
+    var idir = try std.fs.cwd().openIterableDir("test_pngs", .{});
+    defer idir.close();
+    var walker = try idir.walk(
+        alloc,
+    );
+    defer walker.deinit();
+
+    var bmps = std.ArrayList(graph.Bitmap).init(alloc);
+    defer {
+        for (bmps.items) |bmp| {
+            bmp.deinit();
+        }
+        bmps.deinit();
+    }
+
+    var rpack = graph.RectPack.init(alloc);
+    defer rpack.deinit();
+
+    while (try walker.next()) |w| {
+        switch (w.kind) {
+            .file => {
+                //std.debug.print("{s} {s}\n", .{ w.basename, w.path });
+                if (std.mem.endsWith(u8, w.basename, ".png")) {
+                    const index = bmps.items.len;
+                    try bmps.append(try graph.Bitmap.initFromPngFile(alloc, w.dir, w.basename));
+                    try rpack.appendRect(index, bmps.items[index].w, bmps.items[index].h);
+                }
+            },
+            else => {},
+        }
+    }
+
+    const out_size = try rpack.packOptimalSize();
+    var out_bmp = try graph.Bitmap.initBlank(alloc, out_size.x, out_size.y, .rgba_8);
+    defer out_bmp.deinit();
+    for (rpack.rects.items) |rect| {
+        const i: usize = @intCast(rect.id);
+        graph.Bitmap.copySubR(4, &out_bmp, @intCast(rect.x), @intCast(rect.y), &bmps.items[i], 0, 0, @intCast(rect.w), @intCast(rect.h));
+    }
+    try out_bmp.writeToPngFile(std.fs.cwd(), "testpack.png");
+}
 
 pub fn main() anyerror!void {
     //_ = graph.MarioData.dd;
