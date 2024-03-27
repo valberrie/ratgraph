@@ -328,3 +328,52 @@ pub fn vertex(x: f32, y: f32, z: f32, col: Color) Vertex {
 pub fn vertexTextured(x: f32, y: f32, z: f32, u: f32, v: f32, col: Color) VertexTextured {
     return .{ .x = x, .y = y, .z = z, .u = u, .v = v, .r = col[0], .g = col[1], .b = col[2], .a = col[3] };
 }
+
+pub const Shader = struct {
+    fn checkShaderErr(shader: glID, comporlink: c_uint) void {
+        var success: c_int = undefined;
+        var infoLog: [512]u8 = undefined;
+        c.glGetShaderiv(shader, comporlink, &success);
+        if (success == 0) {
+            var len: c_int = 0;
+            c.glGetShaderInfoLog(shader, 512, &len, &infoLog);
+            std.debug.panic("ERROR::SHADER::\n{s}\n", .{infoLog[0..@as(usize, @intCast(len))]});
+        }
+    }
+
+    fn compShader(src: [*c]const u8, s_type: c_uint) glID {
+        const vert = c.glCreateShader(s_type);
+        c.glShaderSource(vert, 1, &src, null);
+        c.glCompileShader(vert);
+        checkShaderErr(vert, c.GL_COMPILE_STATUS);
+        return vert;
+    }
+
+    pub fn simpleShader(vert_src: [*c]const u8, frag_src: [*c]const u8) glID {
+        const vert = compShader(vert_src, c.GL_VERTEX_SHADER);
+        defer c.glDeleteShader(vert);
+
+        const frag = compShader(frag_src, c.GL_FRAGMENT_SHADER);
+        defer c.glDeleteShader(frag);
+
+        const shader = c.glCreateProgram();
+        c.glAttachShader(shader, vert);
+        c.glAttachShader(shader, frag);
+        c.glLinkProgram(shader);
+        checkShaderErr(shader, c.GL_LINK_STATUS);
+
+        return shader;
+    }
+
+    fn defaultQuadShader() glID {
+        return simpleShader(@embedFile("shader/colorquad.vert"), @embedFile("shader/colorquad.frag"));
+    }
+
+    fn defaultQuadTexShader() glID {
+        return simpleShader(@embedFile("shader/alpha_texturequad.vert"), @embedFile("shader/texturequad.frag"));
+    }
+
+    fn defaultFontShader() glID {
+        return simpleShader(@embedFile("shader/alpha_texturequad.vert"), @embedFile("shader/alpha_texturequad.frag"));
+    }
+};

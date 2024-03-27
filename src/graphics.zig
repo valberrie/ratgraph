@@ -40,6 +40,7 @@ pub const CharColor = ptypes.CharColor;
 pub const Hsva = ptypes.Hsva;
 pub const Colori = ptypes.Colori;
 pub const itc = ptypes.itc;
+pub const Shader = GL.Shader;
 
 pub const GL = @import("graphics/gl.zig");
 pub const glID = GL.glID;
@@ -590,16 +591,17 @@ pub const ImmediateDrawingContext = struct {
     screen_dimensions: Vec2f = .{ .x = 0, .y = 0 },
 
     pub fn init(alloc: Alloc, dpi: f32) Self {
+        const SD = "graphics/shader/";
         return Self{
             .alloc = alloc,
             .batches = MapT.init(alloc),
             .dpi = dpi,
 
-            .colored_tri_shader = Shader.simpleShader(@embedFile("shader/newtri.vert"), @embedFile("shader/colorquad.frag")),
-            .colored_line3d_shader = Shader.simpleShader(@embedFile("shader/line3d.vert"), @embedFile("shader/colorquad.frag")),
-            .textured_tri_shader = Shader.simpleShader(@embedFile("shader/tex_tri2d.vert"), @embedFile("shader/tex_tri2d.frag")),
+            .colored_tri_shader = Shader.simpleShader(@embedFile(SD ++ "newtri.vert"), @embedFile(SD ++ "colorquad.frag")),
+            .colored_line3d_shader = Shader.simpleShader(@embedFile(SD ++ "line3d.vert"), @embedFile(SD ++ "colorquad.frag")),
+            .textured_tri_shader = Shader.simpleShader(@embedFile(SD ++ "tex_tri2d.vert"), @embedFile(SD ++ "tex_tri2d.frag")),
 
-            .font_shader = Shader.simpleShader(@embedFile("shader/tex_tri2d.vert"), @embedFile("shader/tex_tri2d_alpha.frag")),
+            .font_shader = Shader.simpleShader(@embedFile(SD ++ "tex_tri2d.vert"), @embedFile(SD ++ "tex_tri2d_alpha.frag")),
         };
     }
 
@@ -1046,55 +1048,6 @@ pub fn NewBatch(comptime vertex_type: type, comptime batch_options: BatchOptions
     };
 }
 
-pub const Shader = struct {
-    fn checkShaderErr(shader: glID, comporlink: c_uint) void {
-        var success: c_int = undefined;
-        var infoLog: [512]u8 = undefined;
-        c.glGetShaderiv(shader, comporlink, &success);
-        if (success == 0) {
-            var len: c_int = 0;
-            c.glGetShaderInfoLog(shader, 512, &len, &infoLog);
-            std.debug.panic("ERROR::SHADER::\n{s}\n", .{infoLog[0..@as(usize, @intCast(len))]});
-        }
-    }
-
-    fn compShader(src: [*c]const u8, s_type: c_uint) glID {
-        const vert = c.glCreateShader(s_type);
-        c.glShaderSource(vert, 1, &src, null);
-        c.glCompileShader(vert);
-        checkShaderErr(vert, c.GL_COMPILE_STATUS);
-        return vert;
-    }
-
-    pub fn simpleShader(vert_src: [*c]const u8, frag_src: [*c]const u8) glID {
-        const vert = compShader(vert_src, c.GL_VERTEX_SHADER);
-        defer c.glDeleteShader(vert);
-
-        const frag = compShader(frag_src, c.GL_FRAGMENT_SHADER);
-        defer c.glDeleteShader(frag);
-
-        const shader = c.glCreateProgram();
-        c.glAttachShader(shader, vert);
-        c.glAttachShader(shader, frag);
-        c.glLinkProgram(shader);
-        checkShaderErr(shader, c.GL_LINK_STATUS);
-
-        return shader;
-    }
-
-    fn defaultQuadShader() glID {
-        return simpleShader(@embedFile("shader/colorquad.vert"), @embedFile("shader/colorquad.frag"));
-    }
-
-    fn defaultQuadTexShader() glID {
-        return simpleShader(@embedFile("shader/alpha_texturequad.vert"), @embedFile("shader/texturequad.frag"));
-    }
-
-    fn defaultFontShader() glID {
-        return simpleShader(@embedFile("shader/alpha_texturequad.vert"), @embedFile("shader/alpha_texturequad.frag"));
-    }
-};
-
 pub fn genQuadIndices(index: u32) [6]u32 {
     return [_]u32{
         index + 0,
@@ -1125,8 +1078,6 @@ pub const Padding = struct {
         return self.left + self.right;
     }
 };
-
-pub const Color = [4]f32;
 
 pub const RenderTexture = struct {
     const Self = @This();
@@ -1227,10 +1178,6 @@ fn lerp(start: f32, end: f32, ratio: f32) f32 {
 
 fn lerpVec(start: Vec2f, end: Vec2f, ratio: f32) Vec2f {
     return (.{ .x = lerp(start.x, end.x, ratio), .y = lerp(start.y, end.y, ratio) });
-}
-
-fn logErr(msg: []const u8) void {
-    std.debug.print("ERROR: {s}\n", .{msg});
 }
 
 //TODO asset packing and loading with metadata
