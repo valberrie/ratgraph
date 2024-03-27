@@ -2186,7 +2186,7 @@ pub const GuiDrawContext = struct {
         self.popup_rtexture.deinit();
     }
 
-    pub fn drawGui(self: *Self, draw: *graph.NewCtx, font: *graph.Font, parea: Rect, gui: *Context, win_w: i32, win_h: i32) !void {
+    pub fn drawGui(self: *Self, draw: *graph.ImmediateDrawingContext, font: *graph.Font, parea: Rect, gui: *Context, win_w: i32, win_h: i32) !void {
         try self.main_rtexture.setSize(@as(i32, @intFromFloat(parea.w)), @as(i32, @intFromFloat(parea.h)));
         const ignore_cache = false;
         self.main_rtexture.bind(ignore_cache);
@@ -2286,7 +2286,7 @@ pub const GuiDrawContext = struct {
         //}
     }
 
-    pub fn drawCommand(self: *Self, command: DrawCommand, draw: *graph.NewCtx, font: *graph.Font) !void {
+    pub fn drawCommand(self: *Self, command: DrawCommand, draw: *graph.ImmediateDrawingContext, font: *graph.Font) !void {
         const cc = graph.charColorToInt;
         _ = font;
         switch (command) {
@@ -2296,7 +2296,7 @@ pub const GuiDrawContext = struct {
             .text => |t| {
                 const p = t.pos.toF();
 
-                draw.text(p, t.string, t.font, t.size, cc(t.color));
+                draw.textPx(p, t.string, t.font, t.size, cc(t.color));
             },
             .line => |l| {
                 draw.line(l.a, l.b, cc(l.color));

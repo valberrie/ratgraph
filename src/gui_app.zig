@@ -2445,10 +2445,9 @@ pub fn main() anyerror!void {
 
     graph.c.glLineWidth(1);
 
-    var dpix: u32 = @as(u32, @intFromFloat(win.getDpi()));
     //const init_size = graph.pxToPt(win.getDpi(), 100);
     const init_size = 8;
-    var font = try graph.Font.init(alloc, std.fs.cwd(), "fonts/roboto.ttf", init_size, dpix, .{
+    var font = try graph.Font.init(alloc, std.fs.cwd(), "fonts/roboto.ttf", init_size, win.getDpi(), .{
         .debug_dir = std.fs.cwd(),
     });
     defer font.deinit();
@@ -2466,7 +2465,7 @@ pub fn main() anyerror!void {
         std.fs.cwd(),
         "fonts/remix.ttf",
         init_size,
-        dpix,
+        win.getDpi(),
         .{
             .codepoints_to_load = &[_]graph.Font.CharMapEntry{.{ .list = &icon_list }},
         },
@@ -2484,7 +2483,7 @@ pub fn main() anyerror!void {
     var gui_draw_context = try Gui.GuiDrawContext.init();
     defer gui_draw_context.deinit();
 
-    var draw = graph.NewCtx.init(alloc, win.getDpi());
+    var draw = graph.ImmediateDrawingContext.init(alloc, win.getDpi());
     defer draw.deinit();
 
     var parent_area = graph.Rec(0, 0, 0, 0);

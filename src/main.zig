@@ -6,19 +6,6 @@ const V2f = graph.Vec2f;
 const pow = std.math.pow;
 const sqrt = std.math.sqrt;
 
-pub fn quadForm(a: f32, b: f32, C: f32) ?[2]f32 {
-    const discrim = pow(f32, b, 2) - (4 * a * C);
-
-    return if (discrim < 0) null else .{ (-b + std.math.sqrt(discrim)) / (2 * a), (-b - std.math.sqrt(discrim)) / (2 * a) };
-}
-
-pub fn printSlice(slice: anytype, comptime fmt: ?[]const u8) void {
-    const fmt_str = if (fmt) |f| "i: {d} " ++ f else "i: {d} {any}\n";
-    for (slice, 0..) |item, i| {
-        std.debug.print(fmt_str, .{ i, item });
-    }
-}
-
 const gui_app = @import("gui_app.zig");
 
 threadlocal var lua_draw: *LuaDraw = undefined;
@@ -193,6 +180,7 @@ const LuaDraw = struct {
 
 pub fn main() !void {
     if (true) {
+        //try graph.basicGraphUsage();
         try gui_app.main();
         return;
     }
@@ -204,12 +192,11 @@ pub fn main() !void {
     var win = try graph.SDL.Window.createWindow("zig-game-engine", .{});
     defer win.destroyWindow();
 
-    var dpix: u32 = @as(u32, @intFromFloat(win.getDpi()));
     const init_size = 72;
-    var font = try graph.Font.init(alloc, std.fs.cwd(), "fonts/sfmono.otf", init_size, dpix, .{});
+    var font = try graph.Font.init(alloc, std.fs.cwd(), "fonts/sfmono.otf", init_size, win.getDpi(), .{});
     defer font.deinit();
 
-    var draw = graph.NewCtx.init(alloc, win.getDpi());
+    var draw = graph.ImmediateDrawingContext.init(alloc, win.getDpi());
     defer draw.deinit();
 
     var lvm = graph.Lua.init();

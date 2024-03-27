@@ -15,27 +15,6 @@ pub const MarioData = @import("data_mario.zig");
 pub const Collision = @import("col.zig");
 pub const Ecs = @import("registry.zig");
 pub const Lua = @import("lua.zig");
-//TODO write functions for
-//drawing debug information on the screen. Lots of strings, some sort of table.
-//like minecraft f3
-//drawing text is expensive.
-//write all strings to buffer. compare frame to frame using hash
-//only redraw when needed
-//can be done line by line or something so that fast changing numbers don't wreck the entire caching idea.
-
-//TODO for the graphics api
-//texture creation helper functions
-//it should be easy to create a texture with the following paramaters
-//color depths
-//number of channels
-//mipmap generation
-//filters, min mag
-//wrapping behavior
-//border color
-
-//TODO Write text rendering for NewCtx
-//TODO Should we switch to using only zalgebra vectors?
-
 //TODO Write draw functions for both point and pixel usage
 //write function that takes a list of keybindings and draws a display documenting all keys and functions
 //Allow typeless entry of data for draw fn's. Support common vector and rectangle types with both integer and floating point
@@ -341,27 +320,32 @@ pub const Camera3D = struct {
     }
 };
 
-pub fn basicGraphUsage() void {
+pub fn basicGraphUsage() !void {
     const graph = @This();
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.detectLeaks();
-    const alloc = &gpa.allocator();
+    const alloc = gpa.allocator();
 
-    var binds = graph.Bind(&.{.{ "my_bind", "a" }}).init();
+    var binds = graph.Bind(&.{
+        .{ "my_bind", "a" },
+        .{ "other_bind", "c" },
+    }).init();
 
-    var win = try graph.SDL.Window.createWindow("My window");
+    var win = try graph.SDL.Window.createWindow("My window", .{
+        // Optional, see Window.createWindow definition for full list of options
+        .window_size = .{ .x = 800, .y = 600 },
+    });
     defer win.destroyWindow();
 
-    var ctx = try graph.GraphicsContext.init(alloc, 163);
-    defer ctx.deinit();
+    var draw = graph.ImmediateDrawingContext.init(alloc, win.getDpi());
+    defer draw.deinit();
 
-    var dpix: u32 = @intFromFloat(win.getDpi());
-    const init_size = 18;
-    var font = try graph.Font.init("fonts/sfmono.otf", alloc, init_size, dpix, &(graph.Font.CharMaps.AsciiBasic ++ graph.Font.CharMaps.Apple), null);
+    var font = try graph.Font.init(alloc, std.fs.cwd(), "fonts/roboto.ttf", 14, win.getDpi(), .{});
+    defer font.deinit();
 
     while (!win.should_exit) {
-        try ctx.beginDraw(intToColor(0x2f2f2fff));
-        win.pumpEvents(); //Important that this is called after beginDraw for input lag reasons
+        try draw.begin(0x2f2f2fff, win.screen_dimensions.toF());
+        win.pumpEvents(); //Important that this is called after draw.begin for input lag reasons
         for (win.keys.slice()) |key| {
             switch (binds.get(key.scancode)) {
                 .my_bind => std.debug.print("bind pressed\n", .{}),
@@ -369,17 +353,21 @@ pub fn basicGraphUsage() void {
             }
         }
 
-        ctx.drawText(50, 300, "Hello", &font, 16, intToColor(0xffffffff));
-        ctx.endDraw(win.screen_width, win.screen_height);
+        var kit = binds.heldIterator(&win);
+        while (kit.next()) |m| {
+            switch (m) {
+                .my_bind => std.debug.print("My bind held\n", .{}),
+                .other_bind => std.debug.print("other\n", .{}),
+                else => {},
+            }
+        }
+
+        draw.text(.{ .x = 50, .y = 300 }, "Hello", &font, 16, 0xffffffff);
+        try draw.end();
         win.swap();
     }
 }
 
-pub fn writeBmp(file_name: [*c]const u8, w: i32, h: i32, component_count: i32, data: []const u8) void {
-    _ = c.stbi_write_bmp(file_name, w, h, component_count, &data[0]);
-}
-
-//Ideally I don't want to make any c.SDL calls in my application
 pub const SDL = struct {
     const log = std.log.scoped(.SDL);
     /// These names are less ambiguous than "pressed" "released" "held"
@@ -1199,8 +1187,8 @@ pub const Atlas = struct {
     }
 };
 
-///A structure that maps indices to a rectangle within a larger rectangle based on various parameters.
-///Useful for tilemaps that include padding
+/// A structure that maps indices to a rectangle within a larger rectangle based on various parameters.
+/// Useful for tilemaps that include padding
 pub const SubTileset = struct {
     const Self = @This();
 
@@ -1597,24 +1585,9 @@ pub const GL = struct {
     }
 };
 
-//Handle dpi
-//More 3d primitives
-//TODO defer errors to end of frame. not drawing is not fatal, ergonomically much nicer to not "try draw.*"
-//The point of this drawing context is to get common 2d primitives drawn to the screen with as little boilerplate as possible.
-//This means:
-//  Loading a default font
-//  easy depth?
-//  functions should have terse but descriptive names
-//  Don't mess with gl state to much so other drawing is easy
-//
-//  Loading a default font:
-//  Ideally we know the dpi we are using. either assume camera is always screen space or do something?
-//  One font always loaded from init
-//  we can load other fonts in other threads and notify once ready.
-//  The point of this is to draw text with native scaling as it has no artifacting.
-//
-pub const NewCtx = struct {
+pub const ImmediateDrawingContext = struct {
     const Self = @This();
+    const log = std.log.scoped(.ImmediateDrawingContext);
 
     pub const VtxFmt = struct {
         pub const Color_2D = packed struct { pos: Vec2f, z: u16, color: u32 };
@@ -1656,7 +1629,6 @@ pub const NewCtx = struct {
     dpi: f32,
 
     alloc: Alloc,
-    //TODO comptime function where you specify the indicies or verticies you want to append to by a string name, handles setting error flags and everything
 
     //TODO actually check this and log or panic
     draw_fn_error: enum {
@@ -1692,6 +1664,17 @@ pub const NewCtx = struct {
         self.batches.deinit();
     }
     //TODO function that takes anytype used to draw
+
+    fn setErr(self: *Self, e: anyerror) void {
+        std.debug.print("ImmediateDrawingContext: {any}\n", .{e});
+        self.draw_fn_error = .yes;
+    }
+
+    fn drawErr(e: anyerror!void) void {
+        e catch |err| {
+            log.err("draw function: {any}", .{err});
+        };
+    }
 
     pub fn getBatch(self: *Self, key: MapKey) !*Batches {
         const res = try self.batches.getOrPut(key);
@@ -1738,23 +1721,19 @@ pub const NewCtx = struct {
     }
 
     pub fn rect(self: *Self, rpt: Rect, color: u32) void {
-        const r = rpt;
-        const b = &(self.getBatch(.{ .batch_kind = .color_tri, .params = .{ .shader = self.colored_tri_shader } }) catch unreachable).color_tri;
-        const z = self.zindex;
-        self.zindex += 1;
-        b.indicies.appendSlice(&genQuadIndices(@as(u32, @intCast(b.vertices.items.len)))) catch {
-            self.draw_fn_error = .yes;
-            return;
-        };
-        b.vertices.appendSlice(&.{
-            .{ .pos = .{ .x = r.x + r.w, .y = r.y + r.h }, .z = z, .color = color },
-            .{ .pos = .{ .x = r.x + r.w, .y = r.y }, .z = z, .color = color },
-            .{ .pos = .{ .x = r.x, .y = r.y }, .z = z, .color = color },
-            .{ .pos = .{ .x = r.x, .y = r.y + r.h }, .z = z, .color = color },
-        }) catch {
-            self.draw_fn_error = .yes;
-            return;
-        };
+        drawErr(e: {
+            const r = rpt;
+            const b = &(self.getBatch(.{ .batch_kind = .color_tri, .params = .{ .shader = self.colored_tri_shader } }) catch |err| break :e err).color_tri;
+            const z = self.zindex;
+            self.zindex += 1;
+            b.indicies.appendSlice(&genQuadIndices(@as(u32, @intCast(b.vertices.items.len)))) catch |err| break :e err;
+            b.vertices.appendSlice(&.{
+                .{ .z = z, .color = color, .pos = .{ .x = r.x + r.w, .y = r.y + r.h } },
+                .{ .z = z, .color = color, .pos = .{ .x = r.x + r.w, .y = r.y } },
+                .{ .z = z, .color = color, .pos = .{ .x = r.x, .y = r.y } },
+                .{ .z = z, .color = color, .pos = .{ .x = r.x, .y = r.y + r.h } },
+            }) catch |err| break :e err;
+        });
     }
 
     pub fn nineSlice(self: *Self, r: Rect, tr: Rect, texture: Texture, scale: f32) void {
@@ -1809,13 +1788,13 @@ pub const NewCtx = struct {
             i + 13, i + 10, i + 9,  i + 13, i + 14, i + 10,
             //br
             i + 10, i + 14, i + 11, i + 14, i + 15, i + 11,
-        }) catch {
-            self.draw_fn_error = .yes;
+        }) catch |e| {
+            self.setErr(e);
             return;
         };
 
-        b.vertices.appendSlice(&.{}) catch {
-            self.draw_fn_error = .yes;
+        b.vertices.appendSlice(&.{}) catch |e| {
+            self.setErr(e);
             return;
         };
 
@@ -1840,8 +1819,8 @@ pub const NewCtx = struct {
             .{ .z = z, .color = 0xffffffff, .uv = Uv[13], .pos = .{ .y = r.y + r.h, .x = r.x + bw } },
             .{ .z = z, .color = 0xffffffff, .uv = Uv[14], .pos = .{ .y = r.y + r.h, .x = r.x + r.w - bw } },
             .{ .z = z, .color = 0xffffffff, .uv = Uv[15], .pos = .{ .y = r.y + r.h, .x = r.x + r.w } },
-        }) catch {
-            self.draw_fn_error = .yes;
+        }) catch |e| {
+            self.setErr(e);
             return;
         };
     }
@@ -1865,9 +1844,13 @@ pub const NewCtx = struct {
         }) catch return;
     }
 
+    pub fn textPx(self: *Self, pos: Vec2f, str: []const u8, font: *Font, px_size: f32, col: u32) void {
+        self.text(pos, str, font, pxToPt(self.dpi, px_size), col);
+    }
+
     pub fn text(self: *Self, pos: Vec2f, str: []const u8, font: *Font, pt_size: f32, col: u32) void {
-        //const SF = (pt_size / font.font_size);
-        const SF = (pxToPt(self.dpi, pt_size)) / font.font_size;
+        const SF = (pt_size / font.font_size);
+        //const SF = (pxToPt(self.dpi, pt_size)) / font.font_size;
         const fac = 1;
         const x = pos.x;
         const y = pos.y;
@@ -1951,8 +1934,6 @@ pub const NewCtx = struct {
         }) catch return;
     }
 
-    //TODO
-    // fn fixedBitmapText?
     pub fn bitmapText(self: *Self, x: f32, y: f32, h: f32, str: []const u8, font: FixedBitmapFont, col: u32) void {
         const b = &(self.getBatch(.{
             .batch_kind = .color_tri_tex,
@@ -3029,7 +3010,7 @@ pub const Font = struct {
         return error.freetype;
     }
 
-    pub fn init(alloc: Alloc, dir: Dir, filename: []const u8, point_size: f32, dpi: u32, options: struct {
+    pub fn init(alloc: Alloc, dir: Dir, filename: []const u8, point_size: f32, dpi: f32, options: struct {
         codepoints_to_load: []const CharMapEntry = &(CharMaps.Default),
         pack_factor: f32 = 1.3,
         debug_dir: ?Dir = null,
@@ -3076,11 +3057,11 @@ pub const Font = struct {
                 point_size,
                 dpi,
             });
-            try log.print("px_size: {d}\n", .{point_size * (@as(f32, @floatFromInt(dpi)) / 72)});
+            try log.print("px_size: {d}\n", .{point_size * (dpi / 72)});
         }
         var result = Font{
             .height = 0,
-            .dpi = @as(f32, @floatFromInt(dpi)),
+            .dpi = dpi,
             .max_advance = 0,
             .glyph_set = try (SparseSet(Glyph, u21).fromOwnedDenseSlice(alloc, codepoints)),
             .font_size = point_size,
@@ -3170,8 +3151,8 @@ pub const Font = struct {
                 face,
                 0,
                 @as(c_int, @intFromFloat(point_size)) * 64, //expects a size in 1/64 of points, font_size is in points
-                dpi,
-                dpi,
+                @intFromFloat(dpi),
+                @intFromFloat(dpi),
             ),
         );
 
@@ -3661,6 +3642,7 @@ pub fn GenerateBindingEnum(comptime map: BindList) type {
 //var testmap = graph.Bind(&.{.{ "my_key_binding", "a" }}).init();
 pub fn Bind(comptime map: BindList) type {
     return struct {
+        const Self = @This();
         pub const Map = map;
         const bind_enum = GenerateBindingEnum(map);
 
@@ -3696,6 +3678,29 @@ pub fn Bind(comptime map: BindList) type {
 
         pub fn get(self: *const @This(), scancode: keycodes.Scancode) bind_enum {
             return self.scancode_table[@intFromEnum(scancode)];
+        }
+
+        pub fn heldIterator(self: *const @This(), win: *const SDL.Window) struct {
+            win: *const SDL.Window,
+            parent: *const Self,
+            index: usize = 0,
+            pub fn next(it: *@This()) ?bind_enum {
+                if (it.index == it.parent.bind_table.len)
+                    return null;
+                const sc = it.parent.bind_table[it.index];
+                if (it.win.keydown(sc)) {
+                    defer it.index += 1;
+                    return @enumFromInt(it.index);
+                }
+                it.index += 1;
+                return it.next();
+            }
+        } {
+            return .{
+                .win = win,
+                .parent = self,
+                .index = 0,
+            };
         }
 
         //pub fn draw(self: *const Self, ctx: *NewCtx)
