@@ -1095,7 +1095,9 @@ pub const RenderTexture = struct {
     w: i32,
     h: i32,
 
-    pub fn init(w: i32, h: i32) !Self {
+    pub fn init(wa: anytype, ha: anytype) !Self {
+        const w = lcast(i32, wa);
+        const h = lcast(i32, ha);
         var ret = Self{
             .w = w,
             .h = h,
@@ -1130,8 +1132,10 @@ pub const RenderTexture = struct {
         return ret;
     }
 
-    pub fn setSize(self: *Self, w: i32, h: i32) !void {
-        if (w != self.w or h != self.h) {
+    pub fn setSize(self: *Self, w: anytype, h: anytype) !void {
+        const wi = lcast(i32, w);
+        const hi = lcast(i32, h);
+        if (wi != self.w or hi != self.h) {
             self.deinit();
             self.* = try RenderTexture.init(w, h);
         }

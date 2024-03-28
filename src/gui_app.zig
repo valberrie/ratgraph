@@ -632,39 +632,39 @@ pub const FileBrowser = struct {
         const area = border_area.inset(6 * wrap.scale);
         const w_id = gui.getId();
 
-        const popup_area = area.inset(area.w / 5);
-        if (gui.isActivePopup(w_id)) {
-            try gui.beginPopup(popup_area);
-            defer gui.endPopup();
-            gui.draw9Slice(popup_area, Os9Gui.os9win, wrap.texture, wrap.scale);
-            gui.draw9Slice(popup_area.inset(6 * wrap.scale), Os9Gui.os9in, wrap.texture, wrap.scale);
-            switch (self.dialog_state) {
-                .none => {},
-                .add_bookmark => {
-                    //TODO subrectlayout should have a function that scales it so we can avoid so many nested subrect layouts
-                    _ = try wrap.beginSubLayout(popup_area.inset(12 * wrap.scale), Gui.VerticalLayout, .{ .item_height = item_height });
-                    defer wrap.endSubLayout();
-                    wrap.label("Add new bookmark", .{});
-                    wrap.label("Path: {s}", .{self.path_str.?});
-                    {
-                        _ = try gui.beginLayout(Gui.HorizLayout, .{ .count = 2 }, .{});
-                        defer gui.endLayout();
-                        wrap.labelEx("Name: ", .{}, .{ .justify = .right });
-                        try wrap.textbox(&self.scratch_vec);
-                    }
-                    if (wrap.buttonEx("Add", .{ .disabled = self.scratch_vec.items.len == 0 })) {
-                        try self.bookmarks.append(.{
-                            .name = try self.alloc.dupe(u8, self.scratch_vec.items),
-                            .abs_path = try self.alloc.dupe(u8, self.path_str.?),
-                        });
-                        gui.popup_id = null;
-                    }
-                    if (wrap.button("Cancel")) {
-                        gui.popup_id = null;
-                    }
-                },
-            }
-        }
+        //const popup_area = area.inset(area.w / 5);
+        //if (gui.isActivePopup(w_id)) {
+        //    try gui.beginPopup(popup_area);
+        //    defer gui.endPopup();
+        //    gui.draw9Slice(popup_area, Os9Gui.os9win, wrap.texture, wrap.scale);
+        //    gui.draw9Slice(popup_area.inset(6 * wrap.scale), Os9Gui.os9in, wrap.texture, wrap.scale);
+        //    switch (self.dialog_state) {
+        //        .none => {},
+        //        .add_bookmark => {
+        //            //TODO subrectlayout should have a function that scales it so we can avoid so many nested subrect layouts
+        //            _ = try wrap.beginSubLayout(popup_area.inset(12 * wrap.scale), Gui.VerticalLayout, .{ .item_height = item_height });
+        //            defer wrap.endSubLayout();
+        //            wrap.label("Add new bookmark", .{});
+        //            wrap.label("Path: {s}", .{self.path_str.?});
+        //            {
+        //                _ = try gui.beginLayout(Gui.HorizLayout, .{ .count = 2 }, .{});
+        //                defer gui.endLayout();
+        //                wrap.labelEx("Name: ", .{}, .{ .justify = .right });
+        //                try wrap.textbox(&self.scratch_vec);
+        //            }
+        //            if (wrap.buttonEx("Add", .{ .disabled = self.scratch_vec.items.len == 0 })) {
+        //                try self.bookmarks.append(.{
+        //                    .name = try self.alloc.dupe(u8, self.scratch_vec.items),
+        //                    .abs_path = try self.alloc.dupe(u8, self.path_str.?),
+        //                });
+        //                gui.popup_id = null;
+        //            }
+        //            if (wrap.button("Cancel")) {
+        //                gui.popup_id = null;
+        //            }
+        //        },
+        //    }
+        //}
 
         {
             if (self.bar_pos == null)
@@ -2110,6 +2110,8 @@ pub const Os9Gui = struct {
     }
 
     pub fn enumDropdown(self: *Self, comptime enumT: type, enum_val: *enumT) !void {
+        if (true)
+            return;
         const gui = self.gui;
         if (try gui.enumDropdownGeneric(enumT, enum_val, .{
             .max_items = 4,
@@ -2175,6 +2177,10 @@ pub const GuiTest = struct {
     arr: std.ArrayList(u8),
     count: usize = 0,
     temp_f: f32 = 60,
+
+    child_pos: ?Vec2f = null,
+
+    is_popped: bool = false,
     pub fn init(alloc: std.mem.Allocator) Self {
         return .{ .arr = std.ArrayList(u8).init(alloc) };
     }
@@ -2198,7 +2204,7 @@ pub const GuiTest = struct {
                 self.count += 1;
             }
         }
-        {
+        if (true) {
             _ = try gui.beginLayout(Gui.HorizLayout, .{ .count = 4 }, .{});
             defer gui.endLayout();
             wrap.labelEx("Farenheit = ", .{}, .{});
@@ -2212,9 +2218,40 @@ pub const GuiTest = struct {
             try wrap.textboxNumber(&temp_c);
             if (temp_c != temp_ci)
                 self.temp_f = temp_c * (9.0 / 5.0) + 32;
+
+            if (self.child_pos == null)
+                self.child_pos = area.pos();
+            const c_area = graph.Rect.newV(self.child_pos.?, area.dim().smul(0.3));
+            if (gui.isKeyDown(.SPACE) and gui.isCursorInRect(c_area)) {
+                self.child_pos.? = self.child_pos.?.add(gui.input_state.mouse_delta);
+            }
+            try gui.beginWindow(c_area);
+            {
+                gui.drawRectFilled(c_area, itc(0x222222ff));
+                _ = try gui.beginLayout(Gui.VerticalLayout, .{ .item_height = 20 * scale }, .{});
+                defer gui.endLayout();
+                wrap.labelEx("crass", .{}, .{});
+            }
+            gui.endWindow();
+
             // C = (F - 32) * (5/9)
             //  F = C * (9/5) + 32.
             //try wrap.textbox(&self.arr);
+        }
+        if (wrap.button("popup"))
+            self.is_popped = true;
+        if (self.is_popped) {
+            const pa = gui.layout.last_requested_bounds.?;
+            const a = graph.Rect.newV(pa.pos(), .{ .x = pa.w, .y = pa.h * 5 });
+            if (gui.input_state.mouse_left_clicked and !gui.isCursorInRect(a))
+                self.is_popped = false;
+            try gui.beginWindow(a);
+            defer gui.endWindow();
+            gui.drawRectFilled(a, itc(0x0000ffff));
+            _ = try gui.beginLayout(Gui.VerticalLayout, .{ .item_height = 20 * scale }, .{});
+            defer gui.endLayout();
+            if (wrap.button("close"))
+                self.is_popped = false;
         }
         wrap.slider(&wrap.scale, 1, 10);
         try wrap.textboxNumber(&wrap.scale);
@@ -2506,6 +2543,9 @@ pub fn assetLoad(alloc: std.mem.Allocator) !void {
     }
     try out_bmp.writeToPngFile(std.fs.cwd(), "testpack.png");
 }
+//TODO
+//asset packing
+//n window support. this requires some kind of window management
 
 pub fn main() anyerror!void {
     //_ = graph.MarioData.dd;
@@ -2574,7 +2614,7 @@ pub fn main() anyerror!void {
     Gui.hash_timer = try std.time.Timer.start();
     Gui.hash_time = 0;
 
-    var gui_draw_context = try Gui.GuiDrawContext.init();
+    var gui_draw_context = try Gui.GuiDrawContext.init(alloc);
     defer gui_draw_context.deinit();
 
     var draw = graph.ImmediateDrawingContext.init(alloc, win.getDpi());
@@ -2680,8 +2720,10 @@ pub fn main() anyerror!void {
 
             //parent_area = graph.Rec(r.x + r.w / 4, r.y + r.h / 4, r.w / 2, r.h / 2);
             //_ = try gui.beginLayout(Gui.SubRectLayout, .{ .rect = parent_area }, .{});
-            _ = try gui.beginLayout(Gui.SubRectLayout, .{ .rect = parent_area }, .{});
-            defer gui.endLayout();
+            //_ = try gui.beginLayout(Gui.SubRectLayout, .{ .rect = parent_area }, .{});
+            //defer gui.endLayout();
+            try gui.beginWindow(parent_area);
+            defer gui.endWindow();
             switch (current_app) {
                 .keyboard_display => try kbd.update(&os9gui),
                 .lua_test => {
@@ -2718,7 +2760,7 @@ pub fn main() anyerror!void {
                     }
                 },
             }
-            try gui_draw_context.drawGui(&draw, &font, parent_area, &gui, win.screen_dimensions.x, win.screen_dimensions.y);
+            try gui_draw_context.drawGui(&draw, &font, &gui, win.screen_dimensions.x, win.screen_dimensions.y);
 
             if (false) {
                 var node = gui.layout_cache.first;
@@ -2740,9 +2782,6 @@ pub fn main() anyerror!void {
                 }
             }
         }
-
-        //const c = graph.c;
-        //c.glEnable(c.GL_SCISSOR_T)
 
         graph.c.glDisable(graph.c.GL_STENCIL_TEST);
 

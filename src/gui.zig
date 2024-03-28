@@ -693,6 +693,7 @@ pub const Context = struct {
     pub var alloc_count: u32 = 0;
     const Self = @This();
     const LayoutStackT = std.SinglyLinkedList(Layout);
+    const WindowStackT = std.SinglyLinkedList(usize); //Indicies into window array
     const RetainedHashMapT = std.StringHashMap(RetainedState);
 
     //Used for hashing
@@ -917,6 +918,35 @@ pub const Context = struct {
         }
     };
 
+    pub const Window = struct {
+        /// Memory stored in arena and reset every frame
+        layout_stack: LayoutStackT = .{},
+        /// Memory is retained and must be freed
+        layout_cache: LayoutCacheT,
+
+        area: Rect,
+
+        depth: u32 = 0,
+
+        pub fn init(alloc: std.mem.Allocator, area: Rect) !Window {
+            return .{
+                .layout_cache = try LayoutCacheT.init(alloc),
+                .area = area,
+            };
+        }
+
+        pub fn deinit(self: *@This()) void {
+            self.layout_cache.deinit();
+        }
+    };
+
+    window_index: ?usize = null,
+    this_frame_num_windows: usize = 0,
+    windows: std.ArrayList(Window),
+    window_stack_node_index: usize = 0,
+    window_stack_nodes: [32]WindowStackT.Node = undefined,
+    window_stack: WindowStackT = .{},
+
     dirty_draw_depth: ?u32 = null,
     no_caching: bool = true,
 
@@ -928,24 +958,26 @@ pub const Context = struct {
 
     stack_alloc: *std.heap.FixedBufferAllocator,
     alloc: std.mem.Allocator,
-    layout_stack: LayoutStackT = .{},
-    command_list: std.ArrayList(DrawCommand),
+    //layout_stack: LayoutStackT = .{},
 
+    //TODO remove
     command_list_popup: std.ArrayList(DrawCommand),
 
     tooltip_state: TooltipState,
 
+    //TODO remove namespaces?
     retained_alloc: std.mem.Allocator,
     namespace: []const u8 = "global",
     //TODO change naming system, state from last frame should be prefixed with last_frame or exist inside a last_frame_state struct
     old_namespace: []const u8 = "",
 
+    //TODO why do we have too kinds of string buffer?
     scratch_buf_pos: usize = 0,
     scratch_buf: [2048]u8 = undefined,
     strings: [2048]u8 = undefined,
     str_index: usize = 0,
 
-    layout_cache: LayoutCacheT,
+    //layout_cache: LayoutCacheT,
     current_layout_cache_data: ?*LayoutCacheData = null,
 
     input_state: InputState = .{},
@@ -963,7 +995,6 @@ pub const Context = struct {
     mouse_grab_id: ?WidgetId = null,
     mouse_released: bool = false,
 
-    //TODO look into using sdl double click functionality
     click_timer: u64 = 0,
     //TODO this field is for clickWidget, label or move to something
     last_clicked: ?WidgetId = null,
@@ -1002,7 +1033,7 @@ pub const Context = struct {
         return sl;
     }
 
-    pub fn isKeyDown(self: *Self, scancode: graph.keycodes.Scancode) bool {
+    pub fn isKeyDown(self: *Self, scancode: graph.SDL.keycodes.Scancode) bool {
         return self.input_state.keyboard_state.isSet(@intFromEnum(scancode));
     }
 
@@ -1078,6 +1109,7 @@ pub const Context = struct {
         return false;
     }
 
+    //Deprecate
     pub fn getWidgetState(self: *Self, dependent_data: anytype) WidgetState {
         const result: WidgetState = blk: {
             const hash = dhash(dependent_data);
@@ -1109,8 +1141,7 @@ pub const Context = struct {
         return Self{
             .console = Console.init(alloc),
             .layout = .{ .bounds = bounds },
-            .layout_stack = .{},
-            .layout_cache = try LayoutCacheT.init(alloc),
+            .windows = std.ArrayList(Window).init(alloc),
             .stack_alloc = stack_alloc,
             .alloc = stack_alloc.allocator(),
             .font = font,
@@ -1118,30 +1149,28 @@ pub const Context = struct {
             //.retained_data = RetainedHashMapT.init(alloc),
             .retained_alloc = alloc,
             .tooltip_state = .{ .command_list = std.ArrayList(DrawCommand).init(sa) },
-            .command_list = std.ArrayList(DrawCommand).init(sa),
             .command_list_popup = std.ArrayList(DrawCommand).init(sa),
             .textbox_state = RetainedState.TextInput.init(alloc),
         };
     }
 
     pub fn reset(self: *Self, input_state: InputState) !void {
+        if (self.window_index != null) return error.unmatchedBeginWindow;
+        self.this_frame_num_windows = 0;
+        self.window_stack_node_index = 0;
+
         self.dirty_draw_depth = null;
         self.str_index = 0;
         self.scratch_buf_pos = 0;
         self.scroll_claimed_mouse = false;
 
-        try self.layout_cache.begin();
         if (self.scroll_bounds != null) return error.unmatchedBeginScroll;
         if (std.mem.indexOfScalar(u8, self.namespace, ':') != null)
             return error.unmatchedPushNamespace;
-        if (self.layout_stack.len() > 0)
-            return error.unmatchedBeginLayout;
-        self.command_list.deinit();
-        self.command_list_popup.deinit();
+        //if (self.layout_stack.len() > 0)
+        //    return error.unmatchedBeginLayout;
         self.text_input_state.advanceStateReset();
         self.stack_alloc.reset();
-        self.command_list = std.ArrayList(DrawCommand).init(self.alloc);
-        self.command_list_popup = std.ArrayList(DrawCommand).init(self.alloc);
         self.tooltip_state.command_list = std.ArrayList(DrawCommand).init(self.alloc);
         if (self.tooltip_state.mouse_in_area) |ma| {
             if (!self.isCursorInRect(ma)) {
@@ -1154,12 +1183,6 @@ pub const Context = struct {
         self.layout.reset();
         self.click_timer += 1;
 
-        if (self.popup) |p| {
-            if (self.input_state.mouse_left_clicked and !p.area.containsPoint(self.input_state.mouse_pos)) {
-                self.popup = null;
-                self.popup_id = null;
-            }
-        }
         if (self.mouse_released) {
             self.mouse_grab_id = null;
             self.mouse_released = false;
@@ -1167,16 +1190,14 @@ pub const Context = struct {
         if (!self.input_state.mouse_left_held and self.mouse_grab_id != null) {
             self.mouse_released = true;
         }
-
-        if (!self.last_frame_had_popup) {
-            self.popup = null;
-            self.popup_id = null;
-        }
-        self.last_frame_had_popup = false;
     }
 
     pub fn deinit(self: *Self) void {
-        self.layout_cache.deinit();
+        for (self.windows.items) |*w| {
+            w.deinit();
+        }
+        self.windows.deinit();
+        //self.layout_cache.deinit();
         self.console.deinit();
         self.textbox_state.deinit();
     }
@@ -1206,12 +1227,6 @@ pub const Context = struct {
         teleport_area: ?Rect = null,
     }) struct { click: ClickState, id: WidgetId } {
         const id = self.getId();
-
-        if (self.popup) |p| {
-            //TODO this will fail sometimes because we can't garantee popup has been called before this click widget
-            //Can set layout to have popup flag or something
-            if (!self.in_popup and p.area.containsPoint(self.input_state.mouse_pos)) return .{ .click = .none, .id = id };
-        }
 
         const containsCursor = rec.containsPoint(self.input_state.mouse_pos);
         const clicked = self.input_state.mouse_left_clicked;
@@ -1319,6 +1334,95 @@ pub const Context = struct {
         return click;
     }
 
+    pub fn beginWindow(self: *Self, area: Rect) !void {
+        var old_depth: u32 = 0;
+        if (self.window_index) |old_index| { //Push old window so we can restore after
+            self.window_stack_nodes[self.window_stack_node_index] = .{ .data = old_index };
+            self.window_stack.prepend(&self.window_stack_nodes[self.window_stack_node_index]);
+            old_depth = self.windows.items[old_index].depth;
+            self.window_stack_node_index += 1;
+            if (self.window_stack_node_index >= self.window_stack_nodes.len)
+                return error.tooManyWindows;
+        }
+        self.this_frame_num_windows += 1;
+        self.window_index = self.this_frame_num_windows - 1;
+        //self.window_index = if (self.window_index) |ind| ind + 1 else 0;
+        if (self.window_index.? >= self.windows.items.len) {
+            try self.windows.append(try Window.init(self.retained_alloc, area));
+        }
+        const w = try self.getWindow();
+        w.area = area;
+        w.depth = old_depth + 1;
+        try w.layout_cache.begin();
+        if (w.layout_stack.len() > 0)
+            return error.unmatchedBeginLayout;
+
+        self.layout.reset(); //Is this needed
+        _ = try self.beginLayout(SubRectLayout, .{ .rect = area }, .{});
+    }
+
+    pub fn endWindow(self: *Self) void {
+        //Set self.layout back to the prev windows first layout
+        self.endLayout(); //The window's SubRect layout
+        if (self.window_stack.popFirst()) |prev_window| {
+            self.window_index = prev_window.data;
+        } else {
+            self.window_index = null;
+        }
+        if (self.window_index) |ind| {
+            const old_w = &self.windows.items[ind];
+            self.layout = (old_w.layout_stack.first orelse return).data;
+            self.current_layout_cache_data = old_w.layout_cache.getCacheDataPtr();
+        }
+    }
+
+    fn getWindow(self: *Self) !*Window {
+        return &self.windows.items[self.window_index orelse return error.noWindow];
+    }
+
+    fn layoutStackPush(self: *Self, node: *LayoutStackT.Node) !void {
+        const w = try self.getWindow();
+        w.layout_stack.prepend(node);
+    }
+
+    fn layoutStackPop(self: *Self) !*LayoutStackT.Node {
+        const w = try self.getWindow();
+        return w.layout_stack.popFirst() orelse error.invalidLayoutStack;
+    }
+
+    fn layoutCachePush(self: *Self, new_ld: LayoutCacheData) !void {
+        const w = try self.getWindow();
+        { //Layout cache
+            const dirty = if (self.current_layout_cache_data) |ld| ld.dirty else false;
+            try w.layout_cache.push(new_ld);
+            self.current_layout_cache_data = w.layout_cache.getCacheDataPtr();
+            const ld = self.current_layout_cache_data.?;
+            ld.widget_index = 0;
+            ld.widget_hash_index = 0;
+
+            if (dirty or !ld.is_init or self.no_caching) {
+                //_ = opts;
+                //self.drawRectFilled(self.layout.bounds, opts.bg);
+            }
+
+            if (!ld.is_init) {
+                ld.init(self.retained_alloc);
+            } else {
+                ld.was_init = false;
+            }
+            //ld.hashCommands();
+            try ld.commands.resize(0);
+
+            ld.dirty = dirty;
+        }
+    }
+
+    fn layoutCachePop(self: *Self) !void {
+        const w = try self.getWindow();
+        w.layout_cache.pop() catch unreachable;
+        self.current_layout_cache_data = w.layout_cache.getCacheDataPtr();
+    }
+
     //TODO ensure our new layout does not clip the previous layout, special case for scroll areas and popups as they can clip
     pub fn beginLayout(self: *Self, comptime Layout_T: type, layout_data: Layout_T, opts: struct { bg: Color = itc(0x222222ff), scissor: ?Rect = null }) !*Layout_T {
         const new_layout = try self.alloc.create(Layout_T);
@@ -1339,31 +1443,12 @@ pub const Context = struct {
         const node = try self.alloc.create(LayoutStackT.Node);
         node.next = null;
         node.data = old_layout;
-        self.layout_stack.prepend(node);
+        try self.layoutStackPush(node);
+        //self.layout_stack.prepend(node);
         self.layout.setNew(Layout_T, new_layout);
 
         { //Layout cache
-            const dirty = if (self.current_layout_cache_data) |ld| ld.dirty else false;
-            try self.layout_cache.push(.{ .hash = self.layout.hash(), .rec = self.layout.bounds, .scissor = opts.scissor });
-            self.current_layout_cache_data = self.layout_cache.getCacheDataPtr();
-            const ld = self.current_layout_cache_data.?;
-            ld.widget_index = 0;
-            ld.widget_hash_index = 0;
-
-            if (dirty or !ld.is_init or self.no_caching) {
-                //_ = opts;
-                //self.drawRectFilled(self.layout.bounds, opts.bg);
-            }
-
-            if (!ld.is_init) {
-                ld.init(self.retained_alloc);
-            } else {
-                ld.was_init = false;
-            }
-            //ld.hashCommands();
-            try ld.commands.resize(0);
-
-            ld.dirty = dirty;
+            try self.layoutCachePush(.{ .hash = self.layout.hash(), .rec = self.layout.bounds, .scissor = opts.scissor });
         }
         return new_layout;
     }
@@ -1374,49 +1459,39 @@ pub const Context = struct {
             const last_frame_hash = ld.last_frame_cmd_hash;
             ld.hashCommands();
             ld.draw_cmds = (ld.last_frame_cmd_hash != last_frame_hash);
-            const dde = if (ld.draw_cmds and self.layout_cache.depth > 0) self.layout_cache.depth - 1 else null;
-            if (self.dirty_draw_depth) |dd| {
-                if (dd > dde orelse 0)
-                    self.dirty_draw_depth = dd;
-            } else {
-                self.dirty_draw_depth = dde;
-            }
+            //const dde = if (ld.draw_cmds and self.layout_cache.depth > 0) self.layout_cache.depth - 1 else null;
+            //if (self.dirty_draw_depth) |dd| {
+            //    if (dd > dde orelse 0)
+            //        self.dirty_draw_depth = dd;
+            //} else {
+            //    self.dirty_draw_depth = dde;
+            //}
         }
 
-        self.layout_cache.pop() catch unreachable;
-        self.current_layout_cache_data = self.layout_cache.getCacheDataPtr();
+        self.layoutCachePop() catch unreachable;
+        //self.layout_cache.pop() catch unreachable;
+        //self.current_layout_cache_data = self.layout_cache.getCacheDataPtr();
         //const ld = self.current_layout_cache_data.?;
         //if()
-        if (self.current_layout_cache_data) |ld| {
-            if (!ld.is_init) unreachable;
-            if (self.dirty_draw_depth) |draw_depth| {
-                if (self.layout_cache.depth == draw_depth) {
-                    ld.draw_backup = true;
-                    if (draw_depth > 0)
-                        self.dirty_draw_depth.? -= 1;
-                }
-            }
-        }
-        if (self.layout_stack.popFirst()) |layout| {
-            self.layout = layout.data;
-            self.alloc.destroy(layout);
-        } else {
-            unreachable;
-        }
-    }
-
-    pub fn beginPopup(self: *Self, area: Rect) !void {
-        _ = try self.beginLayout(SubRectLayout, .{ .rect = area }, .{});
-        self.last_frame_had_popup = true;
-        self.in_popup = true;
-        self.popup = .{ .area = area };
-    }
-
-    pub fn endPopup(self: *Self) void {
-        self.in_popup = false;
-        if (self.popup_id == null)
-            self.popup = null;
-        self.endLayout();
+        //if (self.current_layout_cache_data) |ld| {
+        //    if (!ld.is_init) unreachable;
+        //    if (self.dirty_draw_depth) |draw_depth| {
+        //        if (self.layout_cache.depth == draw_depth) {
+        //            ld.draw_backup = true;
+        //            if (draw_depth > 0)
+        //                self.dirty_draw_depth.? -= 1;
+        //        }
+        //    }
+        //}
+        const layout = self.layoutStackPop() catch unreachable;
+        self.layout = layout.data;
+        self.alloc.destroy(layout);
+        //if (self.layout_stack.popFirst()) |layout| {
+        //    self.layout = layout.data;
+        //    self.alloc.destroy(layout);
+        //} else {
+        //    unreachable;
+        //}
     }
 
     pub fn skipArea(self: *Self) void {
@@ -1424,19 +1499,13 @@ pub const Context = struct {
     }
 
     pub fn draw(self: *Self, command: DrawCommand) void {
-        if (self.in_popup) {
-            self.command_list_popup.append(command) catch unreachable;
-        } else {
-            if (self.current_layout_cache_data) |lcd| {
-                lcd.commands.append(command) catch unreachable;
-            }
-            //self.command_list.append(command) catch unreachable;
+        if (self.current_layout_cache_data) |lcd| {
+            lcd.commands.append(command) catch unreachable;
         }
     }
 
     pub fn drawSetCamera(self: *Self, cam: DrawCommand) void {
         self.draw(cam);
-        //self.command_list.append(cam) catch unreachable;
     }
 
     pub fn scissor(self: *Self, r: ?Rect) void {
@@ -2180,121 +2249,145 @@ pub const Context = struct {
 pub const GuiDrawContext = struct {
     const Self = @This();
 
-    main_rtexture: graph.RenderTexture,
-    popup_rtexture: graph.RenderTexture,
+    window_fbs: std.ArrayList(graph.RenderTexture),
 
     camera_offset: Vec2f = .{ .x = 0, .y = 0 },
     camera_bounds: ?Rect = null,
     win_bounds: Rect = graph.Rec(0, 0, 0, 0),
 
-    pub fn init() !Self {
-        return .{ .main_rtexture = try graph.RenderTexture.init(10, 10), .popup_rtexture = try graph.RenderTexture.init(10, 10) };
+    pub fn init(alloc: std.mem.Allocator) !Self {
+        return .{
+            .window_fbs = std.ArrayList(graph.RenderTexture).init(alloc),
+            //.main_rtexture = try graph.RenderTexture.init(10, 10),
+            //.popup_rtexture = try graph.RenderTexture.init(10, 10),
+        };
     }
 
     pub fn deinit(self: *Self) void {
-        self.main_rtexture.deinit();
-        self.popup_rtexture.deinit();
+        for (self.window_fbs.items) |*fb|
+            fb.deinit();
+        self.window_fbs.deinit();
     }
 
-    pub fn drawGui(self: *Self, draw: *graph.ImmediateDrawingContext, font: *graph.Font, parea: Rect, gui: *Context, win_w: i32, win_h: i32) !void {
-        try self.main_rtexture.setSize(@as(i32, @intFromFloat(parea.w)), @as(i32, @intFromFloat(parea.h)));
+    pub fn drawGui(self: *Self, draw: *graph.ImmediateDrawingContext, font: *graph.Font, gui: *Context, win_w: i32, win_h: i32) !void {
         const ignore_cache = true;
-        self.main_rtexture.bind(ignore_cache);
-        self.camera_bounds = parea;
-        {
-            var scissor: bool = false;
-            var scissor_depth: u32 = 0;
-            var node = gui.layout_cache.first;
-            while (node) |n| : (node = n.next) {
-                if (n.data.scissor) |sz| {
-                    scissor = true;
-                    scissor_depth = n.depth;
-                    try self.drawCommand(.{ .scissor = .{ .area = sz } }, draw, font);
-                }
-                if (n.data.scissor == null) {
-                    if (scissor and n.depth <= scissor_depth) {
-                        scissor = false;
-                        try self.drawCommand(.{ .scissor = .{ .area = null } }, draw, font);
-                    }
-                }
-                for (n.data.commands.items) |command| {
-                    try self.drawCommand(command, draw, font);
-                }
-                n.data.draw_backup = false;
+        for (gui.windows.items[0..gui.this_frame_num_windows], 0..) |w, i| {
+            if (i >= self.window_fbs.items.len) {
+                try self.window_fbs.append(try graph.RenderTexture.init(w.area.w, w.area.h));
+            } else {
+                try self.window_fbs.items[i].setSize(w.area.w, w.area.h);
             }
-        }
-        try draw.flush(parea);
-        draw.screen_dimensions = .{ .x = @as(f32, @floatFromInt(win_w)), .y = @as(f32, @floatFromInt(win_h)) };
-        graph.c.glBindFramebuffer(graph.c.GL_FRAMEBUFFER, 0);
-        graph.c.glViewport(0, 0, win_w, win_h);
-
-        const tr = self.main_rtexture.texture.rect();
-        draw.rectTex(graph.Rec(parea.x, parea.y, parea.w, parea.h), graph.Rec(0, 0, tr.w, -tr.h), self.main_rtexture.texture);
-
-        if (true)
-            return;
-        //ctx.screen_bounds = graph.IRect.new(0, 0, @intFromFloat(parea.w), @intFromFloat(parea.h));
-        draw.screen_dimensions = .{ .x = parea.w, .y = parea.h };
-        {
-            const c = graph.c;
-            c.glEnable(c.GL_STENCIL_TEST);
-            c.glColorMask(c.GL_FALSE, c.GL_FALSE, c.GL_FALSE, c.GL_FALSE);
-            c.glDepthMask(c.GL_FALSE);
-            c.glClearStencil(0xff);
-            c.glStencilFunc(c.GL_NEVER, 1, 0xFF);
-            c.glStencilOp(c.GL_REPLACE, c.GL_KEEP, c.GL_KEEP); // draw 1s on test fail (always)
-
-            c.glStencilMask(0xFF);
-            c.glClear(c.GL_STENCIL_BUFFER_BIT); // needs mask=0xFF
-
-            var node = gui.layout_cache.first;
-            var redraw_depth: ?u32 = null;
-            while (node) |n| : (node = n.next) {
-                if (redraw_depth) |dep| {
-                    if (n.depth > dep) {
-                        n.data.draw_cmds = true;
-                        continue;
-                    } else {
-                        redraw_depth = null;
-                    }
-                }
-                if (n.data.draw_cmds) {
-                    draw.rect(if (n.data.scissor) |s| s else n.data.rec, Colori.Black);
-                    redraw_depth = n.depth;
-                }
-            }
-            try draw.flush(null);
-            c.glColorMask(c.GL_TRUE, c.GL_TRUE, c.GL_TRUE, c.GL_TRUE);
-            c.glDepthMask(c.GL_TRUE);
-            c.glStencilMask(0x00);
-            c.glStencilFunc(c.GL_EQUAL, 1, 0xFF);
-        }
-        draw.rect(parea, Colori.Blue);
-        {
-            var scissor: bool = false;
-            var scissor_depth: u32 = 0;
-            var node = gui.layout_cache.first;
-            while (node) |n| : (node = n.next) {
-                if (n.data.draw_cmds or ignore_cache or n.data.draw_backup) {
+            self.camera_bounds = w.area;
+            self.window_fbs.items[i].bind(ignore_cache);
+            {
+                var scissor: bool = false;
+                var scissor_depth: u32 = 0;
+                var node = w.layout_cache.first;
+                while (node) |n| : (node = n.next) {
                     if (n.data.scissor) |sz| {
                         scissor = true;
                         scissor_depth = n.depth;
                         try self.drawCommand(.{ .scissor = .{ .area = sz } }, draw, font);
                     }
+                    if (n.data.scissor == null) {
+                        if (scissor and n.depth <= scissor_depth) {
+                            scissor = false;
+                            try self.drawCommand(.{ .scissor = .{ .area = null } }, draw, font);
+                        }
+                    }
                     for (n.data.commands.items) |command| {
                         try self.drawCommand(command, draw, font);
                     }
+                    n.data.draw_backup = false;
                 }
-                if (n.data.scissor == null) {
-                    if (scissor and n.depth <= scissor_depth) {
-                        scissor = false;
-                        try self.drawCommand(.{ .scissor = .{ .area = null } }, draw, font);
-                    }
-                }
-                n.data.draw_backup = false;
             }
+            try draw.flush(w.area);
+            //draw.screen_dimensions = .{ .x = @as(f32, @floatFromInt(win_w)), .y = @as(f32, @floatFromInt(win_h)) };
+            //graph.c.glBindFramebuffer(graph.c.GL_FRAMEBUFFER, 0);
+            //graph.c.glViewport(0, 0, win_w, win_h);
+            //const tr = self.window_fbs.items[i].texture.rect();
+            //draw.rectTex(
+            //    w.area,
+            //    graph.Rec(0, 0, tr.w, -tr.h),
+            //    self.window_fbs.items[i].texture,
+            //);
         }
-        graph.c.glDisable(graph.c.GL_STENCIL_TEST);
+        draw.screen_dimensions = .{ .x = @as(f32, @floatFromInt(win_w)), .y = @as(f32, @floatFromInt(win_h)) };
+        graph.c.glBindFramebuffer(graph.c.GL_FRAMEBUFFER, 0);
+        graph.c.glViewport(0, 0, win_w, win_h);
+        for (self.window_fbs.items[0..gui.this_frame_num_windows], 0..) |fb, i| {
+            const tr = fb.texture.rect();
+            draw.rectTex(
+                gui.windows.items[i].area,
+                graph.Rec(0, 0, tr.w, -tr.h),
+                fb.texture,
+            );
+        }
+
+        if (true)
+            return;
+        //ctx.screen_bounds = graph.IRect.new(0, 0, @intFromFloat(parea.w), @intFromFloat(parea.h));
+        //draw.screen_dimensions = .{ .x = parea.w, .y = parea.h };
+        //{
+        //    const c = graph.c;
+        //    c.glEnable(c.GL_STENCIL_TEST);
+        //    c.glColorMask(c.GL_FALSE, c.GL_FALSE, c.GL_FALSE, c.GL_FALSE);
+        //    c.glDepthMask(c.GL_FALSE);
+        //    c.glClearStencil(0xff);
+        //    c.glStencilFunc(c.GL_NEVER, 1, 0xFF);
+        //    c.glStencilOp(c.GL_REPLACE, c.GL_KEEP, c.GL_KEEP); // draw 1s on test fail (always)
+
+        //    c.glStencilMask(0xFF);
+        //    c.glClear(c.GL_STENCIL_BUFFER_BIT); // needs mask=0xFF
+
+        //    var node = gui.layout_cache.first;
+        //    var redraw_depth: ?u32 = null;
+        //    while (node) |n| : (node = n.next) {
+        //        if (redraw_depth) |dep| {
+        //            if (n.depth > dep) {
+        //                n.data.draw_cmds = true;
+        //                continue;
+        //            } else {
+        //                redraw_depth = null;
+        //            }
+        //        }
+        //        if (n.data.draw_cmds) {
+        //            draw.rect(if (n.data.scissor) |s| s else n.data.rec, Colori.Black);
+        //            redraw_depth = n.depth;
+        //        }
+        //    }
+        //    try draw.flush(null);
+        //    c.glColorMask(c.GL_TRUE, c.GL_TRUE, c.GL_TRUE, c.GL_TRUE);
+        //    c.glDepthMask(c.GL_TRUE);
+        //    c.glStencilMask(0x00);
+        //    c.glStencilFunc(c.GL_EQUAL, 1, 0xFF);
+        //}
+        //draw.rect(parea, Colori.Blue);
+        //{
+        //    var scissor: bool = false;
+        //    var scissor_depth: u32 = 0;
+        //    var node = gui.layout_cache.first;
+        //    while (node) |n| : (node = n.next) {
+        //        if (n.data.draw_cmds or ignore_cache or n.data.draw_backup) {
+        //            if (n.data.scissor) |sz| {
+        //                scissor = true;
+        //                scissor_depth = n.depth;
+        //                try self.drawCommand(.{ .scissor = .{ .area = sz } }, draw, font);
+        //            }
+        //            for (n.data.commands.items) |command| {
+        //                try self.drawCommand(command, draw, font);
+        //            }
+        //        }
+        //        if (n.data.scissor == null) {
+        //            if (scissor and n.depth <= scissor_depth) {
+        //                scissor = false;
+        //                try self.drawCommand(.{ .scissor = .{ .area = null } }, draw, font);
+        //            }
+        //        }
+        //        n.data.draw_backup = false;
+        //    }
+        //}
+        //graph.c.glDisable(graph.c.GL_STENCIL_TEST);
 
         //if (gui.popup) |p| {
         //    //try self.popup_rtexture.setSize(@as(i32, @intFromFloat(p.area.w)), @as(i32, @intFromFloat(p.area.w)));
