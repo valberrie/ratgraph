@@ -630,41 +630,42 @@ pub const FileBrowser = struct {
         const win_area = gui.getArea() orelse return;
         const border_area = win_area.inset(6 * wrap.scale);
         const area = border_area.inset(6 * wrap.scale);
-        const w_id = gui.getId();
+        //const w_id = gui.getId();
 
-        //const popup_area = area.inset(area.w / 5);
-        //if (gui.isActivePopup(w_id)) {
-        //    try gui.beginPopup(popup_area);
-        //    defer gui.endPopup();
-        //    gui.draw9Slice(popup_area, Os9Gui.os9win, wrap.texture, wrap.scale);
-        //    gui.draw9Slice(popup_area.inset(6 * wrap.scale), Os9Gui.os9in, wrap.texture, wrap.scale);
-        //    switch (self.dialog_state) {
-        //        .none => {},
-        //        .add_bookmark => {
-        //            //TODO subrectlayout should have a function that scales it so we can avoid so many nested subrect layouts
-        //            _ = try wrap.beginSubLayout(popup_area.inset(12 * wrap.scale), Gui.VerticalLayout, .{ .item_height = item_height });
-        //            defer wrap.endSubLayout();
-        //            wrap.label("Add new bookmark", .{});
-        //            wrap.label("Path: {s}", .{self.path_str.?});
-        //            {
-        //                _ = try gui.beginLayout(Gui.HorizLayout, .{ .count = 2 }, .{});
-        //                defer gui.endLayout();
-        //                wrap.labelEx("Name: ", .{}, .{ .justify = .right });
-        //                try wrap.textbox(&self.scratch_vec);
-        //            }
-        //            if (wrap.buttonEx("Add", .{ .disabled = self.scratch_vec.items.len == 0 })) {
-        //                try self.bookmarks.append(.{
-        //                    .name = try self.alloc.dupe(u8, self.scratch_vec.items),
-        //                    .abs_path = try self.alloc.dupe(u8, self.path_str.?),
-        //                });
-        //                gui.popup_id = null;
-        //            }
-        //            if (wrap.button("Cancel")) {
-        //                gui.popup_id = null;
-        //            }
-        //        },
-        //    }
-        //}
+        const popup_area = area.inset(area.w / 5);
+        if (self.dialog_state != .none) {
+            try gui.beginWindow(popup_area);
+            defer gui.endWindow();
+            gui.draw9Slice(popup_area, Os9Gui.os9win, wrap.texture, wrap.scale);
+            gui.draw9Slice(popup_area.inset(6 * wrap.scale), Os9Gui.os9in, wrap.texture, wrap.scale);
+            switch (self.dialog_state) {
+                .none => {},
+                .add_bookmark => {
+
+                    //TODO subrectlayout should have a function that scales it so we can avoid so many nested subrect layouts
+                    _ = try wrap.beginSubLayout(popup_area.inset(12 * wrap.scale), Gui.VerticalLayout, .{ .item_height = item_height });
+                    defer wrap.endSubLayout();
+                    wrap.label("Add new bookmark", .{});
+                    wrap.label("Path: {s}", .{self.path_str.?});
+                    {
+                        _ = try gui.beginLayout(Gui.HorizLayout, .{ .count = 2 }, .{});
+                        defer gui.endLayout();
+                        wrap.labelEx("Name: ", .{}, .{ .justify = .right });
+                        try wrap.textbox(&self.scratch_vec);
+                    }
+                    if (wrap.buttonEx("Add", .{}, .{ .disabled = self.scratch_vec.items.len == 0 })) {
+                        try self.bookmarks.append(.{
+                            .name = try self.alloc.dupe(u8, self.scratch_vec.items),
+                            .abs_path = try self.alloc.dupe(u8, self.path_str.?),
+                        });
+                        self.dialog_state = .none;
+                    }
+                    if (wrap.button("Cancel")) {
+                        self.dialog_state = .none;
+                    }
+                },
+            }
+        }
 
         {
             if (self.bar_pos == null)
@@ -743,8 +744,6 @@ pub const FileBrowser = struct {
             defer wrap.endSubLayout();
 
             if (wrap.button("Add current Folder as bookmark")) {
-                gui.popup_id = w_id;
-                gui.last_frame_had_popup = true;
                 try self.scratch_vec.resize(0);
                 self.dialog_state = .add_bookmark;
             }
@@ -1458,7 +1457,7 @@ pub const AtlasEditor = struct {
                 }
             }
             {
-                gui.scissor(canvas);
+                //gui.scissor(canvas);
                 gui.drawRectFilled(canvas, itc(0xffffffff));
                 gui.drawSetCamera(.{ .set_camera = .{ .win_area = canvas } });
                 cam.screen_area = canvas;
@@ -1533,7 +1532,7 @@ pub const AtlasEditor = struct {
                 }
                 gui.drawRectOutline(self.marquee, Color.White);
 
-                gui.scissor(null);
+                //gui.scissor(null);
             }
         } else {
             if (self.file_browser == null)
@@ -1716,6 +1715,9 @@ pub const AtlasEditor = struct {
 /// checkbox
 /// header
 /// table with scroll area
+///
+/// TODO better textboxes
+/// tab to next textbox
 pub const Os9Gui = struct {
     const Self = @This();
 
@@ -1800,6 +1802,11 @@ pub const Os9Gui = struct {
 
     drop_down: ?Gui.Context.WidgetId = null,
     drop_down_scroll: Vec2f = .{ .x = 0, .y = 0 },
+
+    crass: Vec2f = .{ .x = 0, .y = 0 },
+
+    p_index: usize = 0,
+    cpop_index: ?usize = null,
 
     pub fn init(alloc: std.mem.Allocator, scale: f32, gui: *Gui.Context) !Self {
         const dir = std.fs.cwd();
@@ -1944,7 +1951,11 @@ pub const Os9Gui = struct {
             .scroll_area_h = opts.sh,
         })) |scroll| {
             const lrq = self.gui.layout.last_requested_bounds;
-            return .{ .layout = try self.gui.beginLayout(Gui.VerticalLayout, .{ .item_height = 20 * scale }, .{}), .data = scroll, .area = lrq orelse graph.Rec(0, 0, 0, 0) };
+            return .{
+                .layout = try self.gui.beginLayout(Gui.VerticalLayout, .{ .item_height = 20 * scale }, .{}),
+                .data = scroll,
+                .area = lrq orelse graph.Rec(0, 0, 0, 0),
+            };
         }
         return null;
     }
@@ -1952,8 +1963,9 @@ pub const Os9Gui = struct {
     pub fn endVScroll(self: *Self, scroll_data: Gui.Context.VLayoutScrollData) void {
         const sd = scroll_data.data;
         const max = scroll_data.layout.current_h - scroll_data.area.h;
+        const w = self.gui.getWindow() catch unreachable;
         if (max > 0) {
-            if (self.gui.mouse_grab_id == null and !self.gui.scroll_claimed_mouse and self.gui.scroll_bounds.?.containsPoint(self.gui.input_state.mouse_pos)) {
+            if (self.gui.mouse_grab_id == null and !self.gui.scroll_claimed_mouse and w.scroll_bounds.?.containsPoint(self.gui.input_state.mouse_pos)) {
                 self.gui.scroll_claimed_mouse = true;
                 const pixel_per_line = 20 * self.scale;
                 sd.offset.y = std.math.clamp(sd.offset.y + self.gui.input_state.mouse_wheel_delta * -pixel_per_line * 3, 0, max);
@@ -2028,6 +2040,125 @@ pub const Os9Gui = struct {
         }
 
         return selected.*;
+    }
+
+    pub fn propertyTable(self: *Self, to_edit: anytype) !void {
+        const err_prefix = @typeName(@This()) ++ ".propertyTable: ";
+        const invalid = err_prefix ++ "Argument \'to_edit\' expects a mutable pointer to a struct. Recieved: " ++ @typeName(@TypeOf(to_edit));
+        const e_info = @typeInfo(@TypeOf(to_edit));
+        if (e_info != .Pointer or e_info.Pointer.is_const) @compileError(invalid);
+        const ptype = e_info.Pointer.child;
+        const info = @typeInfo(ptype);
+        if (info != .Struct) @compileError(invalid);
+        const num_lines = info.Struct.fields.len;
+        const item_height = 35;
+        const ar = self.gui.getArea() orelse return;
+        self.gui.draw9Slice(ar, inset9, self.texture, self.scale);
+        const in = ar.inset(3 * self.scale);
+        _ = try self.gui.beginLayout(Gui.SubRectLayout, .{ .rect = in }, .{});
+        defer self.gui.endLayout();
+        const do_scroll = (in.h < item_height * num_lines);
+        const scr = try self.gui.storeLayoutData(Vec2f, "popped_prop_index");
+        if (scr.is_init)
+            scr.data.* = .{ .x = 0, .y = 0 };
+
+        const sd = blk: {
+            if (do_scroll) {
+                break :blk try self.gui.beginScroll(scr.data, .{
+                    .vertical_scroll = true,
+                    .bar_w = os9scrollw * self.scale,
+                    .scroll_area_h = item_height * num_lines,
+                    .scroll_area_w = in.w,
+                }) orelse unreachable;
+            }
+            break :blk null;
+        };
+
+        {
+            _ = try self.gui.beginLayout(Gui.TableLayout, .{ .columns = 2, .item_height = item_height }, .{});
+            //_ = try self.gui.beginLayout(Gui.VerticalLayout, .{ .item_height = 35 }, .{});
+            if (self.gui.layout.last_requested_bounds) |lrq| {
+                const lx = lrq.w / 2 + lrq.x;
+                self.gui.drawLine(.{ .x = lx, .y = lrq.y }, .{ .x = lx, .y = lrq.y + lrq.h }, itc(0xff));
+                inline for (info.Struct.fields) |f| {
+                    self.label("{s}, {s}", .{ f.name, @typeName(f.type) });
+                    try self.editProperty(f.type, &@field(to_edit, f.name), f.name);
+                }
+            }
+            self.gui.endLayout();
+        }
+        if (do_scroll) {
+            _ = sd;
+            const w = self.gui.getWindow() catch unreachable;
+            if (self.gui.mouse_grab_id == null and !self.gui.scroll_claimed_mouse and w.scroll_bounds.?.containsPoint(self.gui.input_state.mouse_pos)) {
+                self.gui.scroll_claimed_mouse = true;
+                const pixel_per_line = 20 * self.scale;
+                scr.data.y = std.math.clamp(scr.data.y + self.gui.input_state.mouse_wheel_delta * -pixel_per_line * 3, 0, 1000);
+            }
+            self.gui.endScroll();
+            // if (sd.?.vertical_slider_area) |va| {
+            //     _ = self.gui.beginLayout(Gui.SubRectLayout, .{ .rect = va }, .{}) catch unreachable;
+            //     defer self.gui.endLayout();
+            //     //self.scrollBar(&sd.?.offset.y, 0, if (max < 0) 0 else max, .vertical, .{
+            //     //    .handle_w = if (max > sd.?.area.h) os9scrollhandle.h * self.scale else sd.?.area.h - max,
+            //     //});
+            // }
+            //self.endVScroll(sd.?);
+        }
+    }
+
+    fn editProperty(self: *Self, comptime T: type, prop: *T, comptime field_name: []const u8) !void {
+        switch (@typeInfo(T)) {
+            .Struct => {
+                switch (T) {
+                    Vec2f => {
+                        _ = try self.gui.beginLayout(Gui.HorizLayout, .{ .count = 2 }, .{});
+                        defer self.gui.endLayout();
+                        try self.textboxNumber(&prop.x);
+                        try self.textboxNumber(&prop.y);
+                    },
+                    else => {
+                        const scr = try self.gui.storeLayoutData(bool, "struct_pop_" ++ field_name);
+                        if (scr.is_init)
+                            scr.data.* = false;
+                        if (self.button("edit"))
+                            scr.data.* = true;
+                        if (scr.data.*) {
+                            const pa = self.gui.layout.last_requested_bounds.?;
+                            const a = graph.Rect.newV(pa.pos(), .{ .x = pa.w, .y = pa.h * 5 });
+                            if (self.gui.input_state.mouse_left_clicked and !self.gui.isCursorInRect(a) and self.gui.window_index_grabbed_mouse == self.gui.window_index.?)
+                                scr.data.* = false;
+                            try self.gui.beginWindow(a);
+                            defer self.gui.endWindow();
+                            try self.propertyTable(prop);
+                        }
+                    },
+                }
+            },
+            .Pointer => |p| {
+                switch (p.size) {
+                    .Slice => {
+                        if (p.child == u8) {
+                            self.label("{s}", .{prop.*});
+                        } else {
+                            self.gui.skipArea();
+                        }
+                    },
+                    else => self.gui.skipArea(),
+                }
+            },
+            .Optional => |o| {
+                if (prop.* != null) {
+                    try self.editProperty(o.child, &(prop.*.?), field_name);
+                    return;
+                }
+                self.label("null", .{});
+            },
+            .Bool => _ = self.checkbox("", prop),
+            .Enum => try self.enumCombo(prop),
+            .Int, .Float => try self.textboxNumber(prop),
+            else => self.gui.skipArea(),
+        }
     }
 
     pub fn labelEx(self: *Self, comptime fmt: []const u8, args: anytype, params: struct { justify: Gui.Justify = .left }) void {
@@ -2125,11 +2256,16 @@ pub const Os9Gui = struct {
         if (self.buttonEx("Enum {s}: {s}", .{ @typeName(enum_type), @tagName(enum_value.*) }, .{})) {
             self.drop_down = id;
             self.drop_down_scroll = .{ .x = 0, .y = 0 };
+            return;
         }
         if (self.drop_down) |dd| {
             if (dd.eql(id)) {
+                const do_scroll = enum_info.Enum.fields.len > 5;
                 const pa = self.gui.layout.last_requested_bounds.?;
-                const dd_area = graph.Rect.newV(pa.pos(), .{ .x = pa.w, .y = pa.h * 6 });
+                const dd_area = graph.Rect.newV(pa.pos(), .{
+                    .x = pa.w,
+                    .y = if (do_scroll) pa.h * 6 else enum_info.Enum.fields.len * pa.h,
+                });
                 if (self.gui.input_state.mouse_left_clicked and !self.gui.isCursorInRect(dd_area)) {
                     self.drop_down = null;
                     return;
@@ -2215,18 +2351,30 @@ pub const GuiTest = struct {
     const Self = @This();
 
     arr: std.ArrayList(u8),
+    start_date: std.ArrayList(u8),
+    end_date: std.ArrayList(u8),
 
     count: usize = 0,
     temp_f: f32 = 60,
     f_kind: std.fs.File.Kind = .file,
 
     child_pos: ?Vec2f = null,
+    child_pos2: ?Vec2f = null,
 
     is_popped: bool = false,
+
+    flight_status: enum { one_way, return_flight } = .one_way,
+
     pub fn init(alloc: std.mem.Allocator) Self {
-        return .{ .arr = std.ArrayList(u8).init(alloc) };
+        return .{
+            .arr = std.ArrayList(u8).init(alloc),
+            .start_date = std.ArrayList(u8).init(alloc),
+            .end_date = std.ArrayList(u8).init(alloc),
+        };
     }
     pub fn deinit(self: *Self) void {
+        self.start_date.deinit();
+        self.end_date.deinit();
         self.arr.deinit();
     }
 
@@ -2272,6 +2420,23 @@ pub const GuiTest = struct {
             //  F = C * (9/5) + 32.
             //try wrap.textbox(&self.arr);
         }
+        {
+            try wrap.enumCombo(&self.flight_status);
+            try wrap.textbox(&self.start_date);
+            try wrap.textbox(&self.end_date);
+            switch (self.flight_status) {
+                .return_flight => {
+                    wrap.label("Crass", .{});
+                },
+                .one_way => {
+                    wrap.label("one way", .{});
+                },
+            }
+            vl.pushHeight(vl.item_height * 10);
+
+            try wrap.propertyTable(gui);
+            wrap.label("test", .{});
+        }
         if (wrap.button("popup"))
             self.is_popped = true;
         if (self.is_popped) {
@@ -2288,9 +2453,7 @@ pub const GuiTest = struct {
                 self.is_popped = false;
             try wrap.enumCombo(&self.f_kind);
         }
-        wrap.slider(&wrap.scale, 1, 10);
         try wrap.textboxNumber(&wrap.scale);
-        _ = vl;
     }
 };
 
@@ -2655,8 +2818,6 @@ pub fn main() anyerror!void {
     var draw = graph.ImmediateDrawingContext.init(alloc, win.getDpi());
     defer draw.deinit();
 
-    var parent_area = graph.Rec(0, 0, 0, 0);
-
     var percent_usage: f32 = 0;
 
     //var draw_line_debug: bool = false;
@@ -2708,7 +2869,8 @@ pub fn main() anyerror!void {
     defer test_tex.deinit();
 
     //END LUA
-    var win_pos: Vec2f = .{ .x = 0, .y = 0 };
+    win.pumpEvents();
+    var win_rect = graph.Rec(0, 0, win.screen_dimensions.x, win.screen_dimensions.y);
 
     if (cli_opts.wireframe != null)
         graph.c.glPolygonMode(graph.c.GL_FRONT_AND_BACK, graph.c.GL_LINE);
@@ -2732,7 +2894,7 @@ pub fn main() anyerror!void {
             .mouse_left_clicked = win.mouse.left == .rising,
             .mouse_wheel_delta = win.mouse.wheel_delta.y,
             .mouse_wheel_down = win.mouse.middle == .high,
-            .keyboard_state = &win.keyboard_state,
+            .key_state = &win.key_state,
             .keys = win.keys.slice(),
         });
         defer percent_usage = @as(f32, @floatFromInt(stack_alloc.end_index)) / 1000;
@@ -2743,22 +2905,29 @@ pub fn main() anyerror!void {
             const winarea = graph.Rec(0, 0, win.screen_dimensions.x, win.screen_dimensions.y);
             const sp = winarea.split(.vertical, winarea.w / 2);
 
-            const r = sp[1];
             //draw.rect(sp[1], 0xff000fff);
             //const r = graph.Rec(0, 0, @divTrunc(win.screen_dimensions.x, 2), win.screen_dimensions.y);
-            parent_area = r;
-            parent_area.x = win_pos.x;
-            parent_area.y = win_pos.y;
-            if (win.keydown(.LSHIFT) and parent_area.containsPoint(win.mouse.pos)) {
-                win_pos = win_pos.add(win.mouse.delta);
+            if (win.keydown(.LSHIFT) and win_rect.containsPoint(win.mouse.pos)) {
+                win_rect.x += win.mouse.delta.x;
+                win_rect.y += win.mouse.delta.y;
             }
 
             //parent_area = graph.Rec(r.x + r.w / 4, r.y + r.h / 4, r.w / 2, r.h / 2);
             //_ = try gui.beginLayout(Gui.SubRectLayout, .{ .rect = parent_area }, .{});
             //_ = try gui.beginLayout(Gui.SubRectLayout, .{ .rect = parent_area }, .{});
             //defer gui.endLayout();
-            try gui.beginWindow(parent_area);
+            try gui.beginWindow(win.rect());
             defer gui.endWindow();
+            const handle_w_px = 20;
+            const h_handle = graph.Rec(win_rect.x + win_rect.w - handle_w_px, win_rect.y, handle_w_px, win_rect.h);
+            const v_handle = graph.Rec(win_rect.x, win_rect.y + win_rect.h - handle_w_px, win_rect.w, handle_w_px);
+            var unused: f32 = 0;
+            _ = gui.draggable(h_handle, .{ .x = 1, .y = 0 }, &(win_rect.w), &unused, .{ .override_depth_test = true });
+            _ = gui.draggable(v_handle, .{ .x = 0, .y = 1 }, &unused, &(win_rect.h), .{ .override_depth_test = true });
+
+            try gui.beginWindow(win_rect);
+            defer gui.endWindow();
+
             switch (current_app) {
                 .keyboard_display => try kbd.update(&os9gui),
                 .lua_test => {

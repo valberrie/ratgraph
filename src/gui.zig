@@ -133,8 +133,8 @@ pub const InputState = struct {
     mouse_left_clicked: bool = false,
     mouse_wheel_delta: f32 = 0,
     mouse_wheel_down: bool = false,
-    keyboard_state: *const graph.SDL.Window.KeyboardStateT = &DefaultKeyboardState,
     keys: []const graph.SDL.KeyState = &.{},
+    key_state: *const graph.SDL.Window.KeyStateT = &graph.SDL.Window.EmptyKeyState,
 };
 
 fn opaqueSelf(comptime self: type, ptr: *anyopaque) *self {
@@ -330,6 +330,7 @@ pub const RetainedState = struct {
             .{ "move_right", "Right" },
             .{ "backspace", "Backspace" },
             .{ "delete", "Delete" },
+            .{ "tab_next", "Tab" },
         });
 
         const SingleLineMovement = enum {
@@ -457,6 +458,7 @@ pub const RetainedState = struct {
 
             for (input_state.keys) |key| {
                 switch (StaticData.key_binds.get(key.scancode)) {
+                    .tab_next => {},
                     .move_left => tb.move_to(.left),
                     .move_right => tb.move_to(.right),
                     .delete => tb.delete_to(.right),
@@ -809,6 +811,7 @@ pub const Context = struct {
         widget_hash_index: u32 = 0,
 
         widget_data: WidgetDataT = undefined,
+        ds: OpaqueDataStore = undefined,
 
         was_init: bool = true, //Exist to draw debug indicator for fresh nodes
         is_init: bool = false,
@@ -819,10 +822,12 @@ pub const Context = struct {
             self.widget_hashes = std.ArrayList(u64).init(alloc);
             self.widget_data = WidgetDataT.init(alloc);
             self.commands = std.ArrayList(DrawCommand).init(alloc);
+            self.ds = OpaqueDataStore.init(alloc);
         }
 
         pub fn deinit(self: *@This()) void {
             if (self.is_init) {
+                self.ds.deinit();
                 self.widget_data.deinit();
                 self.commands.deinit();
                 dealloc_count += 1;
@@ -925,6 +930,7 @@ pub const Context = struct {
         layout_cache: LayoutCacheT,
 
         area: Rect,
+        scroll_bounds: ?Rect = null,
 
         depth: u32 = 0,
 
@@ -956,13 +962,11 @@ pub const Context = struct {
     icon_font: *graph.Font,
 
     layout: Layout,
+    current_layout_cache_data: ?*LayoutCacheData = null,
 
     stack_alloc: *std.heap.FixedBufferAllocator,
     alloc: std.mem.Allocator,
     //layout_stack: LayoutStackT = .{},
-
-    //TODO remove
-    command_list_popup: std.ArrayList(DrawCommand),
 
     tooltip_state: TooltipState,
 
@@ -979,7 +983,6 @@ pub const Context = struct {
     str_index: usize = 0,
 
     //layout_cache: LayoutCacheT,
-    current_layout_cache_data: ?*LayoutCacheData = null,
 
     input_state: InputState = .{},
 
@@ -1010,7 +1013,7 @@ pub const Context = struct {
 
     /// Represents the screen space area of the current scroll area, when a nested scroll section is created,
     /// it is always clipped to exist inside the parent scroll_bounds
-    scroll_bounds: ?Rect = null,
+    //scroll_bounds: ?Rect = null,
     scroll_claimed_mouse: bool = false,
 
     pub fn scratchPrint(self: *Self, comptime fmt: []const u8, args: anytype) []const u8 {
@@ -1035,7 +1038,12 @@ pub const Context = struct {
     }
 
     pub fn isKeyDown(self: *Self, scancode: graph.SDL.keycodes.Scancode) bool {
-        return self.input_state.keyboard_state.isSet(@intFromEnum(scancode));
+        const s = self.input_state.key_state.*[@intFromEnum(scancode)];
+        return s == .high or s == .rising;
+    }
+
+    pub fn keyState(self: *Self, scancode: graph.SDL.keycodes.Scancode) graph.SDL.ButtonState {
+        return self.input_state.key_state.*[@intFromEnum(scancode)];
     }
 
     pub fn isCursorInRect(self: *Self, r: Rect) bool {
@@ -1051,9 +1059,10 @@ pub const Context = struct {
     }
 
     pub fn getArea(self: *Self) ?Rect {
+        const w = self.getWindow() catch unreachable;
         const new_area = self.layout.getArea();
         self.tooltip_state.pending_area = new_area;
-        if (self.scroll_bounds) |sb| {
+        if (w.scroll_bounds) |sb| {
             if (!sb.overlap(new_area orelse return new_area))
                 return null;
         }
@@ -1110,6 +1119,19 @@ pub const Context = struct {
         return false;
     }
 
+    //prop table
+    //pop_index ?usize
+    pub fn storeLayoutData(self: *Self, comptime T: type, name: []const u8) !struct {
+        data: *T,
+        is_init: bool,
+    } {
+        if (self.current_layout_cache_data) |lcd| {
+            const r = try lcd.ds.store(T, name);
+            return .{ .data = r.data, .is_init = r.is_init };
+        }
+        unreachable;
+    }
+
     //Deprecate
     pub fn getWidgetState(self: *Self, dependent_data: anytype) WidgetState {
         const result: WidgetState = blk: {
@@ -1150,7 +1172,6 @@ pub const Context = struct {
             //.retained_data = RetainedHashMapT.init(alloc),
             .retained_alloc = alloc,
             .tooltip_state = .{ .command_list = std.ArrayList(DrawCommand).init(sa) },
-            .command_list_popup = std.ArrayList(DrawCommand).init(sa),
             .textbox_state = RetainedState.TextInput.init(alloc),
         };
     }
@@ -1179,7 +1200,7 @@ pub const Context = struct {
         self.scratch_buf_pos = 0;
         self.scroll_claimed_mouse = false;
 
-        if (self.scroll_bounds != null) return error.unmatchedBeginScroll;
+        //if (self.scroll_bounds != null) return error.unmatchedBeginScroll;
         if (std.mem.indexOfScalar(u8, self.namespace, ':') != null)
             return error.unmatchedPushNamespace;
         //if (self.layout_stack.len() > 0)
@@ -1240,11 +1261,13 @@ pub const Context = struct {
 
     pub fn clickWidgetEx(self: *Self, rec: Rect, opts: struct {
         teleport_area: ?Rect = null,
+        override_depth_test: bool = false,
     }) struct { click: ClickState, id: WidgetId } {
         const id = self.getId();
 
         const containsCursor = rec.containsPoint(self.input_state.mouse_pos);
         const clicked = self.input_state.mouse_left_clicked;
+        const w = self.getWindow() catch unreachable;
 
         if (self.mouse_grab_id) |grab_id| {
             if (grab_id.eql(id)) {
@@ -1257,9 +1280,9 @@ pub const Context = struct {
                 return .{ .click = .held, .id = id };
             }
         } else {
-            if (self.window_index_grabbed_mouse != self.window_index.?)
+            if (self.window_index_grabbed_mouse != self.window_index.? and !opts.override_depth_test)
                 return .{ .click = .none, .id = id };
-            if (self.scroll_bounds) |sb| {
+            if (w.scroll_bounds) |sb| {
                 if (!sb.containsPoint(self.input_state.mouse_pos))
                     return .{ .click = .none, .id = id };
             }
@@ -1296,6 +1319,7 @@ pub const Context = struct {
         x_max: ?f32 = null,
         y_min: ?f32 = null,
         y_max: ?f32 = null,
+        override_depth_test: bool = false,
     }) ClickState {
         const Helper = struct {
             const Type = std.builtin.Type;
@@ -1320,7 +1344,7 @@ pub const Context = struct {
                 const math = std.math;
                 switch (info) {
                     .Float => {
-                        valptr.* = math.clamp(val, if (min) |m| m else math.floatMin(f32), if (max) |mx| mx else math.floatMin(f32));
+                        valptr.* = math.clamp(val, if (min) |m| m else math.floatMin(f32), if (max) |mx| mx else math.floatMax(f32));
                     },
                     .Int => {
                         const cval = math.clamp(val, if (min) |m| m else math.minInt(@Type(info)), if (max) |mx| mx else math.maxInt(@Type(info)));
@@ -1337,7 +1361,7 @@ pub const Context = struct {
         const yinfo = @typeInfo(yptrinfo.Pointer.child);
 
         var val: Vec2f = .{ .x = Helper.getVal(xinfo, x_val), .y = Helper.getVal(yinfo, y_val) };
-        const click = self.clickWidget(area);
+        const click = self.clickWidgetEx(area, .{ .override_depth_test = opts.override_depth_test }).click;
 
         if (click == .click) {
             self.draggable_state = .{ .x = 0, .y = 0 };
@@ -1357,6 +1381,11 @@ pub const Context = struct {
             self.window_stack_nodes[self.window_stack_node_index] = .{ .data = old_index };
             self.window_stack.prepend(&self.window_stack_nodes[self.window_stack_node_index]);
             old_depth = self.windows.items[old_index].depth;
+            //self.windows.items[old_index]
+            const node = try self.alloc.create(LayoutStackT.Node);
+            node.next = null;
+            node.data = self.layout;
+            try self.layoutStackPush(node);
             self.window_stack_node_index += 1;
             if (self.window_stack_node_index >= self.window_stack_nodes.len)
                 return error.tooManyWindows;
@@ -1374,7 +1403,8 @@ pub const Context = struct {
         if (w.layout_stack.len() > 0)
             return error.unmatchedBeginLayout;
 
-        self.layout.reset(); //Is this needed
+        self.layout.reset();
+        self.current_layout_cache_data = null;
         _ = try self.beginLayout(SubRectLayout, .{ .rect = area }, .{});
     }
 
@@ -1388,12 +1418,13 @@ pub const Context = struct {
         }
         if (self.window_index) |ind| {
             const old_w = &self.windows.items[ind];
-            self.layout = (old_w.layout_stack.first orelse return).data;
+            const layout = self.layoutStackPop() catch unreachable;
+            self.layout = layout.data;
             self.current_layout_cache_data = old_w.layout_cache.getCacheDataPtr();
         }
     }
 
-    fn getWindow(self: *Self) !*Window {
+    pub fn getWindow(self: *Self) !*Window {
         return &self.windows.items[self.window_index orelse return error.noWindow];
     }
 
@@ -1523,12 +1554,6 @@ pub const Context = struct {
 
     pub fn drawSetCamera(self: *Self, cam: DrawCommand) void {
         self.draw(cam);
-    }
-
-    pub fn scissor(self: *Self, r: ?Rect) void {
-        _ = self;
-        _ = r;
-        //self.draw(.{ .scissor = .{ .area = r } });
     }
 
     pub fn drawText(self: *Self, string: []const u8, pos: Vec2f, size: f32, color: Color) void {
@@ -1665,6 +1690,7 @@ pub const Context = struct {
     }) !?ScrollData {
         var area = self.getArea() orelse return null;
 
+        const w = self.getWindow() catch unreachable;
         if (opts.horiz_scroll)
             area.h -= opts.bar_w;
         if (opts.vertical_scroll)
@@ -1672,7 +1698,7 @@ pub const Context = struct {
 
         var clipped_area = area;
         //Scroll exists inside a scroll. Push bounds and offset into parent layout
-        if (self.scroll_bounds) |parent_b| {
+        if (w.scroll_bounds) |parent_b| {
             self.layout.parent_scroll_bounds = parent_b;
 
             if (area.x < parent_b.x) { //Passed the left, clip left
@@ -1690,8 +1716,7 @@ pub const Context = struct {
             }
         }
 
-        self.scroll_bounds = clipped_area;
-        self.scissor(clipped_area);
+        w.scroll_bounds = clipped_area;
         _ = try self.beginLayout(
             SubRectLayout,
             .{ .rect = graph.Rec(area.x - offset.x, area.y - offset.y, opts.scroll_area_w, opts.scroll_area_h) },
@@ -1708,9 +1733,9 @@ pub const Context = struct {
 
     pub fn endScroll(self: *Self) void {
         self.endLayout(); //SubRectLayout
+        const w = self.getWindow() catch unreachable;
 
-        self.scroll_bounds = self.layout.parent_scroll_bounds;
-        self.scissor(self.scroll_bounds);
+        w.scroll_bounds = self.layout.parent_scroll_bounds;
     }
 
     pub fn beginVLayoutScroll(self: *Self, scr: *Vec2f, layout: VerticalLayout, scroll_bar_w: f32) !?VLayoutScrollData {
@@ -1865,6 +1890,7 @@ pub const Context = struct {
         };
 
         if (self.isActiveTextinput(id)) {
+            if (self.keyState(.TAB) == .rising) {}
             const tb = &self.textbox_state;
             self.text_input_state.advanceStateActive();
             try tb.handleEventsOpts(
@@ -2317,6 +2343,8 @@ pub const GuiDrawContext = struct {
                     }
                     n.data.draw_backup = false;
                 }
+                if (scissor) //Clear a remaning scissor
+                    try self.drawCommand(.{ .scissor = .{ .area = null } }, draw, font);
             }
             try draw.flush(w.area);
             //draw.screen_dimensions = .{ .x = @as(f32, @floatFromInt(win_w)), .y = @as(f32, @floatFromInt(win_h)) };

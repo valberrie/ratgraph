@@ -77,6 +77,8 @@ pub const Window = struct {
     const Self = @This();
     pub const KeyboardStateT = std.bit_set.IntegerBitSet(c.SDL_NUM_SCANCODES);
     pub const KeysT = std.BoundedArray(KeyState, 16);
+    pub const KeyStateT = [c.SDL_NUM_SCANCODES]ButtonState;
+    pub const EmptyKeyState: KeyStateT = [_]ButtonState{.low} ** c.SDL_NUM_SCANCODES;
 
     win: *c.SDL_Window,
     ctx: *anyopaque,
@@ -87,7 +89,8 @@ pub const Window = struct {
 
     mouse: MouseState = undefined,
 
-    key_state: [c.SDL_NUM_SCANCODES]ButtonState = [_]ButtonState{.low} ** c.SDL_NUM_SCANCODES,
+    //key_state: [c.SDL_NUM_SCANCODES]ButtonState = [_]ButtonState{.low} ** c.SDL_NUM_SCANCODES,
+    key_state: KeyStateT = [_]ButtonState{.low} ** c.SDL_NUM_SCANCODES,
     keys: KeysT = KeysT.init(0) catch unreachable,
     keyboard_state: KeyboardStateT = KeyboardStateT.initEmpty(),
     last_frame_keyboard_state: KeyboardStateT = KeyboardStateT.initEmpty(),
@@ -387,6 +390,10 @@ pub const Window = struct {
 
     pub fn keydown(self: *const Self, scancode: keycodes.Scancode) bool {
         return self.keyboard_state.isSet(@intFromEnum(scancode));
+    }
+
+    pub fn rect(self: *const Self) ptypes.Rect {
+        return ptypes.Rect.NewAny(0, 0, self.screen_dimensions.x, self.screen_dimensions.y);
     }
 };
 
