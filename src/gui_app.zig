@@ -748,7 +748,7 @@ pub const FileBrowser = struct {
                 try self.scratch_vec.resize(0);
                 self.dialog_state = .add_bookmark;
             }
-            if (wrap.buttonEx("Remove selected bookmark", .{ .disabled = self.selected_bookmark == null })) {
+            if (wrap.buttonEx("Remove selected bookmark", .{}, .{ .disabled = self.selected_bookmark == null })) {
                 if (self.selected_bookmark) |sb| {
                     if (sb < self.bookmarks.items.len) {
                         const b = self.bookmarks.items[sb];
@@ -822,7 +822,7 @@ pub const FileBrowser = struct {
             const sa = root1[1];
             _ = try gui.beginLayout(Gui.SubRectLayout, .{ .rect = sa }, .{});
             defer gui.endLayout();
-            if (try wrap.beginVScroll(&self.file_scroll)) |file_scroll| {
+            if (try wrap.beginVScroll(&self.file_scroll, .{})) |file_scroll| {
                 defer wrap.endVScroll(file_scroll);
                 for (self.entries.items, 0..) |entry, i| {
                     const bgfile_color = itc(0xeeeeeeff);
@@ -846,7 +846,7 @@ pub const FileBrowser = struct {
             if (wrap.button("Cancel")) {
                 self.flag = .should_exit;
             }
-            if (wrap.buttonEx("Ok", .{ .disabled = !(if (self.selected) |si| self.entries.items[si].kind == .file else false) })) {
+            if (wrap.buttonEx("Ok", .{}, .{ .disabled = !(if (self.selected) |si| self.entries.items[si].kind == .file else false) })) {
                 self.file = .{ .file_name = self.entries.items[self.selected.?].name, .dir = self.dir };
                 self.flag = .ok_clicked;
             }
@@ -1551,7 +1551,7 @@ pub const AtlasEditor = struct {
         { //Inspector
             _ = try gui.beginLayout(Gui.SubRectLayout, .{ .rect = inspector_rec }, .{});
             defer gui.endLayout();
-            if (try wrap.beginVScroll(&self.inspector_scroll)) |inspector_scroll| {
+            if (try wrap.beginVScroll(&self.inspector_scroll, .{})) |inspector_scroll| {
                 defer wrap.endVScroll(inspector_scroll);
                 if (self.loaded_atlas) |*atlas| {
                     //if (try gui.beginVLayoutScroll(&self.set_scroll, .{ .item_height = inspector_item_height })) |set_scroll| {
@@ -1798,6 +1798,9 @@ pub const Os9Gui = struct {
     scale: f32,
     gui: *Gui.Context,
 
+    drop_down: ?Gui.Context.WidgetId = null,
+    drop_down_scroll: Vec2f = .{ .x = 0, .y = 0 },
+
     pub fn init(alloc: std.mem.Allocator, scale: f32, gui: *Gui.Context) !Self {
         const dir = std.fs.cwd();
         return .{
@@ -1932,13 +1935,13 @@ pub const Os9Gui = struct {
         self.gui.endLayout();
     }
 
-    pub fn beginVScroll(self: *Self, scr: *Vec2f) !?Gui.Context.VLayoutScrollData {
+    pub fn beginVScroll(self: *Self, scr: *Vec2f, opts: struct { sw: f32 = 10000, sh: f32 = 10000 }) !?Gui.Context.VLayoutScrollData {
         const scale = self.scale;
         if (try self.gui.beginScroll(scr, .{
             .vertical_scroll = true,
             .bar_w = os9scrollw * scale,
-            .scroll_area_w = 10000 * scale,
-            .scroll_area_h = 100000,
+            .scroll_area_w = opts.sw,
+            .scroll_area_h = opts.sh,
         })) |scroll| {
             const lrq = self.gui.layout.last_requested_bounds;
             return .{ .layout = try self.gui.beginLayout(Gui.VerticalLayout, .{ .item_height = 20 * scale }, .{}), .data = scroll, .area = lrq orelse graph.Rec(0, 0, 0, 0) };
@@ -2037,10 +2040,10 @@ pub const Os9Gui = struct {
     }
 
     pub fn button(self: *Self, label_: []const u8) bool {
-        return self.buttonEx(label_, .{});
+        return self.buttonEx("{s}", .{label_}, .{});
     }
 
-    pub fn buttonEx(self: *Self, label_: []const u8, params: struct { disabled: bool = false }) bool {
+    pub fn buttonEx(self: *Self, comptime fmt: []const u8, args: anytype, params: struct { disabled: bool = false }) bool {
         const gui = self.gui;
         const d = gui.buttonGeneric();
         const sl = switch (d.state) {
@@ -2052,7 +2055,7 @@ pub const Os9Gui = struct {
         const color = if (params.disabled) text_disabled else Color.Black;
         gui.draw9Slice(d.area, sl1, self.texture, self.scale);
         const texta = d.area.inset(3 * self.scale);
-        gui.drawTextFmt("{s}", .{label_}, texta, texta.h, color, .{ .justify = .center });
+        gui.drawTextFmt(fmt, args, texta, texta.h, color, .{ .justify = .center });
 
         return (d.state == .click) and !params.disabled;
     }
@@ -2107,6 +2110,43 @@ pub const Os9Gui = struct {
             return d.changed;
         }
         return false;
+    }
+
+    pub fn enumCombo(self: *Self, enum_value: anytype) !void {
+        const err_prefix = @typeName(@This()) ++ ".enumCombo: ";
+        const invalid = err_prefix ++ "Argument \'enum_value\' expects a mutable pointer to an enum. Recieved: " ++ @typeName(@TypeOf(enum_value));
+        const e_info = @typeInfo(@TypeOf(enum_value));
+        if (e_info != .Pointer or e_info.Pointer.is_const) @compileError(invalid);
+        const enum_type = e_info.Pointer.child;
+        const enum_info = @typeInfo(enum_type);
+        if (enum_info != .Enum) @compileError(invalid);
+        const id = self.gui.getId();
+
+        if (self.buttonEx("Enum {s}: {s}", .{ @typeName(enum_type), @tagName(enum_value.*) }, .{})) {
+            self.drop_down = id;
+            self.drop_down_scroll = .{ .x = 0, .y = 0 };
+        }
+        if (self.drop_down) |dd| {
+            if (dd.eql(id)) {
+                const pa = self.gui.layout.last_requested_bounds.?;
+                const dd_area = graph.Rect.newV(pa.pos(), .{ .x = pa.w, .y = pa.h * 6 });
+                if (self.gui.input_state.mouse_left_clicked and !self.gui.isCursorInRect(dd_area)) {
+                    self.drop_down = null;
+                    return;
+                }
+                try self.gui.beginWindow(dd_area);
+                defer self.gui.endWindow();
+                if (try self.beginVScroll(&self.drop_down_scroll, .{ .sw = dd_area.w })) |file_scroll| {
+                    defer self.endVScroll(file_scroll);
+                    inline for (enum_info.Enum.fields) |f| {
+                        if (self.buttonEx("{s}", .{f.name}, .{})) {
+                            enum_value.* = @enumFromInt(f.value);
+                            self.drop_down = null;
+                        }
+                    }
+                }
+            }
+        }
     }
 
     pub fn enumDropdown(self: *Self, comptime enumT: type, enum_val: *enumT) !void {
@@ -2175,8 +2215,10 @@ pub const GuiTest = struct {
     const Self = @This();
 
     arr: std.ArrayList(u8),
+
     count: usize = 0,
     temp_f: f32 = 60,
+    f_kind: std.fs.File.Kind = .file,
 
     child_pos: ?Vec2f = null,
 
@@ -2225,14 +2267,6 @@ pub const GuiTest = struct {
             if (gui.isKeyDown(.SPACE) and gui.isCursorInRect(c_area)) {
                 self.child_pos.? = self.child_pos.?.add(gui.input_state.mouse_delta);
             }
-            try gui.beginWindow(c_area);
-            {
-                gui.drawRectFilled(c_area, itc(0x222222ff));
-                _ = try gui.beginLayout(Gui.VerticalLayout, .{ .item_height = 20 * scale }, .{});
-                defer gui.endLayout();
-                wrap.labelEx("crass", .{}, .{});
-            }
-            gui.endWindow();
 
             // C = (F - 32) * (5/9)
             //  F = C * (9/5) + 32.
@@ -2243,15 +2277,16 @@ pub const GuiTest = struct {
         if (self.is_popped) {
             const pa = gui.layout.last_requested_bounds.?;
             const a = graph.Rect.newV(pa.pos(), .{ .x = pa.w, .y = pa.h * 5 });
-            if (gui.input_state.mouse_left_clicked and !gui.isCursorInRect(a))
+            if (gui.input_state.mouse_left_clicked and !gui.isCursorInRect(a) and gui.window_index_grabbed_mouse == gui.window_index.?)
                 self.is_popped = false;
             try gui.beginWindow(a);
             defer gui.endWindow();
-            gui.drawRectFilled(a, itc(0x0000ffff));
-            _ = try gui.beginLayout(Gui.VerticalLayout, .{ .item_height = 20 * scale }, .{});
-            defer gui.endLayout();
+            gui.draw9Slice(a, Os9Gui.os9win, wrap.texture, scale);
+            _ = try wrap.beginSubLayout(a.inset(6 * scale), Gui.VerticalLayout, .{ .item_height = 20 * scale, .padding = .{ .bottom = 6 * scale } });
+            defer wrap.endSubLayout();
             if (wrap.button("close"))
                 self.is_popped = false;
+            try wrap.enumCombo(&self.f_kind);
         }
         wrap.slider(&wrap.scale, 1, 10);
         try wrap.textboxNumber(&wrap.scale);

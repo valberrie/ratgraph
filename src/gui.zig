@@ -946,6 +946,7 @@ pub const Context = struct {
     window_stack_node_index: usize = 0,
     window_stack_nodes: [32]WindowStackT.Node = undefined,
     window_stack: WindowStackT = .{},
+    window_index_grabbed_mouse: ?usize = null,
 
     dirty_draw_depth: ?u32 = null,
     no_caching: bool = true,
@@ -1156,6 +1157,20 @@ pub const Context = struct {
 
     pub fn reset(self: *Self, input_state: InputState) !void {
         if (self.window_index != null) return error.unmatchedBeginWindow;
+
+        //Iterate last frames windows and determine the deepest window current mouse_pos occupies
+        var deepest_index: ?usize = null;
+        var max_depth: usize = 0;
+        for (self.windows.items[0..self.this_frame_num_windows], 0..) |w, i| {
+            if (w.area.containsPoint(input_state.mouse_pos)) {
+                if (w.depth > max_depth) {
+                    max_depth = w.depth;
+                    deepest_index = i;
+                }
+            }
+        }
+        self.window_index_grabbed_mouse = deepest_index;
+
         self.this_frame_num_windows = 0;
         self.window_stack_node_index = 0;
 
@@ -1242,6 +1257,8 @@ pub const Context = struct {
                 return .{ .click = .held, .id = id };
             }
         } else {
+            if (self.window_index_grabbed_mouse != self.window_index.?)
+                return .{ .click = .none, .id = id };
             if (self.scroll_bounds) |sb| {
                 if (!sb.containsPoint(self.input_state.mouse_pos))
                     return .{ .click = .none, .id = id };
@@ -2315,7 +2332,9 @@ pub const GuiDrawContext = struct {
         draw.screen_dimensions = .{ .x = @as(f32, @floatFromInt(win_w)), .y = @as(f32, @floatFromInt(win_h)) };
         graph.c.glBindFramebuffer(graph.c.GL_FRAMEBUFFER, 0);
         graph.c.glViewport(0, 0, win_w, win_h);
+        const old_zindex = draw.zindex;
         for (self.window_fbs.items[0..gui.this_frame_num_windows], 0..) |fb, i| {
+            draw.zindex = old_zindex + @as(u16, @intCast(gui.windows.items[i].depth));
             const tr = fb.texture.rect();
             draw.rectTex(
                 gui.windows.items[i].area,
