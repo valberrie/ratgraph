@@ -136,15 +136,11 @@ pub const Font = struct {
 
         var log = OptionalFileWriter{};
         if (options.debug_dir) |ddir| {
-            ddir.makeDir("debug") catch |err| switch (err) {
+            ddir.makeDir("bitmaps") catch |err| switch (err) {
                 error.PathAlreadyExists => {},
                 else => return err,
             };
-            ddir.makeDir("debug/bitmaps") catch |err| switch (err) {
-                error.PathAlreadyExists => {},
-                else => return err,
-            };
-            const font_log = try ddir.createFile("debug/fontgen.log", .{ .truncate = true });
+            const font_log = try ddir.createFile("fontgen.log", .{ .truncate = true });
             log.writer = font_log.writer();
             //defer font_log.close();
             try log.print("zig: Init font with arguments:\nfilename: \"{s}\"\npoint_size: {d}\ndpi: {d}\n", .{
@@ -375,7 +371,12 @@ pub const Font = struct {
             Bitmap.copySubR(1, &texture_bitmap, cx, cy, gbmp, 0, 0, gbmp.w, gbmp.h);
         }
         if (options.debug_dir) |ddir| {
-            try texture_bitmap.writeToPngFile(ddir, "debug/freetype.png");
+            var out = std.ArrayList(u8).init(alloc);
+            defer out.deinit();
+            try out.writer().print("freetype_{s}.png", .{filename});
+            std.mem.replaceScalar(u8, out.items, '/', '.');
+            std.debug.print("{s}\n", .{out.items});
+            try texture_bitmap.writeToPngFile(ddir, out.items);
         }
 
         result.texture = Texture.initFromBitmap(texture_bitmap, .{

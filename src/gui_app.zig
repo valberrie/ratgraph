@@ -2064,15 +2064,16 @@ pub const Os9Gui = struct {
 
         const sd = blk: {
             if (do_scroll) {
-                break :blk try self.gui.beginScroll(scr.data, .{
+                break :blk .{ .scroll = try self.gui.beginScroll(scr.data, .{
                     .vertical_scroll = true,
                     .bar_w = os9scrollw * self.scale,
                     .scroll_area_h = item_height * num_lines,
                     .scroll_area_w = in.w,
-                }) orelse unreachable;
+                }) orelse unreachable, .area = self.gui.layout.last_requested_bounds orelse graph.Rec(0, 0, 0, 0) };
             }
             break :blk null;
         };
+        const max = item_height * num_lines;
 
         {
             _ = try self.gui.beginLayout(Gui.TableLayout, .{ .columns = 2, .item_height = item_height }, .{});
@@ -2088,7 +2089,6 @@ pub const Os9Gui = struct {
             self.gui.endLayout();
         }
         if (do_scroll) {
-            _ = sd;
             const w = self.gui.getWindow() catch unreachable;
             if (self.gui.mouse_grab_id == null and !self.gui.scroll_claimed_mouse and w.scroll_bounds.?.containsPoint(self.gui.input_state.mouse_pos)) {
                 self.gui.scroll_claimed_mouse = true;
@@ -2096,14 +2096,13 @@ pub const Os9Gui = struct {
                 scr.data.y = std.math.clamp(scr.data.y + self.gui.input_state.mouse_wheel_delta * -pixel_per_line * 3, 0, 1000);
             }
             self.gui.endScroll();
-            // if (sd.?.vertical_slider_area) |va| {
-            //     _ = self.gui.beginLayout(Gui.SubRectLayout, .{ .rect = va }, .{}) catch unreachable;
-            //     defer self.gui.endLayout();
-            //     //self.scrollBar(&sd.?.offset.y, 0, if (max < 0) 0 else max, .vertical, .{
-            //     //    .handle_w = if (max > sd.?.area.h) os9scrollhandle.h * self.scale else sd.?.area.h - max,
-            //     //});
-            // }
-            //self.endVScroll(sd.?);
+            if (sd.?.scroll.vertical_slider_area) |va| {
+                _ = self.gui.beginLayout(Gui.SubRectLayout, .{ .rect = va }, .{}) catch unreachable;
+                defer self.gui.endLayout();
+                self.scrollBar(&scr.data.y, 0, if (max < 0) 0 else max, .vertical, .{
+                    .handle_w = if (max > sd.?.area.h) os9scrollhandle.h * self.scale else sd.?.area.h - max,
+                });
+            }
         }
     }
 
@@ -2140,12 +2139,16 @@ pub const Os9Gui = struct {
                     .Slice => {
                         if (p.child == u8) {
                             self.label("{s}", .{prop.*});
-                        } else {
-                            self.gui.skipArea();
+                            return;
                         }
                     },
-                    else => self.gui.skipArea(),
+                    .One => {
+                        //if (!p.is_const)
+                        //try self.editProperty(p.child, prop.*, field_name);
+                    },
+                    else => {},
                 }
+                self.gui.skipArea();
             },
             .Optional => |o| {
                 if (prop.* != null) {
@@ -2434,7 +2437,7 @@ pub const GuiTest = struct {
             }
             vl.pushHeight(vl.item_height * 10);
 
-            try wrap.propertyTable(gui);
+            try wrap.propertyTable(wrap);
             wrap.label("test", .{});
         }
         if (wrap.button("popup"))
@@ -2751,7 +2754,7 @@ pub fn main() anyerror!void {
     defer _ = gpa.detectLeaks();
     const alloc = gpa.allocator();
 
-    var current_app: enum { keyboard_display, filebrowser, atlas_edit, gtest, lua_test } = .gtest;
+    var current_app: enum { keyboard_display, filebrowser, atlas_edit, gtest, lua_test, crass } = .crass;
     var arg_it = try std.process.ArgIterator.initWithAllocator(alloc);
     defer arg_it.deinit();
     const Arg = ArgUtil.Arg;
@@ -2774,13 +2777,15 @@ pub fn main() anyerror!void {
         .window_size = .{ .x = 1920, .y = 1080 },
     });
     defer win.destroyWindow();
+    var debug_dir = try std.fs.cwd().openDir("debug", .{});
+    defer debug_dir.close();
 
     graph.c.glLineWidth(1);
 
     //const init_size = graph.pxToPt(win.getDpi(), 100);
     const init_size = 8;
     var font = try graph.Font.init(alloc, std.fs.cwd(), "fonts/roboto.ttf", init_size, win.getDpi(), .{
-        .debug_dir = std.fs.cwd(),
+        .debug_dir = debug_dir,
     });
     defer font.deinit();
     const icon_list = comptime blk: {
@@ -2800,6 +2805,7 @@ pub fn main() anyerror!void {
         win.getDpi(),
         .{
             .codepoints_to_load = &[_]graph.Font.CharMapEntry{.{ .list = &icon_list }},
+            .debug_dir = debug_dir,
         },
     );
     defer icons.deinit();
@@ -2961,6 +2967,17 @@ pub fn main() anyerror!void {
                             }
                         },
                         else => {},
+                    }
+                },
+                .crass => {
+                    if (gui.getArea()) |win_area| {
+                        const border_area = win_area.inset(6 * os9_ctx.scale);
+                        const area = border_area.inset(6 * os9_ctx.scale);
+                        gui.draw9Slice(win_area, Os9Gui.os9win, os9_ctx.texture, os9_ctx.scale);
+                        gui.draw9Slice(border_area, Os9Gui.os9in, os9_ctx.texture, os9_ctx.scale);
+                        _ = try gui.beginLayout(Gui.SubRectLayout, .{ .rect = area }, .{});
+                        defer gui.endLayout();
+                        try os9gui.propertyTable(&gui);
                     }
                 },
             }
