@@ -1932,6 +1932,21 @@ pub const Os9Gui = struct {
         }
     }
 
+    pub fn beginTlWindow(self: *Self, parea: Rect) !bool {
+        try self.gui.beginWindow(parea);
+        if (self.gui.getArea()) |win_area| {
+            const border_area = win_area.inset(6 * os9_ctx.scale);
+            const area = border_area.inset(6 * os9_ctx.scale);
+            self.gui.draw9Slice(win_area, Os9Gui.os9win, os9_ctx.texture, os9_ctx.scale);
+            self.gui.draw9Slice(border_area, Os9Gui.os9in, os9_ctx.texture, os9_ctx.scale);
+            _ = try self.gui.beginLayout(Gui.SubRectLayout, .{ .rect = area }, .{});
+        }
+    }
+    pub fn endTlWindow(self: *Self) void {
+        self.gui.endLayout();
+        self.gui.endWindow();
+    }
+
     pub fn beginSubLayout(self: *Self, sub: Rect, comptime Layout_T: type, layout_data: Layout_T) !*Layout_T {
         _ = try self.gui.beginLayout(Gui.SubRectLayout, .{ .rect = sub }, .{});
         return try self.gui.beginLayout(Layout_T, layout_data, .{});
@@ -2083,7 +2098,7 @@ pub const Os9Gui = struct {
                 self.gui.drawLine(.{ .x = lx, .y = lrq.y }, .{ .x = lx, .y = lrq.y + lrq.h }, itc(0xff));
                 inline for (info.Struct.fields) |f| {
                     self.label("{s}, {s}", .{ f.name, @typeName(f.type) });
-                    try self.editProperty(f.type, &@field(to_edit, f.name), f.name);
+                    try self.editProperty(f.type, &@field(to_edit, f.name), f.name, 0);
                 }
             }
             self.gui.endLayout();
@@ -2106,7 +2121,7 @@ pub const Os9Gui = struct {
         }
     }
 
-    fn editProperty(self: *Self, comptime T: type, prop: *T, comptime field_name: []const u8) !void {
+    pub fn editProperty(self: *Self, comptime T: type, prop: *T, comptime field_name: []const u8, index: usize) !void {
         switch (@typeInfo(T)) {
             .Struct => {
                 switch (T) {
@@ -2117,13 +2132,13 @@ pub const Os9Gui = struct {
                         try self.textboxNumber(&prop.y);
                     },
                     else => {
-                        const scr = try self.gui.storeLayoutData(bool, "struct_pop_" ++ field_name);
+                        const scr = try self.gui.storeLayoutData(bool, self.gui.scratchPrint("s{s}{d}", .{ field_name, index }));
                         if (scr.is_init)
                             scr.data.* = false;
                         if (self.button("edit"))
                             scr.data.* = true;
                         if (scr.data.*) {
-                            const pa = self.gui.layout.last_requested_bounds.?;
+                            const pa = self.gui.layout.last_requested_bounds orelse return;
                             const a = graph.Rect.newV(pa.pos(), .{ .x = pa.w, .y = pa.h * 5 });
                             if (self.gui.input_state.mouse_left_clicked and !self.gui.isCursorInRect(a) and self.gui.window_index_grabbed_mouse == self.gui.window_index.?)
                                 scr.data.* = false;
@@ -2135,10 +2150,41 @@ pub const Os9Gui = struct {
                 }
             },
             .Pointer => |p| {
+                if (p.is_const) {
+                    self.label("const_ptr", .{});
+                    return;
+                }
                 switch (p.size) {
                     .Slice => {
                         if (p.child == u8) {
                             self.label("{s}", .{prop.*});
+                            return;
+                        } else {
+                            const scr = try self.gui.storeLayoutData(
+                                struct { pop: bool, scr: Vec2f },
+                                self.gui.scratchPrint("sp{s}{d}", .{ field_name, index }),
+                            );
+                            if (scr.is_init) {
+                                scr.data.pop = false;
+                                scr.data.scr = .{ .x = 0, .y = 0 };
+                            }
+                            if (self.button("view"))
+                                scr.data.pop = true;
+                            if (scr.data.pop) {
+                                const pa = self.gui.layout.last_requested_bounds.?;
+                                const a = graph.Rect.newV(pa.pos(), .{ .x = pa.w, .y = pa.h * 5 });
+                                if (self.gui.input_state.mouse_left_clicked and !self.gui.isCursorInRect(a) and self.gui.window_index_grabbed_mouse == self.gui.window_index.?)
+                                    scr.data.pop = false;
+                                try self.gui.beginWindow(a);
+                                defer self.gui.endWindow();
+
+                                if (try self.beginVScroll(&scr.data.scr, .{ .sw = a.w })) |file_scroll| {
+                                    defer self.endVScroll(file_scroll);
+                                    for (prop.*, 0..) |*item, i| {
+                                        try self.editProperty(p.child, item, field_name, i + index);
+                                    }
+                                }
+                            }
                             return;
                         }
                     },
@@ -2152,7 +2198,7 @@ pub const Os9Gui = struct {
             },
             .Optional => |o| {
                 if (prop.* != null) {
-                    try self.editProperty(o.child, &(prop.*.?), field_name);
+                    try self.editProperty(o.child, &(prop.*.?), field_name, 0);
                     return;
                 }
                 self.label("null", .{});
@@ -2977,7 +3023,10 @@ pub fn main() anyerror!void {
                         gui.draw9Slice(border_area, Os9Gui.os9in, os9_ctx.texture, os9_ctx.scale);
                         _ = try gui.beginLayout(Gui.SubRectLayout, .{ .rect = area }, .{});
                         defer gui.endLayout();
-                        try os9gui.propertyTable(&gui);
+                        _ = try gui.beginLayout(Gui.VerticalLayout, .{ .item_height = 24 }, .{});
+                        defer gui.endLayout();
+                        try os9gui.editProperty(Gui.Context, &gui, "gui", 0);
+                        //try os9gui.propertyTable(&gui);
                     }
                 },
             }

@@ -978,7 +978,7 @@ pub const Context = struct {
 
     //TODO why do we have too kinds of string buffer?
     scratch_buf_pos: usize = 0,
-    scratch_buf: [2048]u8 = undefined,
+    scratch_buf: [4096]u8 = undefined,
     strings: [2048]u8 = undefined,
     str_index: usize = 0,
 
