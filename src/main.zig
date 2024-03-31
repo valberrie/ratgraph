@@ -12,7 +12,7 @@ threadlocal var lua_draw: *LuaDraw = undefined;
 const LuaDraw = struct {
     const Lua = graph.Lua;
 
-    draw: *graph.NewCtx,
+    draw: *graph.ImmediateDrawingContext,
     win: *graph.SDL.Window,
     font: *graph.Font,
     vm: *Lua,
@@ -20,12 +20,12 @@ const LuaDraw = struct {
 
     data: Data,
     pub const Data = struct {
-        name_scancode_map: std.StringHashMap(graph.keycodes.Scancode),
+        name_scancode_map: std.StringHashMap(graph.SDL.keycodes.Scancode),
         tex_map: std.ArrayList(graph.Texture),
         alloc: std.mem.Allocator,
         pub fn init(alloc: std.mem.Allocator) !@This() {
-            var m = std.StringHashMap(graph.keycodes.Scancode).init(alloc);
-            inline for (@typeInfo(graph.keycodes.Scancode).Enum.fields) |f| {
+            var m = std.StringHashMap(graph.SDL.keycodes.Scancode).init(alloc);
+            inline for (@typeInfo(graph.SDL.keycodes.Scancode).Enum.fields) |f| {
                 try m.put(f.name, @enumFromInt(f.value));
             }
 
@@ -68,7 +68,7 @@ const LuaDraw = struct {
                         const g = self.vm.getArg(L, u8, 2);
                         const b = self.vm.getArg(L, u8, 3);
                         const a = self.vm.getArg(L, u8, 4);
-                        break :blk graph.charColorToInt(graph.CharColorNew(r, g, b, a));
+                        break :blk graph.ptypes.charColorToInt(graph.CharColor.new(r, g, b, a));
                     },
                     1 => {
                         if (Lua.c.lua_isinteger(L, 1) == 1) {
@@ -152,7 +152,6 @@ const LuaDraw = struct {
             self.draw.rectTex(
                 r,
                 tex.rect(),
-                0xffffffff,
                 tex,
             );
             return 0;
@@ -180,7 +179,6 @@ const LuaDraw = struct {
 
 pub fn main() !void {
     if (true) {
-        //try graph.basicGraphUsage();
         try gui_app.main();
         return;
     }
@@ -193,11 +191,16 @@ pub fn main() !void {
     defer win.destroyWindow();
 
     const init_size = 72;
-    var font = try graph.Font.init(alloc, std.fs.cwd(), "fonts/sfmono.otf", init_size, win.getDpi(), .{});
+    var font = try graph.Font.init(alloc, std.fs.cwd(), "fonts/roboto.ttf", init_size, win.getDpi(), .{});
     defer font.deinit();
 
     var draw = graph.ImmediateDrawingContext.init(alloc, win.getDpi());
     defer draw.deinit();
+
+    var cam = graph.Camera2D{
+        .cam_area = graph.Rec(0, 0, 20, 20),
+        .screen_area = graph.Rec(0, 0, 800, 600),
+    };
 
     var lvm = graph.Lua.init();
     lvm.registerAllStruct(LuaDraw.Api);
@@ -215,8 +218,15 @@ pub fn main() !void {
     while (!win.should_exit) {
         try draw.begin(ldraw.clear_color, win.screen_dimensions.toF());
         win.pumpEvents();
+        draw.rect(cam.screen_area, 0x222222ff);
+        try draw.flush(null);
+        draw.rect(graph.Rec(10, 10, 20, 20), 0xffffffff);
 
-        try lvm.callLuaFunction("loop");
+        draw.setViewport(cam.screen_area);
+        try draw.flush(cam.cam_area);
+        draw.setViewport(null);
+
+        //try lvm.callLuaFunction("loop");
 
         try draw.end();
         win.swap();

@@ -1461,7 +1461,7 @@ pub const AtlasEditor = struct {
             {
                 //gui.scissor(canvas);
                 gui.drawRectFilled(canvas, itc(0xffffffff));
-                gui.drawSetCamera(.{ .set_camera = .{ .win_area = canvas } });
+                gui.drawSetCamera(.{ .set_camera = .{ .screen_area = canvas, .cam_area = cam.cam_area } });
                 cam.screen_area = canvas;
                 {
                     gui.drawRectTextured(tex.rect(), itc(0xffffffff), tex.rect(), tex);
@@ -1493,7 +1493,7 @@ pub const AtlasEditor = struct {
                     //gui.drawSetCamera(.{ .set_camera = .{ .cam_area = st.cam_area.toAbsoluteRect(), .offset = st.offset } });
                 }
 
-                gui.drawSetCamera(.{ .set_camera = .{ .cam_area = cam.cam_area } });
+                gui.drawSetCamera(.{ .set_camera = .{ .cam_area = cam.cam_area, .screen_area = cam.screen_area } });
 
                 const first_tile = cam.toWorld(sts.getTexRec(0));
                 const scd = cam.toWorld(sts.getTexRec(@intCast(sts.num.x + 1)));
@@ -2435,6 +2435,7 @@ pub const GuiTest = struct {
 
     child_pos: ?Vec2f = null,
     child_pos2: ?Vec2f = null,
+    crass: Vec2f = .{ .x = 0, .y = 600 },
 
     is_popped: bool = false,
 
@@ -2508,8 +2509,25 @@ pub const GuiTest = struct {
                 },
             }
             vl.pushHeight(vl.item_height * 10);
+            {
+                const a = wrap.gui.getArea() orelse unreachable;
+                wrap.gui.draw(.{ .set_camera = .{ .cam_area = graph.Rec(0, 0, 1000, 1000), .screen_area = a } });
+                defer wrap.gui.draw(.{ .set_camera = null });
+                //_ = try wrap.gui.beginLayout(Gui.SubRectLayout, .{ .rect = a }, .{});
+                //defer wrap.gui.endLayout();
+                wrap.gui.drawRectFilled(graph.Rect.newV(self.crass, .{ .x = 200, .y = 200 }), itc(0xff));
+                const am = 20;
+                if (wrap.gui.keyState(.D) == .high)
+                    self.crass.x += am;
+                if (wrap.gui.keyState(.A) == .high)
+                    self.crass.x -= am;
+                if (wrap.gui.keyState(.W) == .high)
+                    self.crass.y -= am;
+                if (wrap.gui.keyState(.S) == .high)
+                    self.crass.y += am;
+            }
 
-            try wrap.propertyTable(wrap);
+            //try wrap.propertyTable(wrap);
             wrap.label("test", .{});
         }
         if (wrap.button("popup"))
@@ -2826,7 +2844,7 @@ pub fn main() anyerror!void {
     defer _ = gpa.detectLeaks();
     const alloc = gpa.allocator();
 
-    var current_app: enum { keyboard_display, filebrowser, atlas_edit, gtest, lua_test, crass } = .filebrowser;
+    var current_app: enum { keyboard_display, filebrowser, atlas_edit, gtest, lua_test, crass } = .gtest;
     var arg_it = try std.process.ArgIterator.initWithAllocator(alloc);
     defer arg_it.deinit();
     const Arg = ArgUtil.Arg;
@@ -2963,12 +2981,16 @@ pub fn main() anyerror!void {
                 win_rect.x += win.mouse.delta.x;
                 win_rect.y += win.mouse.delta.y;
             }
+            if (win.keydown(.SPACE) and win_rect.containsPoint(win.mouse.pos)) {
+                win_rect.w += win.mouse.delta.x;
+                win_rect.h += win.mouse.delta.y;
+            }
 
             //parent_area = graph.Rec(r.x + r.w / 4, r.y + r.h / 4, r.w / 2, r.h / 2);
             //_ = try gui.beginLayout(Gui.SubRectLayout, .{ .rect = parent_area }, .{});
             //_ = try gui.beginLayout(Gui.SubRectLayout, .{ .rect = parent_area }, .{});
             //defer gui.endLayout();
-            try gui.beginWindow(win.rect());
+            try gui.beginWindow(win_rect);
             defer gui.endWindow();
             const handle_w_px = 20;
             const h_handle = graph.Rec(win_rect.x + win_rect.w - handle_w_px, win_rect.y, handle_w_px, win_rect.h);
@@ -2976,9 +2998,6 @@ pub fn main() anyerror!void {
             var unused: f32 = 0;
             _ = gui.draggable(h_handle, .{ .x = 1, .y = 0 }, &(win_rect.w), &unused, .{ .override_depth_test = true });
             _ = gui.draggable(v_handle, .{ .x = 0, .y = 1 }, &unused, &(win_rect.h), .{ .override_depth_test = true });
-
-            try gui.beginWindow(win_rect);
-            defer gui.endWindow();
 
             switch (current_app) {
                 .keyboard_display => try kbd.update(&os9gui),

@@ -111,10 +111,9 @@ pub const DrawCommand = union(enum) {
         area: ?Rect = null,
     },
 
-    set_camera: struct {
-        cam_area: ?Rect = null,
-        offset: Vec2f = .{ .x = 0, .y = 0 },
-        win_area: ?Rect = null,
+    set_camera: ?struct {
+        cam_area: Rect,
+        screen_area: Rect,
     },
 };
 
@@ -681,16 +680,7 @@ pub const Console = struct {
         try self.lines.append(try line.toOwnedSlice());
     }
 };
-//Textinput
-//TODO Seperate context into two structs.
-// A core struct for the low level gui stuff and a basic widgets struct other things can compose
-// core  would include:
-// Layout functions
-// draw functions
-// click widget etc
-// text input state
-// popup state
-//
+
 pub const Context = struct {
     const log = std.log.scoped(.GuiContext);
     pub var dealloc_count: u32 = 0;
@@ -1355,6 +1345,7 @@ pub const Context = struct {
             return error.unmatchedBeginLayout;
 
         self.layout.reset();
+        self.layout.bounds = area;
         self.current_layout_cache_data = null;
         _ = try self.beginLayout(SubRectLayout, .{ .rect = area }, .{});
     }
@@ -2200,7 +2191,7 @@ pub const GuiDrawContext = struct {
 
     window_fbs: std.ArrayList(graph.RenderTexture),
 
-    camera_offset: Vec2f = .{ .x = 0, .y = 0 },
+    old_cam_bounds: ?Rect = null,
     camera_bounds: ?Rect = null,
     win_bounds: Rect = graph.Rec(0, 0, 0, 0),
 
@@ -2393,14 +2384,37 @@ pub const GuiDrawContext = struct {
                 draw.line(r.botL(), r.topL(), cc(rl.color));
             },
             .set_camera => |sc| {
-                try draw.flush(sc.cam_area);
+                try draw.flush(self.camera_bounds); //Flush old camera
+                if (sc) |ca| {
+                    if (self.old_cam_bounds == null)
+                        self.old_cam_bounds = self.camera_bounds;
+                    draw.setViewport(ca.screen_area.subVec(self.old_cam_bounds.?.pos()));
+                    const ar = ca.screen_area;
+                    graph.c.glViewport(
+                        @as(i32, @intFromFloat(ar.x - self.camera_bounds.?.x)),
+                        //@as(i32, @intFromFloat(draw.screen_dimensions.y - (ar.y + ar.h))),
+                        @as(i32, @intFromFloat(self.camera_bounds.?.h - (ar.y + ar.h) + self.camera_bounds.?.y)),
+                        //@floatToInt(i32, ar.y + ar.h) - ctx.screen_bounds.h,
+                        @as(i32, @intFromFloat(ar.w)),
+                        @as(i32, @intFromFloat(ar.h)),
+                    );
+                    self.camera_bounds = ca.cam_area;
+                } else {
+                    self.camera_bounds = self.old_cam_bounds;
+                    graph.c.glViewport(
+                        0,
+                        0,
+                        @intFromFloat(self.camera_bounds.?.w),
+                        @intFromFloat(self.camera_bounds.?.h),
+                    );
+                    self.old_cam_bounds = null;
+                }
+                //try draw.flush(sc.cam_area);
                 //try ctx.flush(sc.offset, sc.cam_area);
-                draw.setViewport(sc.win_area);
             },
             .scissor => |s| {
                 const c = graph.c;
                 try draw.flush(self.camera_bounds);
-                //try ctx.flush(self.camera_offset, self.camera_bounds);
                 if (s.area) |ar| {
                     c.glEnable(c.GL_SCISSOR_TEST);
                     c.glScissor(
