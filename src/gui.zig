@@ -692,6 +692,7 @@ pub const Console = struct {
 // popup state
 //
 pub const Context = struct {
+    const log = std.log.scoped(.GuiContext);
     pub var dealloc_count: u32 = 0;
     pub var alloc_count: u32 = 0;
     const Self = @This();
@@ -967,18 +968,10 @@ pub const Context = struct {
 
     tooltip_state: TooltipState,
 
-    //TODO remove namespaces?
-    namespace: []const u8 = "global",
     //TODO change naming system, state from last frame should be prefixed with last_frame or exist inside a last_frame_state struct
-    old_namespace: []const u8 = "",
 
-    //TODO why do we have too kinds of string buffer?
     scratch_buf_pos: usize = 0,
     scratch_buf: [4096]u8 = undefined,
-    strings: [2048]u8 = undefined,
-    str_index: usize = 0,
-
-    //layout_cache: LayoutCacheT,
 
     input_state: InputState = .{},
 
@@ -1014,23 +1007,19 @@ pub const Context = struct {
 
     pub fn scratchPrint(self: *Self, comptime fmt: []const u8, args: anytype) []const u8 {
         var fbs = std.io.FixedBufferStream([]u8){ .buffer = self.scratch_buf[self.scratch_buf_pos..], .pos = 0 };
-        fbs.writer().print(fmt, args) catch unreachable;
+        fbs.writer().print(fmt, args) catch {
+            std.debug.panic("scratch_buffer out of space", .{});
+        };
         self.scratch_buf_pos += fbs.pos;
         return fbs.getWritten();
     }
 
     pub fn storeString(self: *Self, str: []const u8) []const u8 {
-        if (str.len + self.str_index >= self.strings.len) {
-            const slice = self.frame_alloc.alloc(u8, str.len) catch unreachable;
-            std.mem.copy(u8, slice, str);
-            return slice;
-        }
-
-        const sl = self.strings[self.str_index .. self.str_index + str.len];
-        std.mem.copy(u8, sl, str);
-        defer self.str_index += str.len;
-
-        return sl;
+        const slice = self.frame_alloc.alloc(u8, str.len) catch {
+            std.debug.panic("arena alloc failed", .{});
+        };
+        std.mem.copy(u8, slice, str);
+        return slice;
     }
 
     pub fn isKeyDown(self: *Self, scancode: graph.SDL.keycodes.Scancode) bool {
@@ -1046,16 +1035,8 @@ pub const Context = struct {
         return r.containsPoint(self.input_state.mouse_pos);
     }
 
-    pub fn qualifyName(self: *const Self, name: []const u8) ![]const u8 {
-        const qn = try self.alloc.alloc(u8, name.len + self.namespace.len + 1);
-        std.mem.copy(u8, qn, self.namespace);
-        qn[self.namespace.len] = ':';
-        std.mem.copy(u8, qn[self.namespace.len + 1 ..], name);
-        return qn;
-    }
-
     pub fn getArea(self: *Self) ?Rect {
-        const w = self.getWindow() catch unreachable;
+        const w = self.getWindow();
         const new_area = self.layout.getArea();
         self.tooltip_state.pending_area = new_area;
         if (w.scroll_bounds) |sb| {
@@ -1098,7 +1079,7 @@ pub const Context = struct {
             ld.widget_index += 1;
             return .{ .layout_hash = ld.hash, .index = ld.widget_index };
         }
-        unreachable;
+        std.debug.panic("getId called without a layout set!", .{});
     }
 
     pub fn isActivePopup(self: *Self, id: WidgetId) bool {
@@ -1188,15 +1169,10 @@ pub const Context = struct {
         self.window_stack_node_index = 0;
 
         self.dirty_draw_depth = null;
-        self.str_index = 0;
         self.scratch_buf_pos = 0;
         self.scroll_claimed_mouse = false;
 
         //if (self.scroll_bounds != null) return error.unmatchedBeginScroll;
-        if (std.mem.indexOfScalar(u8, self.namespace, ':') != null)
-            return error.unmatchedPushNamespace;
-        //if (self.layout_stack.len() > 0)
-        //    return error.unmatchedBeginLayout;
         self.text_input_state.advanceStateReset();
         _ = self.arena_alloc.reset(.retain_capacity);
         self.tooltip_state.command_list = std.ArrayList(DrawCommand).init(self.frame_alloc);
@@ -1225,27 +1201,9 @@ pub const Context = struct {
             w.deinit();
         }
         self.windows.deinit();
-        //self.layout_cache.deinit();
         self.textbox_state.deinit();
         self.arena_alloc.deinit();
         self.retained_alloc.destroy(self.arena_alloc);
-    }
-
-    pub fn setNamespace(self: *Self, new_namespace: []const u8) void {
-        if (!std.mem.eql(u8, new_namespace, self.old_namespace)) {
-            self.layout_cache.clear() catch unreachable;
-            self.old_namespace = self.namespace;
-            self.namespace = new_namespace;
-        }
-    }
-
-    pub fn pushNamespace(self: *Self, child_name: []const u8) !void {
-        const name = try self.qualifyName(child_name);
-        self.namespace = name;
-    }
-
-    pub fn popNamespace(self: *Self) void {
-        self.namespace = self.namespace[0..std.mem.lastIndexOfScalar(u8, self.namespace, ':').?];
     }
 
     pub fn clickWidget(self: *Self, rec: Rect) ClickState {
@@ -1260,7 +1218,7 @@ pub const Context = struct {
 
         const containsCursor = rec.containsPoint(self.input_state.mouse_pos);
         const clicked = self.input_state.mouse_left_clicked;
-        const w = self.getWindow() catch unreachable;
+        const w = self.getWindow();
 
         if (self.mouse_grab_id) |grab_id| {
             if (grab_id.eql(id)) {
@@ -1378,7 +1336,7 @@ pub const Context = struct {
             const node = try self.frame_alloc.create(LayoutStackT.Node);
             node.next = null;
             node.data = self.layout;
-            try self.layoutStackPush(node);
+            self.layoutStackPush(node);
             self.window_stack_node_index += 1;
             if (self.window_stack_node_index >= self.window_stack_nodes.len)
                 return error.tooManyWindows;
@@ -1389,7 +1347,7 @@ pub const Context = struct {
         if (self.window_index.? >= self.windows.items.len) {
             try self.windows.append(try Window.init(self.retained_alloc, area));
         }
-        const w = try self.getWindow();
+        const w = self.getWindow();
         w.area = area;
         w.depth = old_depth + 1;
         try w.layout_cache.begin();
@@ -1411,28 +1369,28 @@ pub const Context = struct {
         }
         if (self.window_index) |ind| {
             const old_w = &self.windows.items[ind];
-            const layout = self.layoutStackPop() catch unreachable;
+            const layout = self.layoutStackPop();
             self.layout = layout.data;
             self.current_layout_cache_data = old_w.layout_cache.getCacheDataPtr();
         }
     }
 
-    pub fn getWindow(self: *Self) !*Window {
-        return &self.windows.items[self.window_index orelse return error.noWindow];
+    pub fn getWindow(self: *Self) *Window {
+        return &self.windows.items[self.window_index orelse std.debug.panic("attempt to getWindow when no window set!", .{})];
     }
 
-    fn layoutStackPush(self: *Self, node: *LayoutStackT.Node) !void {
-        const w = try self.getWindow();
+    fn layoutStackPush(self: *Self, node: *LayoutStackT.Node) void {
+        const w = self.getWindow();
         w.layout_stack.prepend(node);
     }
 
-    fn layoutStackPop(self: *Self) !*LayoutStackT.Node {
-        const w = try self.getWindow();
-        return w.layout_stack.popFirst() orelse error.invalidLayoutStack;
+    fn layoutStackPop(self: *Self) *LayoutStackT.Node {
+        const w = self.getWindow();
+        return w.layout_stack.popFirst() orelse std.debug.panic("invalid layout stack!", .{});
     }
 
     fn layoutCachePush(self: *Self, new_ld: LayoutCacheData) !void {
-        const w = try self.getWindow();
+        const w = self.getWindow();
         { //Layout cache
             const dirty = if (self.current_layout_cache_data) |ld| ld.dirty else false;
             try w.layout_cache.push(new_ld);
@@ -1458,9 +1416,9 @@ pub const Context = struct {
         }
     }
 
-    fn layoutCachePop(self: *Self) !void {
-        const w = try self.getWindow();
-        w.layout_cache.pop() catch unreachable;
+    fn layoutCachePop(self: *Self) void {
+        const w = self.getWindow();
+        w.layout_cache.pop() catch std.debug.panic("invalid layout cache!", .{});
         self.current_layout_cache_data = w.layout_cache.getCacheDataPtr();
     }
 
@@ -1484,7 +1442,7 @@ pub const Context = struct {
         const node = try self.frame_alloc.create(LayoutStackT.Node);
         node.next = null;
         node.data = old_layout;
-        try self.layoutStackPush(node);
+        self.layoutStackPush(node);
         //self.layout_stack.prepend(node);
         self.layout.setNew(Layout_T, new_layout);
 
@@ -1500,38 +1458,11 @@ pub const Context = struct {
             const last_frame_hash = ld.last_frame_cmd_hash;
             ld.hashCommands();
             ld.draw_cmds = (ld.last_frame_cmd_hash != last_frame_hash);
-            //const dde = if (ld.draw_cmds and self.layout_cache.depth > 0) self.layout_cache.depth - 1 else null;
-            //if (self.dirty_draw_depth) |dd| {
-            //    if (dd > dde orelse 0)
-            //        self.dirty_draw_depth = dd;
-            //} else {
-            //    self.dirty_draw_depth = dde;
-            //}
         }
 
-        self.layoutCachePop() catch unreachable;
-        //self.layout_cache.pop() catch unreachable;
-        //self.current_layout_cache_data = self.layout_cache.getCacheDataPtr();
-        //const ld = self.current_layout_cache_data.?;
-        //if()
-        //if (self.current_layout_cache_data) |ld| {
-        //    if (!ld.is_init) unreachable;
-        //    if (self.dirty_draw_depth) |draw_depth| {
-        //        if (self.layout_cache.depth == draw_depth) {
-        //            ld.draw_backup = true;
-        //            if (draw_depth > 0)
-        //                self.dirty_draw_depth.? -= 1;
-        //        }
-        //    }
-        //}
-        const layout = self.layoutStackPop() catch unreachable;
+        self.layoutCachePop();
+        const layout = self.layoutStackPop();
         self.layout = layout.data;
-        //if (self.layout_stack.popFirst()) |layout| {
-        //    self.layout = layout.data;
-        //    self.alloc.destroy(layout);
-        //} else {
-        //    unreachable;
-        //}
     }
 
     pub fn skipArea(self: *Self) void {
@@ -1540,7 +1471,7 @@ pub const Context = struct {
 
     pub fn draw(self: *Self, command: DrawCommand) void {
         if (self.current_layout_cache_data) |lcd| {
-            lcd.commands.append(command) catch unreachable;
+            lcd.commands.append(command) catch std.debug.panic("failed to append to draw commands", .{});
         }
     }
 
@@ -1665,7 +1596,7 @@ pub const Context = struct {
     }) !?ScrollData {
         var area = self.getArea() orelse return null;
 
-        const w = self.getWindow() catch unreachable;
+        const w = self.getWindow();
         if (opts.horiz_scroll)
             area.h -= opts.bar_w;
         if (opts.vertical_scroll)
@@ -1708,7 +1639,7 @@ pub const Context = struct {
 
     pub fn endScroll(self: *Self) void {
         self.endLayout(); //SubRectLayout
-        const w = self.getWindow() catch unreachable;
+        const w = self.getWindow();
 
         w.scroll_bounds = self.layout.parent_scroll_bounds;
     }

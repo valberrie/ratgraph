@@ -2004,7 +2004,7 @@ pub const Os9Gui = struct {
     pub fn endVScroll(self: *Self, scroll_data: Gui.Context.VLayoutScrollData) void {
         const sd = scroll_data.data;
         const max = scroll_data.layout.current_h - scroll_data.area.h;
-        const w = self.gui.getWindow() catch unreachable;
+        const w = self.gui.getWindow();
         if (max > 0) {
             if (self.gui.mouse_grab_id == null and !self.gui.scroll_claimed_mouse and w.scroll_bounds.?.containsPoint(self.gui.input_state.mouse_pos)) {
                 self.gui.scroll_claimed_mouse = true;
@@ -2130,7 +2130,7 @@ pub const Os9Gui = struct {
             self.gui.endLayout();
         }
         if (do_scroll) {
-            const w = self.gui.getWindow() catch unreachable;
+            const w = self.gui.getWindow();
             if (self.gui.mouse_grab_id == null and !self.gui.scroll_claimed_mouse and w.scroll_bounds.?.containsPoint(self.gui.input_state.mouse_pos)) {
                 self.gui.scroll_claimed_mouse = true;
                 const pixel_per_line = 20 * self.scale;
