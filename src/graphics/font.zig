@@ -489,7 +489,7 @@ pub const Font = struct {
 ///deinit()
 pub const RectPack = struct {
     const Self = @This();
-    const RectType = c.stbrp_rect;
+    pub const RectType = c.stbrp_rect;
     const RectDimType = c_int;
     const NodeType = c.stbrp_node;
     const ExtraNodeCount = 200;
@@ -521,7 +521,7 @@ pub const RectPack = struct {
             .w = std.math.lossyCast(RectDimType, w),
             .h = std.math.lossyCast(c_int, h),
         });
-        self.running_size += w * h;
+        self.running_size += std.math.lossyCast(usize, w * h);
     }
 
     pub fn packOptimalSize(self: *Self) !Vec2i {
