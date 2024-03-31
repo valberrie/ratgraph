@@ -288,6 +288,7 @@ pub const FileBrowser = struct {
     pub const PersistSettings = struct {
         column_widths: []f32,
         show_hidden: bool = false,
+        bookmarks: []const Bookmark,
     };
     pub const DefaultBookmarks: []const Bookmark = &.{
         .{ .name = "crash lol", .abs_path = "/usr/bin" },
@@ -368,12 +369,14 @@ pub const FileBrowser = struct {
             .scratch_vec = std.ArrayList(u8).init(alloc),
         };
 
-        for (DefaultBookmarks) |db| {
-            try ret.bookmarks.append(.{
-                .name = try alloc.dupe(u8, db.name),
-                .abs_path = try alloc.dupe(u8, db.abs_path),
-                .err_msg = db.err_msg,
-            });
+        if (file == null) {
+            for (DefaultBookmarks) |db| {
+                try ret.bookmarks.append(.{
+                    .name = try alloc.dupe(u8, db.name),
+                    .abs_path = try alloc.dupe(u8, db.abs_path),
+                    .err_msg = db.err_msg,
+                });
+            }
         }
 
         if (file) |f| {
@@ -386,6 +389,9 @@ pub const FileBrowser = struct {
             for (json_p.value.column_widths, 0..) |cw, i| {
                 if (i < ret.columns.len)
                     ret.columns[i].width = cw;
+            }
+            for (json_p.value.bookmarks) |bm| {
+                try ret.bookmarks.append(.{ .name = try alloc.dupe(u8, bm.name), .abs_path = try alloc.dupe(u8, bm.abs_path), .err_msg = null });
             }
         }
 
@@ -402,7 +408,7 @@ pub const FileBrowser = struct {
             for (self.columns, 0..) |col, i| {
                 widths[i] = col.width;
             }
-            const persist = PersistSettings{ .column_widths = widths, .show_hidden = self.show_hidden };
+            const persist = PersistSettings{ .column_widths = widths, .show_hidden = self.show_hidden, .bookmarks = self.bookmarks.items };
             var out_file = self.conf_dir.createFile("file_browser_config.json", .{}) catch break :blk;
             defer out_file.close();
             std.json.stringify(persist, .{}, out_file.writer()) catch break :blk;
@@ -1433,7 +1439,7 @@ pub const AtlasEditor = struct {
         gui.draw9Slice(canvas_b, Os9Gui.inset9, wrap.texture, wrap.scale);
         const canvas = canvas_b.inset(wrap.scale * Os9Gui.inset9.w / 3);
 
-        const inspector_item_height = 20;
+        const inspector_item_height = 30 * wrap.scale;
         _ = try gui.beginLayout(Gui.SubRectLayout, .{ .rect = canvas }, .{});
         defer gui.endLayout();
         if (self.loaded_atlas) |atlas| {
@@ -1459,7 +1465,6 @@ pub const AtlasEditor = struct {
                 }
             }
             {
-                //gui.scissor(canvas);
                 gui.drawRectFilled(canvas, itc(0xffffffff));
                 gui.drawSetCamera(.{ .set_camera = .{ .screen_area = canvas, .cam_area = cam.cam_area } });
                 cam.screen_area = canvas;
@@ -1493,7 +1498,8 @@ pub const AtlasEditor = struct {
                     //gui.drawSetCamera(.{ .set_camera = .{ .cam_area = st.cam_area.toAbsoluteRect(), .offset = st.offset } });
                 }
 
-                gui.drawSetCamera(.{ .set_camera = .{ .cam_area = cam.cam_area, .screen_area = cam.screen_area } });
+                gui.draw(.{ .set_camera = null });
+                //gui.drawSetCamera(.{ .set_camera = .{ .cam_area = cam.cam_area, .screen_area = cam.screen_area } });
 
                 const first_tile = cam.toWorld(sts.getTexRec(0));
                 const scd = cam.toWorld(sts.getTexRec(@intCast(sts.num.x + 1)));
@@ -1552,8 +1558,9 @@ pub const AtlasEditor = struct {
         { //Inspector
             _ = try gui.beginLayout(Gui.SubRectLayout, .{ .rect = inspector_rec }, .{});
             defer gui.endLayout();
-            if (try wrap.beginVScroll(&self.inspector_scroll, .{})) |inspector_scroll| {
+            if (try wrap.beginVScroll(&self.inspector_scroll, .{ .sw = inspector_rec.w })) |inspector_scroll| {
                 defer wrap.endVScroll(inspector_scroll);
+                _ = wrap.button("FUK");
                 if (self.loaded_atlas) |*atlas| {
                     //if (try gui.beginVLayoutScroll(&self.set_scroll, .{ .item_height = inspector_item_height })) |set_scroll| {
                     for (atlas.atlas_data.sets, 0..) |*set, si| {
@@ -1579,7 +1586,7 @@ pub const AtlasEditor = struct {
                         }
                         for (set.tilesets, 0..) |ts, tsi| {
                             const rec = gui.getArea() orelse continue;
-                            var col = Color.White;
+                            var col = Color.Black;
                             if (self.mode == .copy_range) {
                                 if (self.atlas_index == si and tsi < self.copy_range_range_end and tsi >= self.copy_range_range_start) {
                                     col = Color.Green;
@@ -2844,7 +2851,7 @@ pub fn main() anyerror!void {
     defer _ = gpa.detectLeaks();
     const alloc = gpa.allocator();
 
-    var current_app: enum { keyboard_display, filebrowser, atlas_edit, gtest, lua_test, crass } = .gtest;
+    var current_app: enum { keyboard_display, filebrowser, atlas_edit, gtest, lua_test, crass } = .atlas_edit;
     var arg_it = try std.process.ArgIterator.initWithAllocator(alloc);
     defer arg_it.deinit();
     const Arg = ArgUtil.Arg;
