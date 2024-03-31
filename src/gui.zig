@@ -8,6 +8,7 @@ const Cache = @import("gui_cache.zig");
 const json = std.json;
 const clamp = std.math.clamp;
 pub const graph = @import("graphics.zig");
+const Font = graph.Font;
 const Vec2f = graph.Vec2f;
 const Vec2i = struct {
     const Self = @This();
@@ -957,21 +958,16 @@ pub const Context = struct {
     dirty_draw_depth: ?u32 = null,
     no_caching: bool = true,
 
-    console: Console,
-    font: *graph.Font,
-    icon_font: *graph.Font,
-
     layout: Layout,
     current_layout_cache_data: ?*LayoutCacheData = null,
 
-    stack_alloc: *std.heap.FixedBufferAllocator,
-    alloc: std.mem.Allocator,
-    //layout_stack: LayoutStackT = .{},
+    frame_alloc: std.mem.Allocator,
+    arena_alloc: *std.heap.ArenaAllocator,
+    retained_alloc: std.mem.Allocator,
 
     tooltip_state: TooltipState,
 
     //TODO remove namespaces?
-    retained_alloc: std.mem.Allocator,
     namespace: []const u8 = "global",
     //TODO change naming system, state from last frame should be prefixed with last_frame or exist inside a last_frame_state struct
     old_namespace: []const u8 = "",
@@ -1025,7 +1021,7 @@ pub const Context = struct {
 
     pub fn storeString(self: *Self, str: []const u8) []const u8 {
         if (str.len + self.str_index >= self.strings.len) {
-            const slice = self.alloc.alloc(u8, str.len) catch unreachable;
+            const slice = self.frame_alloc.alloc(u8, str.len) catch unreachable;
             std.mem.copy(u8, slice, str);
             return slice;
         }
@@ -1069,7 +1065,7 @@ pub const Context = struct {
         return new_area;
     }
 
-    pub fn tooltip(self: *Self, message: []const u8, size: f32) void {
+    pub fn tooltip(self: *Self, message: []const u8, size: f32, font: *Font) void {
         const ts = &self.tooltip_state;
         const pa = ts.pending_area orelse return;
         if (self.isCursorInRect(pa)) {
@@ -1080,11 +1076,11 @@ pub const Context = struct {
                         if (self.input_state.mouse_left_clicked) {
                             ts.hide_active = true;
                         }
-                        const bounds = self.font.textBounds(message, size);
+                        const bounds = font.textBounds(message, size);
                         const mp = self.input_state.mouse_pos;
                         ts.command_list.append(.{ .rect_filled = .{ .r = Rect.newV(mp, bounds), .color = Color.Gray } }) catch unreachable;
                         ts.command_list.append(.{
-                            .text = .{ .string = message, .pos = mp.toI(i16, Vec2i), .size = size, .color = Color.White, .font = self.font },
+                            .text = .{ .string = message, .pos = mp.toI(i16, Vec2i), .size = size, .color = Color.White, .font = font },
                         }) catch unreachable;
                     }
                 } else {
@@ -1158,20 +1154,16 @@ pub const Context = struct {
         return result;
     }
 
-    pub fn init(alloc: std.mem.Allocator, stack_alloc: *std.heap.FixedBufferAllocator, bounds: Rect, font: *graph.Font, icon_font: *graph.Font) !Self {
-        //TODO change stack_alloc from a FixedBufferAllocator to a ArenaAllocator
-        const sa = stack_alloc.allocator();
+    pub fn init(alloc: std.mem.Allocator) !Self {
+        const aa = try alloc.create(std.heap.ArenaAllocator);
+        aa.* = std.heap.ArenaAllocator.init(alloc);
         return Self{
-            .console = Console.init(alloc),
-            .layout = .{ .bounds = bounds },
+            .arena_alloc = aa,
+            .layout = .{ .bounds = graph.Rec(0, 0, 0, 0) },
             .windows = std.ArrayList(Window).init(alloc),
-            .stack_alloc = stack_alloc,
-            .alloc = stack_alloc.allocator(),
-            .font = font,
-            .icon_font = icon_font,
-            //.retained_data = RetainedHashMapT.init(alloc),
+            .frame_alloc = aa.allocator(),
             .retained_alloc = alloc,
-            .tooltip_state = .{ .command_list = std.ArrayList(DrawCommand).init(sa) },
+            .tooltip_state = .{ .command_list = std.ArrayList(DrawCommand).init(aa.allocator()) },
             .textbox_state = RetainedState.TextInput.init(alloc),
         };
     }
@@ -1206,8 +1198,8 @@ pub const Context = struct {
         //if (self.layout_stack.len() > 0)
         //    return error.unmatchedBeginLayout;
         self.text_input_state.advanceStateReset();
-        self.stack_alloc.reset();
-        self.tooltip_state.command_list = std.ArrayList(DrawCommand).init(self.alloc);
+        _ = self.arena_alloc.reset(.retain_capacity);
+        self.tooltip_state.command_list = std.ArrayList(DrawCommand).init(self.frame_alloc);
         if (self.tooltip_state.mouse_in_area) |ma| {
             if (!self.isCursorInRect(ma)) {
                 self.tooltip_state.hover_time = 0;
@@ -1234,8 +1226,9 @@ pub const Context = struct {
         }
         self.windows.deinit();
         //self.layout_cache.deinit();
-        self.console.deinit();
         self.textbox_state.deinit();
+        self.arena_alloc.deinit();
+        self.retained_alloc.destroy(self.arena_alloc);
     }
 
     pub fn setNamespace(self: *Self, new_namespace: []const u8) void {
@@ -1382,7 +1375,7 @@ pub const Context = struct {
             self.window_stack.prepend(&self.window_stack_nodes[self.window_stack_node_index]);
             old_depth = self.windows.items[old_index].depth;
             //self.windows.items[old_index]
-            const node = try self.alloc.create(LayoutStackT.Node);
+            const node = try self.frame_alloc.create(LayoutStackT.Node);
             node.next = null;
             node.data = self.layout;
             try self.layoutStackPush(node);
@@ -1473,7 +1466,7 @@ pub const Context = struct {
 
     //TODO ensure our new layout does not clip the previous layout, special case for scroll areas and popups as they can clip
     pub fn beginLayout(self: *Self, comptime Layout_T: type, layout_data: Layout_T, opts: struct { bg: Color = itc(0x222222ff), scissor: ?Rect = null }) !*Layout_T {
-        const new_layout = try self.alloc.create(Layout_T);
+        const new_layout = try self.frame_alloc.create(Layout_T);
         new_layout.* = layout_data;
 
         const old_layout = self.layout;
@@ -1488,7 +1481,7 @@ pub const Context = struct {
             }
         }
 
-        const node = try self.alloc.create(LayoutStackT.Node);
+        const node = try self.frame_alloc.create(LayoutStackT.Node);
         node.next = null;
         node.data = old_layout;
         try self.layoutStackPush(node);
@@ -1533,7 +1526,6 @@ pub const Context = struct {
         //}
         const layout = self.layoutStackPop() catch unreachable;
         self.layout = layout.data;
-        self.alloc.destroy(layout);
         //if (self.layout_stack.popFirst()) |layout| {
         //    self.layout = layout.data;
         //    self.alloc.destroy(layout);
@@ -1556,14 +1548,14 @@ pub const Context = struct {
         self.draw(cam);
     }
 
-    pub fn drawText(self: *Self, string: []const u8, pos: Vec2f, size: f32, color: Color) void {
-        self.draw(.{ .text = .{ .string = self.storeString(string), .pos = pos.toI(i16, Vec2i), .size = size, .color = color, .font = self.font } });
+    pub fn drawText(self: *Self, string: []const u8, pos: Vec2f, size: f32, color: Color, font: *Font) void {
+        self.draw(.{ .text = .{ .string = self.storeString(string), .pos = pos.toI(i16, Vec2i), .size = size, .color = color, .font = font } });
     }
 
-    pub fn drawIcon(self: *Self, icon: u21, pos: Vec2f, size: f32, color: Color) void {
+    pub fn drawIcon(self: *Self, icon: u21, pos: Vec2f, size: f32, color: Color, font: *Font) void {
         var out: [4]u8 = undefined;
         const count = std.unicode.utf8Encode(icon, &out) catch unreachable;
-        self.draw(.{ .text = .{ .string = self.storeString(out[0..count]), .pos = pos.toI(i16, Vec2i), .size = size, .color = color, .font = self.icon_font } });
+        self.draw(.{ .text = .{ .string = self.storeString(out[0..count]), .pos = pos.toI(i16, Vec2i), .size = size, .color = color, .font = font } });
     }
 
     pub fn drawLine(self: *Self, a: Vec2f, b: Vec2f, color: Color) void {
@@ -1615,12 +1607,13 @@ pub const Context = struct {
         size: f32,
         color: Color,
         opts: struct { justify: Justify = .left },
+        font: *Font,
     ) void {
         const slice = self.scratchPrint(fmt, args);
         //const slice = fbs.getWritten();
-        const bounds = self.font.textBounds(slice, size);
+        const bounds = font.textBounds(slice, size);
         const last_char_index = blk: {
-            if (self.font.nearestGlyphX(slice, size, .{ .x = area.w, .y = 0 })) |lci| {
+            if (font.nearestGlyphX(slice, size, .{ .x = area.w, .y = 0 })) |lci| {
                 if (lci > 0)
                     break :blk lci - 1;
                 break :blk lci;
@@ -1635,7 +1628,7 @@ pub const Context = struct {
         };
         const x = if (last_char_index < slice.len) area.x else x_;
         const sl = if (last_char_index < slice.len) slice[0..last_char_index] else slice;
-        self.drawText(sl, Vec2f.new(x, area.y), size, color);
+        self.drawText(sl, Vec2f.new(x, area.y), size, color, font);
     }
 
     pub fn colorInline(self: *Self, color: *Hsva) !void {
@@ -1661,24 +1654,6 @@ pub const Context = struct {
         }
         if (wstate != .no_change)
             self.drawRectFilled(rec, graph.hsvaToColor(color.*));
-    }
-
-    //TODO what happens when the enum has lots of values and can't fit on the screen. Add scrolling function.
-    //Should typing and autocompleting a value be a function
-
-    pub fn drawConsole(self: *Self, console: Console, line_height: f32) void {
-        const area = self.getArea() orelse return;
-        const count: usize = @intFromFloat(area.h / line_height);
-        var start: usize = 0;
-        if (count < console.lines.items.len) {
-            start = console.lines.items.len - count;
-        }
-        var y: f32 = 0;
-        self.drawRectFilled(area, Color.Black);
-        for (console.lines.items[start..]) |line| {
-            self.drawText(line, .{ .x = area.x, .y = area.y + y }, line_height, Color.White);
-            y += line_height;
-        }
     }
 
     pub fn beginScroll(self: *Self, offset: *Vec2f, opts: struct {
@@ -1873,7 +1848,7 @@ pub const Context = struct {
         return .{ .area = area, .changed = changed };
     }
 
-    pub fn textboxGeneric(self: *Self, contents: *std.ArrayList(u8), params: struct {
+    pub fn textboxGeneric(self: *Self, contents: *std.ArrayList(u8), font: *Font, params: struct {
         text_inset: f32,
         restrict_chars_to: ?[]const u8 = null,
     }) !?GenericWidget.Textbox {
@@ -1899,7 +1874,7 @@ pub const Context = struct {
                 .{ .restricted_charset = params.restrict_chars_to },
             );
             const sl = tb.getSlice();
-            const caret_x = self.font.textBounds(sl[0..@as(usize, @intCast(tb.head))], trect.h).x;
+            const caret_x = font.textBounds(sl[0..@as(usize, @intCast(tb.head))], trect.h).x;
             ret.caret = caret_x;
 
             if (!std.mem.eql(u8, sl, contents.items)) {
@@ -1912,7 +1887,7 @@ pub const Context = struct {
                 self.text_input_state.active_id = id;
                 try self.textbox_state.resetFmt("{s}", .{contents.items});
             }
-            const cin = self.font.nearestGlyphX(self.textbox_state.getSlice(), trect.h, self.input_state.mouse_pos.sub(trect.pos()));
+            const cin = font.nearestGlyphX(self.textbox_state.getSlice(), trect.h, self.input_state.mouse_pos.sub(trect.pos()));
             if (cin) |cc| {
                 self.textbox_state.setCaret(cc - 1);
             }
@@ -1921,7 +1896,7 @@ pub const Context = struct {
         return ret;
     }
 
-    pub fn textboxNumberGeneric(self: *Self, number_ptr: anytype, params: struct {
+    pub fn textboxNumberGeneric(self: *Self, number_ptr: anytype, font: *Font, params: struct {
         text_inset: f32,
     }) !?GenericWidget.Textbox {
         const NumType = enum { uint, int, float };
@@ -1966,7 +1941,7 @@ pub const Context = struct {
                 .{ .restricted_charset = charset },
             );
             const sl = self.textbox_state.getSlice();
-            const caret_x = self.font.textBounds(sl[0..@as(usize, @intCast(self.textbox_state.head))], tarea.h).x;
+            const caret_x = font.textBounds(sl[0..@as(usize, @intCast(self.textbox_state.head))], tarea.h).x;
             ret.caret = caret_x;
             if (sl.len == 0) {
                 number_ptr.* = 0;
@@ -1995,7 +1970,7 @@ pub const Context = struct {
                 try self.textbox_state.resetFmt("{d}", .{number_ptr.*});
             }
 
-            const cin = self.font.nearestGlyphX(self.textbox_state.getSlice(), tarea.h, self.input_state.mouse_pos.sub(tarea.pos()));
+            const cin = font.nearestGlyphX(self.textbox_state.getSlice(), tarea.h, self.input_state.mouse_pos.sub(tarea.pos()));
             if (cin) |cc| {
                 self.textbox_state.setCaret(cc - 1);
             }

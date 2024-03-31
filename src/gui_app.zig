@@ -499,7 +499,8 @@ pub const FileBrowser = struct {
         }
     }
 
-    fn fileItem(self: *Self, gui: *Gui.Context, entry: DirEntry, index: usize, columns: []const FileColumn, bg: ?Color) !bool {
+    fn fileItem(self: *Self, wrap: *Os9Gui, entry: DirEntry, index: usize, columns: []const FileColumn, bg: ?Color) !bool {
+        const gui = wrap.gui;
         const rec = gui.getArea() orelse return false;
         const pada = 4;
         if (bg) |bb| {
@@ -524,13 +525,13 @@ pub const FileBrowser = struct {
                             else => .file,
                         },
                         else => .file,
-                    }), .{ .x = ico.x, .y = ico.y + ico.h / 3 }, ico.h * 0.7, Color.Black);
+                    }), .{ .x = ico.x, .y = ico.y + ico.h / 3 }, ico.h * 0.7, Color.Black, &wrap.icon_font);
                     const ir = graph.Rec(r.x + ico.w, r.y, r.w - ico.w, r.h);
-                    if (gui.font.nearestGlyphX(entry.name, rec.h, .{ .x = col.width - ico.w, .y = rec.h / 2 })) |glyph_index| {
+                    if (wrap.font.nearestGlyphX(entry.name, rec.h, .{ .x = col.width - ico.w, .y = rec.h / 2 })) |glyph_index| {
                         if (glyph_index > 2)
-                            gui.drawTextFmt("{s}…", .{entry.name[0..glyph_index]}, ir, rec.h, Color.Black, .{});
+                            gui.drawTextFmt("{s}…", .{entry.name[0..glyph_index]}, ir, rec.h, Color.Black, .{}, &wrap.font);
                     } else {
-                        gui.drawTextFmt("{s}", .{entry.name}, ir, rec.h, Color.Black, .{});
+                        gui.drawTextFmt("{s}", .{entry.name}, ir, rec.h, Color.Black, .{}, &wrap.font);
                     }
                     //const b = gui.font.textBounds(entry.name.len, rec.h);
                     //const trunc = b.y > ;
@@ -552,7 +553,7 @@ pub const FileBrowser = struct {
                         61...64 => .{ s >> 60, "E" },
                         else => .{ s, "" },
                     };
-                    gui.drawTextFmt("{d: >3}{s}", .{ val[0], val[1] }, r, rec.h, Color.Black, .{});
+                    gui.drawTextFmt("{d: >3}{s}", .{ val[0], val[1] }, r, rec.h, Color.Black, .{}, &wrap.font);
                 },
                 .mtime => {
                     const epsec = std.time.epoch.EpochSeconds{ .secs = entry.mtime };
@@ -563,10 +564,10 @@ pub const FileBrowser = struct {
                         epmday.month.numeric(),
                         @as(u16, epmday.day_index) + 1,
                         epyear.year,
-                    }, r, r.h * 0.8, Color.Black, .{});
+                    }, r, r.h * 0.8, Color.Black, .{}, &wrap.font);
                 },
                 .ftype => {
-                    gui.drawTextFmt("{s}", .{@tagName(entry.kind)}, r, r.h * 0.8, Color.Black, .{});
+                    gui.drawTextFmt("{s}", .{@tagName(entry.kind)}, r, r.h * 0.8, Color.Black, .{}, &wrap.font);
                 },
             }
         }
@@ -726,8 +727,8 @@ pub const FileBrowser = struct {
                         break :blk rec;
                     }
                 };
-                gui.drawTextFmt("{s}", .{bookmark.name}, tr, tr.h, color, .{});
-                gui.tooltip(bookmark.abs_path, rec.h);
+                gui.drawTextFmt("{s}", .{bookmark.name}, tr, tr.h, color, .{}, &wrap.font);
+                gui.tooltip(bookmark.abs_path, rec.h, &wrap.font);
                 const click = gui.clickWidget(rec);
                 if (click == .click) {
                     if (try self.cd(bookmark.abs_path)) {
@@ -800,11 +801,11 @@ pub const FileBrowser = struct {
                         .mtime => "Modified",
                         .ftype => "Kind",
                         .size => "Size",
-                    }, Vec2f.new(rec.x + cx, rec.y), rec.h, Color.Black);
+                    }, Vec2f.new(rec.x + cx, rec.y), rec.h, Color.Black, &wrap.font);
                     if (i == self.sorted_column_index) {
                         gui.drawIcon(Icons.get(
                             if (!self.sorted_column_ascending) .drop_up else .drop_down,
-                        ), .{ .x = rec.x + cx + cc.width - rec.h, .y = rec.y }, rec.h, Color.Black);
+                        ), .{ .x = rec.x + cx + cc.width - rec.h, .y = rec.y }, rec.h, Color.Black, &wrap.icon_font);
                     }
                     if (gui.clickWidget(graph.Rec(rec.x + cx, rec.y, cc.width, rec.h)) == .click) {
                         if (i == self.sorted_column_index) {
@@ -825,7 +826,7 @@ pub const FileBrowser = struct {
                 defer wrap.endVScroll(file_scroll);
                 for (self.entries.items, 0..) |entry, i| {
                     const bgfile_color = itc(0xeeeeeeff);
-                    if (try self.fileItem(gui, entry, i, &self.columns, if (i % 2 != 0) bgfile_color else null))
+                    if (try self.fileItem(wrap, entry, i, &self.columns, if (i % 2 != 0) bgfile_color else null))
                         break;
                 }
             }
@@ -1090,7 +1091,7 @@ pub const KeyboardDisplay = struct {
                             const tr = rr.inset(Os9Gui.outset9.w / 3 * wrap.scale + 3);
 
                             if (key.name) |n| {
-                                gui.drawTextFmt("{s}", .{n}, tr, 20 * wrap.scale, Color.Black, .{});
+                                gui.drawTextFmt("{s}", .{n}, tr, 20 * wrap.scale, Color.Black, .{}, &wrap.font);
                             }
                         },
                         .spacing => {},
@@ -1214,7 +1215,8 @@ pub const MapEditor = struct {
                     _ = try gui.beginLayout(Gui.HorizLayout, .{ .count = items.len }, .{});
                     defer gui.endLayout();
                     const pp = gui.getArea() orelse return;
-                    gui.drawIcon(Icons.get(.erasor), pp.pos(), pp.h, Color.White);
+                    _ = pp;
+                    //gui.drawIcon(Icons.get(.erasor), pp.pos(), pp.h, Color.White,&wrap.icon_font);
                 }
                 _ = try gui.tabs(Tool, &self.tool);
                 if (self.loaded_map) |map| {
@@ -1541,7 +1543,7 @@ pub const AtlasEditor = struct {
             try self.file_browser.?.update(wrap);
             if (self.file_browser.?.file) |file| {
                 self.loaded_atlas = graph.Atlas.initFromJsonFile(file.dir, file.file_name, self.alloc) catch blk: {
-                    try gui.console.print("Unable to load \"{s}\" as an atlas manifest", .{file.file_name});
+                    //try gui.console.print("Unable to load \"{s}\" as an atlas manifest", .{file.file_name});
                     self.file_browser.?.file = null;
                     break :blk null;
                 };
@@ -1560,7 +1562,7 @@ pub const AtlasEditor = struct {
                             _ = try gui.beginLayout(Gui.VerticalLayout, .{ .item_height = inspector_item_height }, .{});
                             defer gui.endLayout();
                             if (wrap.button(set.filename)) {
-                                try gui.console.print("Setting new index {d} {d}", .{ 0, si });
+                                //try gui.console.print("Setting new index {d} {d}", .{ 0, si });
                                 gui.text_input_state.active_id = null;
                                 gui.text_input_state.state = .stop;
                                 self.canvas_cam = null;
@@ -1583,14 +1585,14 @@ pub const AtlasEditor = struct {
                                     col = Color.Green;
                                 }
                             }
-                            gui.drawText(if (ts.description.len > 0) ts.description else "{blank}", rec.pos(), rec.h, col);
+                            gui.drawText(if (ts.description.len > 0) ts.description else "{blank}", rec.pos(), rec.h, col, &wrap.font);
                             const click = gui.clickWidget(rec);
                             if (click == .click) {
                                 if (self.atlas_index != si) {
                                     self.copy_range_range_start = 0;
                                     self.copy_range_range_end = 0;
                                 }
-                                try gui.console.print("Setting new index {d} {d}", .{ tsi, si });
+                                //try gui.console.print("Setting new index {d} {d}", .{ tsi, si });
                                 gui.text_input_state.active_id = null;
                                 gui.text_input_state.state = .stop;
                                 self.canvas_cam = null;
@@ -1621,7 +1623,7 @@ pub const AtlasEditor = struct {
                         var out_file = try f.dir.createFile(fname, .{});
                         defer out_file.close();
                         try std.json.stringify(atlas.atlas_data, .{}, out_file.writer());
-                        try gui.console.print("Saving to file: {s}", .{fname});
+                        //try gui.console.print("Saving to file: {s}", .{fname});
                     }
                     if (wrap.button("set current as default")) {
                         self.new_ts_default = atlas.atlas_data.sets[self.atlas_index].tilesets[self.set_index];
@@ -1640,17 +1642,17 @@ pub const AtlasEditor = struct {
                             _ = blk: {
                                 if (wrap.button("Push copy")) {
                                     if (self.copy_range_desc_prefix.len == 0) {
-                                        try gui.console.print("error: Unable to copy tileset range without a description prefix", .{});
+                                        //try gui.console.print("error: Unable to copy tileset range without a description prefix", .{});
                                         break :blk;
                                     }
                                     const current_sets = &atlas.atlas_data.sets[self.atlas_index].tilesets;
                                     if (self.copy_range_range_end > current_sets.len) {
-                                        try gui.console.print("error: copy end range larger than current selected set", .{});
+                                        //try gui.console.print("error: copy end range larger than current selected set", .{});
                                         break :blk;
                                     }
                                     const copy_len = self.copy_range_range_end - self.copy_range_range_start;
                                     if (copy_len == 0) {
-                                        try gui.console.print("error: Unable to copy zero length range", .{});
+                                        //try gui.console.print("error: Unable to copy zero length range", .{});
                                         break :blk;
                                     }
 
@@ -1666,14 +1668,14 @@ pub const AtlasEditor = struct {
 
                                         new_sets[new_i].description = try new_name.toOwnedSlice();
 
-                                        try gui.console.print("copying \"{s}{s}\"", .{ self.copy_range_desc_prefix, set.description });
+                                        //try gui.console.print("copying \"{s}{s}\"", .{ self.copy_range_desc_prefix, set.description });
                                     }
 
                                     const cpy_start_i = current_sets.len;
                                     current_sets.* = try self.alloc.realloc(current_sets.*, cpy_start_i + new_sets.len);
                                     @memcpy(current_sets.*[cpy_start_i .. new_sets.len + cpy_start_i], new_sets);
 
-                                    try gui.console.print("success: Copied {d} tilesets", .{copy_len});
+                                    //try gui.console.print("success: Copied {d} tilesets", .{copy_len});
                                 }
                             };
                         },
@@ -1682,7 +1684,7 @@ pub const AtlasEditor = struct {
 
                             if (wrap.button("add set")) {
                                 atlas.addSet(self.add_image_filename) catch |err| switch (err) {
-                                    error.FileNotFound => try gui.console.print("error: Unable to add set. Image file not found: {s}", .{self.add_image_filename}),
+                                    error.FileNotFound => std.debug.print("error: Unable to add set. Image file not found: {s}", .{self.add_image_filename}),
                                     else => return err,
                                 };
                             }
@@ -1799,6 +1801,8 @@ pub const Os9Gui = struct {
     texture: graph.Texture,
     scale: f32,
     gui: *Gui.Context,
+    font: graph.Font,
+    icon_font: graph.Font,
 
     drop_down: ?Gui.Context.WidgetId = null,
     drop_down_scroll: Vec2f = .{ .x = 0, .y = 0 },
@@ -1810,14 +1814,36 @@ pub const Os9Gui = struct {
 
     pub fn init(alloc: std.mem.Allocator, scale: f32, gui: *Gui.Context) !Self {
         const dir = std.fs.cwd();
+        const icon_list = comptime blk: {
+            const info = @typeInfo(Icons);
+            var list: [info.Enum.fields.len]u21 = undefined;
+
+            for (info.Enum.fields, 0..) |f, i| {
+                list[i] = f.value;
+            }
+            break :blk list;
+        };
         return .{
             .gui = gui,
             .scale = scale,
             .texture = try graph.Texture.initFromImgFile(alloc, dir, "next_step.png", .{ .mag_filter = graph.c.GL_NEAREST }),
+            .font = try graph.Font.init(alloc, dir, "fonts/roboto.ttf", 12, 163, .{}),
+            .icon_font = try graph.Font.init(
+                alloc,
+                std.fs.cwd(),
+                "fonts/remix.ttf",
+                12,
+                163,
+                .{
+                    .codepoints_to_load = &[_]graph.Font.CharMapEntry{.{ .list = &icon_list }},
+                },
+            ),
         };
     }
     pub fn deinit(self: *Self) void {
         self.texture.deinit();
+        self.font.deinit();
+        self.icon_font.deinit();
     }
 
     //TODO remove scale variable and scale using GuiDrawContext
@@ -1859,7 +1885,7 @@ pub const Os9Gui = struct {
             const bounds = gui.font.textBounds(mt, ts);
             const bx = bounds.x * 1.2;
             gui.draw9Border(a, os9line, self.texture, scale, a.w / 2 - bx / 2, a.w / 2 + bx / 2);
-            gui.drawText(mt, Vec2f.new(a.x + a.w / 2 - bounds.x / 2, a.y - ts / 2), ts, Color.Black);
+            gui.drawText(mt, Vec2f.new(a.x + a.w / 2 - bounds.x / 2, a.y - ts / 2), ts, Color.Black, &self.font);
             //gui.spinner(&val);
             self.checkbox("Checkbox", &self.sample_data.flag);
             gui.tooltip("This checkbox sucks", ts);
@@ -1896,7 +1922,7 @@ pub const Os9Gui = struct {
                 _ = try gui.beginLayout(Gui.HorizLayout, .{ .count = 2 }, .{});
                 defer gui.endLayout();
                 const aa = (gui.getArea() orelse return).inset(3 * self.scale);
-                gui.drawTextFmt("My float", .{}, aa, aa.h, Color.Black, .{});
+                gui.drawTextFmt("My float", .{}, aa, aa.h, Color.Black, .{}, &self.font);
                 try self.textboxNumber(&self.sample_data.float_edit);
             }
             vl.pushHeight(100 * scale);
@@ -1908,7 +1934,7 @@ pub const Os9Gui = struct {
                     _ = try gui.beginLayout(Gui.VerticalLayout, .{ .item_height = 20 * scale }, .{});
                     defer gui.endLayout();
                     if (self.button("hello button")) {
-                        try gui.console.print("pushed the button lol\n", .{});
+                        //try gui.console.print("pushed the button lol\n", .{});
                     }
                 }
                 {
@@ -1928,7 +1954,7 @@ pub const Os9Gui = struct {
                 }
             }
             vl.pushHeight(100 * scale);
-            gui.drawConsole(gui.console, ts);
+            //gui.drawConsole(gui.console, ts);
         }
     }
 
@@ -2045,7 +2071,7 @@ pub const Os9Gui = struct {
                 self.texture,
             );
             //const tbounds = self.font.textBounds(field.name);
-            gui.drawText(field.name, mida.pos().add(.{ .x = 0, .y = 4 * self.scale }), mida.h - 4 * self.scale, Color.Black);
+            gui.drawText(field.name, mida.pos().add(.{ .x = 0, .y = 4 * self.scale }), mida.h - 4 * self.scale, Color.Black, &self.font);
 
             //if (self.buttonEx(.{
             //    .name = field.name,
@@ -2212,7 +2238,7 @@ pub const Os9Gui = struct {
 
     pub fn labelEx(self: *Self, comptime fmt: []const u8, args: anytype, params: struct { justify: Gui.Justify = .left }) void {
         const area = self.gui.getArea() orelse return;
-        self.gui.drawTextFmt(fmt, args, area, area.h, Color.Black, .{ .justify = params.justify });
+        self.gui.drawTextFmt(fmt, args, area, area.h, Color.Black, .{ .justify = params.justify }, &self.font);
     }
 
     pub fn label(self: *Self, comptime fmt: []const u8, args: anytype) void {
@@ -2235,7 +2261,7 @@ pub const Os9Gui = struct {
         const color = if (params.disabled) text_disabled else Color.Black;
         gui.draw9Slice(d.area, sl1, self.texture, self.scale);
         const texta = d.area.inset(3 * self.scale);
-        gui.drawTextFmt(fmt, args, texta, texta.h, color, .{ .justify = .center });
+        gui.drawTextFmt(fmt, args, texta, texta.h, color, .{ .justify = .center }, &self.font);
 
         return (d.state == .click) and !params.disabled;
     }
@@ -2284,7 +2310,7 @@ pub const Os9Gui = struct {
                 os9checkbox,
                 self.texture,
             );
-            gui.drawTextFmt("{s}", .{label_}, area, area.h, Color.Black, .{});
+            gui.drawTextFmt("{s}", .{label_}, area, area.h, Color.Black, .{}, &self.font);
             if (checked.*)
                 gui.drawRectTextured(br.addV(2 * self.scale, 0), Color.White, os9check, self.texture);
             return d.changed;
@@ -2356,7 +2382,7 @@ pub const Os9Gui = struct {
             } else {
                 gui.draw9Slice(d.area, os9drop, self.texture, self.scale);
                 const text = d.area.inset(3 * self.scale);
-                gui.drawTextFmt("{s}", .{@tagName(enum_val.*)}, text, text.h, Color.Black, .{});
+                gui.drawTextFmt("{s}", .{@tagName(enum_val.*)}, text, text.h, Color.Black, .{}, &self.font);
                 const ow = self.scale * os9drop.w / 3;
                 const oh = self.scale * os9drop.h / 3;
                 const btn_rec = Rec(d.area.x + d.area.w - ow - os9dropbtn.w * self.scale, d.area.y + oh, os9dropbtn.w * self.scale, os9dropbtn.h * self.scale);
@@ -2368,12 +2394,12 @@ pub const Os9Gui = struct {
 
     pub fn textboxNumber(self: *Self, number_ptr: anytype) !void {
         const gui = self.gui;
-        if (try gui.textboxNumberGeneric(number_ptr, .{ .text_inset = self.scale * 3 })) |d| {
+        if (try gui.textboxNumberGeneric(number_ptr, &self.font, .{ .text_inset = self.scale * 3 })) |d| {
             const tr = d.text_area;
             gui.draw9Slice(d.area, inset9, self.texture, self.scale);
             if (d.is_invalid)
                 gui.drawRectFilled(d.text_area, itc(0xff000086));
-            gui.drawTextFmt("{s}", .{d.slice}, d.text_area, d.text_area.h, Color.Black, .{});
+            gui.drawTextFmt("{s}", .{d.slice}, d.text_area, d.text_area.h, Color.Black, .{}, &self.font);
             if (d.caret) |of| {
                 gui.drawRectFilled(Rect.new(of + tr.x, tr.y + 2, 3, tr.h - 4), Color.Black);
             }
@@ -2385,10 +2411,10 @@ pub const Os9Gui = struct {
 
     pub fn textbox(self: *Self, contents: *std.ArrayList(u8)) !void {
         const gui = self.gui;
-        if (try gui.textboxGeneric(contents, .{ .text_inset = 3 * self.scale })) |d| {
+        if (try gui.textboxGeneric(contents, &self.font, .{ .text_inset = 3 * self.scale })) |d| {
             const tr = d.text_area;
             gui.draw9Slice(d.area, inset9, self.texture, self.scale);
-            gui.drawTextFmt("{s}", .{d.slice}, d.text_area, d.text_area.h, Color.Black, .{});
+            gui.drawTextFmt("{s}", .{d.slice}, d.text_area, d.text_area.h, Color.Black, .{}, &self.font);
             if (d.caret) |of| {
                 gui.drawRectFilled(Rect.new(of + tr.x, tr.y + 2, 3, tr.h - 4), Color.Black);
             }
@@ -2800,7 +2826,7 @@ pub fn main() anyerror!void {
     defer _ = gpa.detectLeaks();
     const alloc = gpa.allocator();
 
-    var current_app: enum { keyboard_display, filebrowser, atlas_edit, gtest, lua_test, crass } = .crass;
+    var current_app: enum { keyboard_display, filebrowser, atlas_edit, gtest, lua_test, crass } = .filebrowser;
     var arg_it = try std.process.ArgIterator.initWithAllocator(alloc);
     defer arg_it.deinit();
     const Arg = ArgUtil.Arg;
@@ -2834,31 +2860,8 @@ pub fn main() anyerror!void {
         .debug_dir = debug_dir,
     });
     defer font.deinit();
-    const icon_list = comptime blk: {
-        const info = @typeInfo(Icons);
-        var list: [info.Enum.fields.len]u21 = undefined;
 
-        for (info.Enum.fields, 0..) |f, i| {
-            list[i] = f.value;
-        }
-        break :blk list;
-    };
-    var icons = try graph.Font.init(
-        alloc,
-        std.fs.cwd(),
-        "fonts/remix.ttf",
-        init_size,
-        win.getDpi(),
-        .{
-            .codepoints_to_load = &[_]graph.Font.CharMapEntry{.{ .list = &icon_list }},
-            .debug_dir = debug_dir,
-        },
-    );
-    defer icons.deinit();
-
-    var stack_buffer: [600000]u8 = undefined;
-    var stack_alloc = std.heap.FixedBufferAllocator.init(&stack_buffer);
-    var gui = try Gui.Context.init(alloc, &stack_alloc, .{ .x = 0, .y = 0, .w = 3840, .h = 2160 }, &font, &icons);
+    var gui = try Gui.Context.init(alloc);
     defer gui.deinit();
 
     Gui.hash_timer = try std.time.Timer.start();
@@ -2869,8 +2872,6 @@ pub fn main() anyerror!void {
 
     var draw = graph.ImmediateDrawingContext.init(alloc, win.getDpi());
     defer draw.deinit();
-
-    var percent_usage: f32 = 0;
 
     //var draw_line_debug: bool = false;
 
@@ -2949,7 +2950,6 @@ pub fn main() anyerror!void {
             .key_state = &win.key_state,
             .keys = win.keys.slice(),
         });
-        defer percent_usage = @as(f32, @floatFromInt(stack_alloc.end_index)) / 1000;
 
         gui_time = gui_timer.read();
 
