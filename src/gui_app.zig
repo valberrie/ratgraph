@@ -4,8 +4,6 @@ const Rect = graph.Rect;
 const Rec = graph.Rec;
 const itc = graph.itc;
 const Pad = graph.Padding;
-//TODO it would be usefull to have types with owners?
-//we get a string from lua
 
 const lua = @cImport({
     @cInclude("lua.h");
@@ -1706,9 +1704,7 @@ pub const AtlasEditor = struct {
     }
 };
 
-/// Attempting to make a nextStep style gui
-///
-/// For now, reimplement all the elments in gui within this
+/// Attempting to make a Mac os 9 style gui
 ///
 /// Elements we need
 /// inset rect
@@ -1834,7 +1830,7 @@ pub const Os9Gui = struct {
             .gui = gui,
             .scale = scale,
             .texture = try graph.Texture.initFromImgFile(alloc, dir, "next_step.png", .{ .mag_filter = graph.c.GL_NEAREST }),
-            .font = try graph.Font.init(alloc, dir, "fonts/roboto.ttf", 12, 163, .{}),
+            .font = try graph.Font.init(alloc, dir, "fonts/roboto.ttf", 24, 163, .{}),
             .icon_font = try graph.Font.init(
                 alloc,
                 std.fs.cwd(),
@@ -1853,7 +1849,6 @@ pub const Os9Gui = struct {
         self.icon_font.deinit();
     }
 
-    //TODO remove scale variable and scale using GuiDrawContext
     pub fn update(self: *Self) !void {
         const gui = self.gui;
         const scale = self.scale;
@@ -2413,8 +2408,9 @@ pub const Os9Gui = struct {
         }
     }
 
-    //TODO better way to display error
-    //option to treat an integer as decimal fixed point
+    //TODO
+    //Option to treat an integer as decimal fixed point
+    //floats in textboxes are messy
 
     pub fn textbox(self: *Self, contents: *std.ArrayList(u8)) !void {
         const gui = self.gui;
@@ -2799,13 +2795,38 @@ pub const Lua = struct {
 // given a directory generate an atlas of pngs and a hash_map mapping names to texture slice
 //
 // adding metadata to this model?
-pub fn assetLoad(alloc: std.mem.Allocator) !void {
-    var idir = try std.fs.cwd().openIterableDir("test_pngs", .{});
+
+pub const AssetMap = struct {
+    const Self = @This();
+    map: std.StringHashMap(Rect),
+    names: std.ArrayList([]const u8),
+    alloc: std.mem.Allocator,
+
+    texture: graph.Texture,
+
+    pub fn deinit(self: *Self) void {
+        for (self.names.items) |item| {
+            self.alloc.free(item);
+        }
+        self.names.deinit();
+        self.map.deinit();
+    }
+};
+
+pub fn assetLoad(alloc: std.mem.Allocator) !AssetMap {
+    var idir = try std.fs.cwd().openIterableDir("asset/os9gui", .{});
     defer idir.close();
     var walker = try idir.walk(
         alloc,
     );
     defer walker.deinit();
+
+    var ret = AssetMap{
+        .alloc = alloc,
+        .map = std.StringHashMap(Rect).init(alloc),
+        .names = std.ArrayList([]const u8).init(alloc),
+        .texture = undefined,
+    };
 
     var bmps = std.ArrayList(graph.Bitmap).init(alloc);
     defer {
@@ -2821,11 +2842,13 @@ pub fn assetLoad(alloc: std.mem.Allocator) !void {
     while (try walker.next()) |w| {
         switch (w.kind) {
             .file => {
-                //std.debug.print("{s} {s}\n", .{ w.basename, w.path });
+                std.debug.print("{s} {s}\n", .{ w.basename, w.path });
                 if (std.mem.endsWith(u8, w.basename, ".png")) {
                     const index = bmps.items.len;
                     try bmps.append(try graph.Bitmap.initFromPngFile(alloc, w.dir, w.basename));
                     try rpack.appendRect(index, bmps.items[index].w, bmps.items[index].h);
+                    //names has the same indicies as bmps
+                    try ret.names.append(try alloc.dupe(u8, w.path));
                 }
             },
             else => {},
@@ -2837,13 +2860,22 @@ pub fn assetLoad(alloc: std.mem.Allocator) !void {
     defer out_bmp.deinit();
     for (rpack.rects.items) |rect| {
         const i: usize = @intCast(rect.id);
+        const r = graph.Rec(rect.x, rect.y, rect.w, rect.h);
         graph.Bitmap.copySubR(4, &out_bmp, @intCast(rect.x), @intCast(rect.y), &bmps.items[i], 0, 0, @intCast(rect.w), @intCast(rect.h));
+        try ret.map.put(ret.names.items[i], r);
     }
     try out_bmp.writeToPngFile(std.fs.cwd(), "testpack.png");
+    ret.texture = graph.Texture.initFromBitmap(out_bmp, .{ .mag_filter = graph.c.GL_NEAREST });
+    return ret;
 }
-//TODO
-//asset packing
-//n window support. this requires some kind of window management
+
+pub const TestConfig = struct {
+    item_height: f32 = 30,
+    scale: f32 = 0.5,
+    win_inset: f32 = 24,
+    padding: graph.Padding = graph.Padding.new(12, 0, 12, 12),
+    filek: std.fs.File.Kind = .file,
+};
 
 pub fn main() anyerror!void {
     //_ = graph.MarioData.dd;
@@ -2851,7 +2883,7 @@ pub fn main() anyerror!void {
     defer _ = gpa.detectLeaks();
     const alloc = gpa.allocator();
 
-    var current_app: enum { keyboard_display, filebrowser, atlas_edit, gtest, lua_test, crass } = .atlas_edit;
+    var current_app: enum { keyboard_display, filebrowser, atlas_edit, gtest, lua_test, crass } = .crass;
     var arg_it = try std.process.ArgIterator.initWithAllocator(alloc);
     defer arg_it.deinit();
     const Arg = ArgUtil.Arg;
@@ -2876,6 +2908,12 @@ pub fn main() anyerror!void {
     defer win.destroyWindow();
     var debug_dir = try std.fs.cwd().openDir("debug", .{});
     defer debug_dir.close();
+    var ass = try assetLoad(alloc);
+    defer ass.deinit();
+    const o_win = ass.map.get("window.png").?;
+    const o_inwin = ass.map.get("window_inner.png").?;
+    const o_bg = ass.map.get("bg.png").?;
+    const o_tb = ass.map.get("tb2.png").?;
 
     graph.c.glLineWidth(1);
 
@@ -2945,10 +2983,11 @@ pub fn main() anyerror!void {
 
     var test_tex = try graph.Texture.initFromImgFile(alloc, std.fs.cwd(), "icon.png", .{});
     defer test_tex.deinit();
+    var tc: TestConfig = .{};
 
     //END LUA
     win.pumpEvents();
-    var win_rect = graph.Rec(0, 0, win.screen_dimensions.x, win.screen_dimensions.y);
+    var win_rect = graph.Rec(1000, 0, win.screen_dimensions.x - 1000, win.screen_dimensions.y);
 
     if (cli_opts.wireframe != null)
         graph.c.glPolygonMode(graph.c.GL_FRONT_AND_BACK, graph.c.GL_LINE);
@@ -3049,13 +3088,39 @@ pub fn main() anyerror!void {
                         gui.draw9Slice(border_area, Os9Gui.os9in, os9_ctx.texture, os9_ctx.scale);
                         _ = try gui.beginLayout(Gui.SubRectLayout, .{ .rect = area }, .{});
                         defer gui.endLayout();
-                        _ = try gui.beginLayout(Gui.VerticalLayout, .{ .item_height = 24 }, .{});
+                        var vl = try gui.beginLayout(Gui.VerticalLayout, .{ .item_height = 40 }, .{});
                         defer gui.endLayout();
-                        try os9gui.editProperty(Gui.Context, &gui, "gui", 0);
+                        os9gui.slider(&tc.scale, 0.1, 4);
+                        try os9gui.enumCombo(&tc.filek);
+                        try os9gui.textboxNumber(&tc.scale);
+                        try os9gui.textboxNumber(&tc.win_inset);
+                        vl.pushRemaining();
+                        try os9gui.propertyTable(&tc);
+                        //try os9gui.editProperty(Gui.Context, &gui, "gui", 0);
                         //try os9gui.propertyTable(&gui);
                     }
                 },
             }
+            try gui.beginWindow(graph.Rec(0, 0, 1000, 1000));
+            {
+                defer gui.endWindow();
+                const a = gui.getArea() orelse unreachable;
+                const s = tc.scale;
+                gui.draw9Slice(a, o_win, ass.texture, s);
+                _ = o_inwin;
+                gui.draw9Slice(a.inset(tc.win_inset * s), o_bg, ass.texture, s);
+                _ = try gui.beginLayout(Gui.SubRectLayout, .{ .rect = a.inset(tc.win_inset * s) }, .{});
+                defer gui.endLayout();
+                _ = try gui.beginLayout(Gui.VerticalLayout, .{
+                    .item_height = tc.item_height,
+                    .padding = tc.padding,
+                }, .{});
+                defer gui.endLayout();
+                gui.draw9Slice(gui.getArea().?, o_tb, ass.texture, s);
+                gui.draw9Slice(gui.getArea().?, o_tb, ass.texture, s);
+                gui.draw9Slice(gui.getArea().?, o_win, ass.texture, s);
+            }
+
             try gui_draw_context.drawGui(&draw, &font, &gui, win.screen_dimensions.x, win.screen_dimensions.y);
 
             if (false) {

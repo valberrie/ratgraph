@@ -1,9 +1,5 @@
 const std = @import("std");
 const Cache = @import("gui_cache.zig");
-//TODO
-//Annotate all functions with what state they depend on. Make it easier to ensure proper state. For instance  gui.scissor depends on scroll_
-//
-//Idea: Parametric rects IDk. Somehow make a rect depend on another rects values. Probably stupid
 
 const json = std.json;
 const clamp = std.math.clamp;
@@ -22,9 +18,9 @@ const Vec2i = struct {
 };
 
 const Rect = graph.Rect;
+//TODO 86 this
 const SRect = struct {
     const Self = @This();
-    //TODO rename to inset
     pub fn scale(self: Self, amount: i16) Self {
         return .{ .x = self.x + amount, .y = self.y + amount, .w = self.w - amount * 2, .h = self.h - amount * 2 };
     }
@@ -504,7 +500,6 @@ pub const ClickState = enum(u8) {
 //If a struct provides a guiDraw function this could be called
 //so gui.drawMulti(my_slice) would iterate my_slice and call guiDraw on each
 
-//TODO add some sort of anotations to Context functions to show level of feature support.
 //What Widgets do varius ui's have
 //Nuklear:
 //  Textbox
@@ -588,7 +583,6 @@ pub var bstyle: ButtonStyle = .{
     .bot = graph.colorToHsva(Color.Black),
 };
 
-//TODO Is hashing the type name really a good idea
 pub const OpaqueDataStore = struct {
     const Self = @This();
     const DataStoreMapT = std.StringHashMap(DataItem);
@@ -847,10 +841,6 @@ pub const Context = struct {
     };
     const LayoutCacheT = Cache.StackCache(LayoutCacheData, LayoutCacheData.eql, .{ .log_debug = false });
 
-    const Popup = struct {
-        area: Rect,
-    };
-
     pub const ScrollData = struct {
         vertical_slider_area: ?Rect,
         horiz_slider_area: ?Rect,
@@ -922,6 +912,8 @@ pub const Context = struct {
         layout_cache: LayoutCacheT,
 
         area: Rect,
+        /// Represents the screen space area of the current scroll area, when a nested scroll section is created,
+        /// it is always clipped to exist inside the parent scroll_bounds
         scroll_bounds: ?Rect = null,
 
         depth: u32 = 0,
@@ -941,8 +933,10 @@ pub const Context = struct {
     window_index: ?usize = null,
     this_frame_num_windows: usize = 0,
     windows: std.ArrayList(Window),
+
     window_stack_node_index: usize = 0,
     window_stack_nodes: [32]WindowStackT.Node = undefined,
+
     window_stack: WindowStackT = .{},
     window_index_grabbed_mouse: ?usize = null,
 
@@ -957,8 +951,6 @@ pub const Context = struct {
     retained_alloc: std.mem.Allocator,
 
     tooltip_state: TooltipState,
-
-    //TODO change naming system, state from last frame should be prefixed with last_frame or exist inside a last_frame_state struct
 
     scratch_buf_pos: usize = 0,
     scratch_buf: [4096]u8 = undefined,
@@ -978,21 +970,10 @@ pub const Context = struct {
     mouse_grab_id: ?WidgetId = null,
     mouse_released: bool = false,
 
-    click_timer: u64 = 0,
     //TODO this field is for clickWidget, label or move to something
+    click_timer: u64 = 0,
     last_clicked: ?WidgetId = null,
 
-    //TODO is there a reason these nulls are all seperate?
-    popup: ?Popup = null,
-    popup_scroll_bounds: ?Rect = null,
-    popup_id: ?WidgetId = null,
-    /// This is set true on beginPopup and set false on endPopup
-    in_popup: bool = false,
-    last_frame_had_popup: bool = false,
-
-    /// Represents the screen space area of the current scroll area, when a nested scroll section is created,
-    /// it is always clipped to exist inside the parent scroll_bounds
-    //scroll_bounds: ?Rect = null,
     scroll_claimed_mouse: bool = false,
 
     pub fn scratchPrint(self: *Self, comptime fmt: []const u8, args: anytype) []const u8 {
@@ -1070,13 +1051,6 @@ pub const Context = struct {
             return .{ .layout_hash = ld.hash, .index = ld.widget_index };
         }
         std.debug.panic("getId called without a layout set!", .{});
-    }
-
-    pub fn isActivePopup(self: *Self, id: WidgetId) bool {
-        if (self.popup_id) |pop_id| {
-            return pop_id.eql(id);
-        }
-        return false;
     }
 
     pub fn isActiveTextinput(self: *Self, id: WidgetId) bool {
@@ -1413,7 +1387,6 @@ pub const Context = struct {
         self.current_layout_cache_data = w.layout_cache.getCacheDataPtr();
     }
 
-    //TODO ensure our new layout does not clip the previous layout, special case for scroll areas and popups as they can clip
     pub fn beginLayout(self: *Self, comptime Layout_T: type, layout_data: Layout_T, opts: struct { bg: Color = itc(0x222222ff), scissor: ?Rect = null }) !*Layout_T {
         const new_layout = try self.frame_alloc.create(Layout_T);
         new_layout.* = layout_data;
@@ -1882,9 +1855,6 @@ pub const Context = struct {
             ret.slice = self.storeString(sl);
         } else {
             ret.slice = self.scratchPrint("{d}", .{number_ptr.*});
-            //var fbs = std.io.FixedBufferStream([]u8){ .pos = 0, .buffer = &self.scratch_buf };
-            //try fbs.writer().print("{d}", .{number_ptr.*});
-            //ret.slice = fbs.getWritten();
         }
         if (click == .click) {
             if (!self.isActiveTextinput(id)) {
@@ -2053,137 +2023,6 @@ pub const Context = struct {
             self.drawRectFilled(hue_handle, Color.Black);
         }
     }
-
-    fn editProperty(self: *Self, comptime propertyT: type, property: *propertyT) !void {
-        const child_info = @typeInfo(propertyT);
-        switch (child_info) {
-            .Struct => {
-                const o = property;
-                switch (propertyT) {
-                    graph.Hsva => try self.colorInline(property),
-                    graph.Rect => try self.printLabel("Rect({d:.2} {d:.2} {d:.2} {d:.2})", .{ o.x, o.y, o.w, o.h }),
-                    else => {
-                        //self.drawText("Struct", .{ .x = rec.x + rec.w / 2, .y = rec.y + fi * item_height }, item_height, Color.Black);
-                        const rec = self.getArea() orelse return;
-                        const wstate = self.getWidgetState(.{ .p = rec });
-                        const id = self.getId();
-                        const click = self.clickWidget(rec);
-                        if (self.isActivePopup(id)) {
-                            const lrq = self.layout.last_requested_bounds orelse return;
-                            const pr = graph.Rec(lrq.x, lrq.y, 900, 700);
-                            try self.beginPopup(pr);
-                            defer self.endPopup();
-
-                            //if (try self.beginLayout(try ld.getWidgetData(0), .{ .item_height = 3000 }, .{})) |scroll| {
-                            //    defer self.endScroll(scroll);
-                            //    try self.propertyTable(propertyT, property);
-                            //}
-                        } else {
-                            if (click == .click) {
-                                self.popup_id = id;
-                                self.last_frame_had_popup = true;
-                            }
-                        }
-
-                        if (wstate != .no_change)
-                            self.drawText("{Struct}", rec.pos(), rec.h, Color.Black);
-                    },
-                }
-            },
-            .Bool => {
-                self.checkbox("cunt", property);
-                //try self.printLabel("{any}", .{property.*});
-            },
-            .Enum => {
-                try self.enumDropDown(propertyT, property);
-            },
-            .Int, .Float => {
-                try self.textboxNumber(property);
-            },
-            .Pointer => |p| {
-                switch (p.size) {
-                    .Slice => {
-                        switch (p.child) {
-                            u8 => {
-                                try self.printLabel("{s}", .{property.*});
-                            },
-                            else => {},
-                        }
-                    },
-                    else => {
-                        self.skipArea();
-                    },
-                }
-            },
-            else => {
-                self.skipArea();
-            },
-        }
-    }
-
-    pub fn propertyTableHeight(self: *Self, comptime propertyT: type) f32 {
-        _ = self;
-        const item_height = 40;
-        const info = @typeInfo(propertyT);
-        return @as(f32, @floatFromInt(info.Struct.fields.len)) * item_height;
-    }
-
-    //TODO
-    //What functions do we need to provide for property.
-    //Number spinner.
-    //boolean checkbox
-    //Tuple drop down. (Vec3 is displayed as (x, y, z) can be dropped down to modify each component)
-    pub fn propertyTable(self: *Self, comptime propertyT: type, property: *propertyT) !void {
-        const info = @typeInfo(propertyT);
-        //TODO check property is a struct
-
-        const num = info.Struct.fields.len;
-        const item_height = 40;
-        const rec = self.getArea() orelse return;
-        _ = try self.beginLayout(SubRectLayout, .{ .rect = rec }, .{});
-        defer self.endLayout();
-
-        _ = try self.beginLayout(TableLayout, .{ .item_height = item_height, .columns = 2 }, .{});
-        defer self.endLayout();
-
-        const wstate = self.getWidgetState(.{ .t = WidgetTypes.propertyTable, .r = rec.toIntRect(i16, SRect), .n = num });
-        if (wstate != .no_change) {
-            self.drawRectFilled(rec, Color.White);
-        }
-
-        inline for (info.Struct.fields) |field| {
-            const ar = self.getArea() orelse return;
-            if (wstate != .no_change) {
-                self.drawText(field.name, ar.pos(), item_height, Color.Black);
-            }
-            const child_info = @typeInfo(field.type);
-            switch (child_info) {
-                .Optional => {
-                    const op = @field(property, field.name);
-                    if (op != null) {
-                        try self.editProperty(@TypeOf(op.?), &(@field(property, field.name).?));
-                    } else {
-                        try self.printLabel("null", .{});
-                    }
-                },
-                else => {
-                    try self.editProperty(field.type, &@field(property, field.name));
-                },
-            }
-        }
-
-        if (wstate != .no_change) {
-            self.drawLine(.{ .x = rec.x + rec.w / 2, .y = rec.y }, .{ .x = rec.x + rec.w / 2, .y = rec.y + item_height * @as(f32, @floatFromInt(num)) }, Color.Black);
-            var i: u32 = 0;
-            while (i <= num) : (i += 1) {
-                self.drawLine(
-                    .{ .x = rec.x, .y = rec.y + item_height * @as(f32, @floatFromInt(i)) },
-                    .{ .x = rec.x + rec.w, .y = rec.y + item_height * @as(f32, @floatFromInt(i)) },
-                    Color.Black,
-                );
-            }
-        }
-    }
 };
 
 pub const GuiDrawContext = struct {
@@ -2198,8 +2037,6 @@ pub const GuiDrawContext = struct {
     pub fn init(alloc: std.mem.Allocator) !Self {
         return .{
             .window_fbs = std.ArrayList(graph.RenderTexture).init(alloc),
-            //.main_rtexture = try graph.RenderTexture.init(10, 10),
-            //.popup_rtexture = try graph.RenderTexture.init(10, 10),
         };
     }
 
@@ -2333,29 +2170,9 @@ pub const GuiDrawContext = struct {
         //}
         //graph.c.glDisable(graph.c.GL_STENCIL_TEST);
 
-        //if (gui.popup) |p| {
-        //    //try self.popup_rtexture.setSize(@as(i32, @intFromFloat(p.area.w)), @as(i32, @intFromFloat(p.area.w)));
-        //    //self.popup_rtexture.bind(true);
-
-        //    _ = p;
-        //    //ctx.screen_bounds = graph.Rec(p.area.x, p.area.y + p.area.h, p.area.x + p.area.w, p.area.y).toIntRect(i32, graph.IRect);
-        //    for (gui.command_list_popup.items) |command| {
-        //        try self.drawCommand(command, ctx, font);
-        //    }
-        //    try ctx.flush(.{ .x = 0, .y = 0 }, null);
-        //}
-
-        //for (gui.tooltip_state.command_list.items) |tt| {
-        //    try self.drawCommand(tt, ctx, font);
-        //    try ctx.flush(.{ .x = 0, .y = 0 }, null);
-        //}
-
         //try ctx.drawRectTex(parea, parea, Color.White, self.main_rtexture.texture);
 
         //try ctx.drawRectTex(parea, graph.Rec(0, 0, self.main_rtexture.texture.w, self.main_rtexture.texture.h), Color.White, self.main_rtexture.texture);
-        //if (gui.popup) |p| {
-        //    try ctx.drawRectTex(p.area, graph.Rec(0, 0, self.popup_rtexture.w, self.popup_rtexture.h), Color.White, self.popup_rtexture.texture);
-        //}
     }
 
     pub fn drawCommand(self: *Self, command: DrawCommand, draw: *graph.ImmediateDrawingContext, font: *graph.Font) !void {
@@ -2392,9 +2209,7 @@ pub const GuiDrawContext = struct {
                     const ar = ca.screen_area;
                     graph.c.glViewport(
                         @as(i32, @intFromFloat(ar.x - self.camera_bounds.?.x)),
-                        //@as(i32, @intFromFloat(draw.screen_dimensions.y - (ar.y + ar.h))),
                         @as(i32, @intFromFloat(self.camera_bounds.?.h - (ar.y + ar.h) + self.camera_bounds.?.y)),
-                        //@floatToInt(i32, ar.y + ar.h) - ctx.screen_bounds.h,
                         @as(i32, @intFromFloat(ar.w)),
                         @as(i32, @intFromFloat(ar.h)),
                     );
@@ -2409,8 +2224,6 @@ pub const GuiDrawContext = struct {
                     );
                     self.old_cam_bounds = null;
                 }
-                //try draw.flush(sc.cam_area);
-                //try ctx.flush(sc.offset, sc.cam_area);
             },
             .scissor => |s| {
                 const c = graph.c;
@@ -2419,13 +2232,10 @@ pub const GuiDrawContext = struct {
                     c.glEnable(c.GL_SCISSOR_TEST);
                     c.glScissor(
                         @as(i32, @intFromFloat(ar.x - self.camera_bounds.?.x)),
-                        //@as(i32, @intFromFloat(draw.screen_dimensions.y - (ar.y + ar.h))),
                         @as(i32, @intFromFloat(self.camera_bounds.?.h - (ar.y + ar.h) + self.camera_bounds.?.y)),
-                        //@floatToInt(i32, ar.y + ar.h) - ctx.screen_bounds.h,
                         @as(i32, @intFromFloat(ar.w)),
                         @as(i32, @intFromFloat(ar.h)),
                     );
-                    //ctx.drawRect(graph.Rec(0, 0, 10000, 10000), Color.Blue);
                 } else {
                     c.glDisable(c.GL_SCISSOR_TEST);
                 }
@@ -2437,7 +2247,6 @@ pub const GuiDrawContext = struct {
             },
             .rect_9slice => |s| {
                 draw.nineSlice(s.r, s.uv, s.texture, s.scale);
-                //try ctx.draw9Slice(s.r, s.uv, s.texture, s.scale);
             },
             .rect_9border => |s| {
                 _ = s;

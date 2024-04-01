@@ -15,13 +15,8 @@ pub const MarioData = @import("data_mario.zig");
 pub const Collision = @import("col.zig");
 pub const Ecs = @import("registry.zig");
 pub const Lua = @import("lua.zig");
-//TODO Write draw functions for both point and pixel usage
-//write function that takes a list of keybindings and draws a display documenting all keys and functions
-//Allow typeless entry of data for draw fn's. Support common vector and rectangle types with both integer and floating point
-
 pub const V3 = za.Vec3;
 
-//BEGIN NEW API
 pub const ptypes = @import("graphics/types.zig");
 pub const Rect = ptypes.Rect;
 pub const Rec = Rect.NewAny;
@@ -41,14 +36,14 @@ pub const Hsva = ptypes.Hsva;
 pub const Colori = ptypes.Colori;
 pub const itc = ptypes.itc;
 pub const Shader = GL.Shader;
+const gui_app = @import("gui_app.zig");
+const Os9Gui = gui_app.Os9Gui;
 
 pub const GL = @import("graphics/gl.zig");
 pub const glID = GL.glID;
 
 pub const SDL = @import("graphics/SDL.zig");
 pub const Bind = SDL.Bind;
-
-//END NEW API
 
 pub inline fn ptToPx(dpi: f32, pt: f32) f32 {
     return pt / 72 * dpi;
@@ -584,7 +579,6 @@ pub const ImmediateDrawingContext = struct {
 
     //TODO actually check this and log or panic
     draw_fn_error: enum {
-        //TODO maybe have different?
         no,
         yes,
     } = .no,
@@ -618,7 +612,6 @@ pub const ImmediateDrawingContext = struct {
         }
         self.batches.deinit();
     }
-    //TODO function that takes anytype used to draw
 
     fn setErr(self: *Self, e: anyerror) void {
         std.debug.print("ImmediateDrawingContext: {any}\n", .{e});
@@ -951,7 +944,6 @@ pub const ImmediateDrawingContext = struct {
         const cb = if (custom_camera) |cc| cc else Rec(0, 0, self.screen_dimensions.x, self.screen_dimensions.y);
         const view = za.orthographic(cb.x, cb.x + cb.w, cb.y + cb.h, cb.y, -100000, 1);
         const model = za.Mat4.identity();
-        //TODO annotate batches with camera or view
 
         const sortctx = MapKeySortCtx{ .items = self.batches.keys() }; // Sort the batches by params.draw_priority
         self.batches.sort(sortctx);
@@ -1190,8 +1182,6 @@ fn lerp(start: f32, end: f32, ratio: f32) f32 {
 fn lerpVec(start: Vec2f, end: Vec2f, ratio: f32) Vec2f {
     return (.{ .x = lerp(start.x, end.x, ratio), .y = lerp(start.y, end.y, ratio) });
 }
-
-//TODO asset packing and loading with metadata
 
 pub const Cubes = struct {
     const Self = @This();
