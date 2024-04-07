@@ -391,8 +391,8 @@ pub const Font = struct {
     }
 
     pub fn nearestGlyphX(self: *Self, string: []const u8, size_px: f32, rel_coord: Vec2f) ?usize {
-        //const scale = (size_px / self.dpi * 72) / self.font_size;
-        const scale = size_px / @as(f32, @floatFromInt(self.height));
+        const scale = (size_px / self.dpi * 72) / self.font_size;
+        //const scale = size_px / @as(f32, @floatFromInt(self.height));
 
         var x_bound: f32 = 0;
         var bounds = Vec2f{ .x = 0, .y = 0 };
@@ -434,8 +434,9 @@ pub const Font = struct {
     }
 
     pub fn textBounds(self: *Self, string: []const u8, size_px: anytype) Vec2f {
-        //const scale = (lcast(f32, size_px) / self.dpi * 72) / self.font_size;
-        const scale = size_px / @as(f32, @floatFromInt(self.height));
+        const scale = (lcast(f32, size_px) / self.dpi * 72) / self.font_size;
+        //const scale = size_px / @as(f32, @floatFromInt(self.height));
+        //const scale = size_px / self.font_size;
 
         var x_bound: f32 = 0;
         var bounds = Vec2f{ .x = 0, .y = self.line_gap * scale };

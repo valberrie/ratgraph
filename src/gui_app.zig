@@ -2315,6 +2315,7 @@ pub const Os9Gui = struct {
     //TODO
     //Option to treat an integer as decimal fixed point
     //floats in textboxes are messy
+    //Support raw slices with alloc?
 
     pub fn textbox(self: *Self, contents: *std.ArrayList(u8)) !void {
         const gui = &self.gui;
@@ -2322,6 +2323,12 @@ pub const Os9Gui = struct {
             const tr = d.text_area;
             gui.draw9Slice(d.area, inset9, self.texture, self.scale);
             gui.drawTextFmt("{s}", .{d.slice}, d.text_area, d.text_area.h, Color.Black, .{}, &self.font);
+            gui.drawRectFilled(Rect.new(
+                d.selection_pos_min + d.text_area.x,
+                d.text_area.y,
+                d.selection_pos_max - d.selection_pos_min,
+                d.text_area.h,
+            ), itc(0x0000ff55));
             if (d.caret) |of| {
                 gui.drawRectFilled(Rect.new(of + tr.x, tr.y + 2, 3, tr.h - 4), Color.Black);
             }
@@ -2800,7 +2807,7 @@ pub fn main() anyerror!void {
     defer _ = gpa.detectLeaks();
     const alloc = gpa.allocator();
 
-    var current_app: enum { keyboard_display, filebrowser, atlas_edit, gtest, lua_test, crass } = .filebrowser;
+    var current_app: enum { keyboard_display, filebrowser, atlas_edit, gtest, lua_test, crass } = .gtest;
     var arg_it = try std.process.ArgIterator.initWithAllocator(alloc);
     defer arg_it.deinit();
     const Arg = ArgUtil.Arg;
@@ -2919,6 +2926,7 @@ pub fn main() anyerror!void {
             .mouse_wheel_down = win.mouse.middle == .high,
             .key_state = &win.key_state,
             .keys = win.keys.slice(),
+            .mod_state = win.mod,
         };
         try os9gui.beginFrame(is, &win);
 

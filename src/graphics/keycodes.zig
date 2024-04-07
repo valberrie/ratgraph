@@ -697,26 +697,40 @@ pub const Keycode = enum(u32) {
 
 //
 // \brief Enumeration of valid key mods (possibly OR'd together).
-//
-pub const Keymod = enum(u8) {
+const KM_LCTRL = 0x0040;
+const KM_RCTRL = 0x0080;
+const KM_LSHIFT = 0x0001;
+const KM_RSHIFT = 0x0002;
+const KM_LALT = 0x0100;
+const KM_RALT = 0x0200;
+const KM_LGUI = 0x0400;
+const KM_RGUI = 0x0800;
+const KM_SCROLL = 0x8000;
+pub const KeymodMask = u32;
+pub const Keymod = enum(KeymodMask) {
     NONE = 0x0000,
-    LSHIFT = 0x0001,
-    RSHIFT = 0x0002,
-    LCTRL = 0x0040,
-    RCTRL = 0x0080,
-    LALT = 0x0100,
-    RALT = 0x0200,
-    LGUI = 0x0400,
-    RGUI = 0x0800,
+    LSHIFT = KM_LSHIFT,
+    RSHIFT = KM_RSHIFT,
+    LCTRL = KM_LCTRL,
+    RCTRL = KM_RCTRL,
+    LALT = KM_LALT,
+    RALT = KM_RALT,
+    LGUI = KM_LGUI,
+    RGUI = KM_RGUI,
     NUM = 0x1000,
     CAPS = 0x2000,
     MODE = 0x4000,
-    SCROLL = 0x8000,
+    SCROLL = KM_SCROLL,
 
-    CTRL = .LCTRL | .RCTRL,
-    SHIFT = .LSHIFT | .RSHIFT,
-    ALT = .LALT | .RALT,
-    GUI = .LGUI | .RGUI,
+    CTRL = KM_LCTRL | KM_RCTRL,
+    SHIFT = KM_LSHIFT | KM_RSHIFT,
+    ALT = KM_LALT | KM_RALT,
+    GUI = KM_LGUI | KM_RGUI,
 
-    RESERVED = .SCROLL, // This is for source-level compatibility with SDL 2.0.0. */
+    pub fn mask(to_mask: []const Keymod) KeymodMask {
+        var ret: KeymodMask = 0;
+        for (to_mask) |t|
+            ret |= @intFromEnum(t);
+        return ret;
+    }
 };

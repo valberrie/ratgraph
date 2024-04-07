@@ -122,16 +122,17 @@ pub const InputState = struct {
     pub const DefaultKeyboardState = graph.SDL.Window.KeyboardStateT.initEmpty();
     //TODO switch to using new graphics.zig MouseState
     //make clickwidget support rightClicks, double click etc
-    //Figure out textinput, make it a part of this?
     //This struct should not depend on SDL.
+    //Move
     mouse_pos: Vec2f = .{ .x = 0, .y = 0 },
     mouse_delta: Vec2f = .{ .x = 0, .y = 0 },
     mouse_left_held: bool = false,
     mouse_left_clicked: bool = false,
     mouse_wheel_delta: f32 = 0,
     mouse_wheel_down: bool = false,
-    keys: []const graph.SDL.KeyState = &.{},
-    key_state: *const graph.SDL.Window.KeyStateT = &graph.SDL.Window.EmptyKeyState,
+    keys: []const graph.SDL.KeyState = &.{}, // Populated with keys just pressed, keydown events
+    key_state: *const graph.SDL.Window.KeyStateT = &graph.SDL.Window.EmptyKeyState, //All the keys state
+    mod_state: graph.SDL.keycodes.KeymodMask = 0,
 };
 
 fn opaqueSelf(comptime self: type, ptr: *anyopaque) *self {
@@ -322,12 +323,22 @@ pub const RetainedState = struct {
     pub const TextInput = struct {
         const Self = @This();
         const uni = std.unicode;
+        const M = graph.SDL.keycodes.Keymod;
+        const None = M.mask(&.{.NONE});
         const edit_keys_list = graph.Bind(&.{
-            .{ "move_left", "Left" },
-            .{ "move_right", "Right" },
-            .{ "backspace", "Backspace" },
-            .{ "delete", "Delete" },
-            .{ "tab_next", "Tab" },
+            .{ .name = "backspace", .bind = .{ .BACKSPACE, None } },
+            .{ .name = "delete", .bind = .{ .DELETE, None } },
+            .{ .name = "delete_word_right", .bind = .{ .DELETE, M.mask(&.{.LCTRL}) } },
+            .{ .name = "delete_word_left", .bind = .{ .BACKSPACE, M.mask(&.{.LCTRL}) } },
+            .{ .name = "move_left", .bind = .{ .LEFT, None } },
+            .{ .name = "move_word_left", .bind = .{ .LEFT, M.mask(&.{.LCTRL}) } },
+            .{ .name = "move_right", .bind = .{ .RIGHT, None } },
+            .{ .name = "move_word_right", .bind = .{ .RIGHT, M.mask(&.{.LCTRL}) } },
+            .{ .name = "select_right", .bind = .{ .RIGHT, M.mask(&.{.LSHIFT}) } },
+            .{ .name = "select_left", .bind = .{ .LEFT, M.mask(&.{.LSHIFT}) } },
+            .{ .name = "select_word_right", .bind = .{ .RIGHT, M.mask(&.{ .LCTRL, .LSHIFT }) } },
+            .{ .name = "select_word_left", .bind = .{ .LEFT, M.mask(&.{ .LCTRL, .LSHIFT }) } },
+            .{ .name = "select_all", .bind = .{ .A, M.mask(&.{.LCTRL}) } },
         });
 
         const SingleLineMovement = enum {
@@ -353,9 +364,26 @@ pub const RetainedState = struct {
                 .right => {
                     self.head = clamp(self.head + 1, 0, max);
                 },
+                .prev_word_end => {
+                    const sl = self.codepoints.items;
+                    while (self.head > 0 and std.ascii.isWhitespace(sl[@intCast(self.head - 1)])) : (self.head -= 1) {}
+                    if (std.mem.lastIndexOfAny(u8, sl[0..@intCast(self.head)], &std.ascii.whitespace)) |ws| {
+                        self.head = @as(i32, @intCast(ws)) + 1;
+                    } else {
+                        self.head = 0;
+                    }
+                },
+                .next_word_end => {
+                    const sl = self.codepoints.items;
+                    while (self.head < sl.len and std.ascii.isWhitespace(sl[@intCast(self.head)])) : (self.head += 1) {}
+                    if (std.mem.indexOfAny(u8, sl[@intCast(self.head)..sl.len], &std.ascii.whitespace)) |ws| {
+                        self.head += @intCast(ws);
+                    } else {
+                        self.head = max;
+                    }
+                },
                 .start => self.head = 0,
                 .end => self.head = max,
-                else => {},
             }
         }
 
@@ -364,23 +392,9 @@ pub const RetainedState = struct {
             self.tail = self.head;
         }
 
-        fn delete_to(self: *Self, movement: SingleLineMovement) void {
-            const max = @as(i32, @intCast(self.codepoints.items.len));
-            switch (movement) {
-                .left => {
-                    if (max == 0 or self.head == 0) return;
-                    self.head -= 1;
-                    self.head = clamp(self.head, 0, max);
-                    self.tail = self.head;
-                    _ = self.codepoints.orderedRemove(@as(usize, @intCast(self.head)));
-                },
-                .right => {
-                    if (max == 0 or self.head == max) return;
-                    _ = self.codepoints.orderedRemove(@as(usize, @intCast(self.head)));
-                    self.tail = self.head;
-                },
-                else => {},
-            }
+        fn delete_to(self: *Self, movement: SingleLineMovement) !void {
+            self.select_to(movement);
+            try self.deleteSelection();
         }
 
         pub fn init(alloc: std.mem.Allocator) Self {
@@ -406,6 +420,14 @@ pub const RetainedState = struct {
             try self.codepoints.appendSlice(new_str);
             self.head = 0;
             self.tail = 0;
+        }
+
+        pub fn deleteSelection(self: *Self) !void {
+            const min = @min(self.tail, self.head);
+            const max = @max(self.tail, self.head);
+            try self.codepoints.replaceRange(@intCast(min), @intCast(max - min), "");
+            self.head = min;
+            self.tail = min;
         }
 
         pub fn resetFmt(self: *Self, comptime fmt: []const u8, args: anytype) !void {
@@ -444,23 +466,38 @@ pub const RetainedState = struct {
                     }
                 }
                 if (tb.head != tb.tail) {
-                    //try tb.chars.replaceRange(tb.tail, tb.head - tb.tail, codepoint.?);
-                    //tb.tail = tb.head;
-                } else {
-                    try tb.codepoints.insert(@intCast(tb.head), new_char);
-                    tb.head += 1;
-                    tb.tail = tb.head;
+                    try tb.deleteSelection();
                 }
+                try tb.codepoints.insert(@intCast(tb.head), new_char);
+                tb.head += 1;
+                tb.tail = tb.head;
             }
 
+            const mod = input_state.mod_state & ~M.mask(&.{ .SCROLL, .NUM, .CAPS });
             for (input_state.keys) |key| {
-                switch (StaticData.key_binds.get(key.scancode)) {
-                    .tab_next => {},
+                switch (StaticData.key_binds.getWithMod(key.scancode, mod) orelse continue) {
                     .move_left => tb.move_to(.left),
                     .move_right => tb.move_to(.right),
-                    .delete => tb.delete_to(.right),
-                    .backspace => tb.delete_to(.left),
-                    else => {},
+                    .move_word_right => tb.move_to(.next_word_end),
+                    .move_word_left => tb.move_to(.prev_word_end),
+                    .backspace => {
+                        if (tb.tail != tb.head) {
+                            try tb.deleteSelection();
+                        } else {
+                            try tb.delete_to(.left);
+                        }
+                    },
+                    .delete => try tb.delete_to(.right),
+                    .delete_word_right => try tb.delete_to(.next_word_end),
+                    .delete_word_left => try tb.delete_to(.prev_word_end),
+                    .select_left => tb.select_to(.left),
+                    .select_right => tb.select_to(.right),
+                    .select_word_right => tb.select_to(.next_word_end),
+                    .select_word_left => tb.select_to(.prev_word_end),
+                    .select_all => {
+                        tb.tail = 0;
+                        tb.head = @intCast(tb.codepoints.items.len);
+                    },
                 }
             }
         }
@@ -724,6 +761,8 @@ pub const Context = struct {
             caret: ?f32,
             slice: []const u8,
             is_invalid: bool = false,
+            selection_pos_min: f32 = 0,
+            selection_pos_max: f32 = 0,
         };
 
         pub const Slider = struct {
@@ -973,6 +1012,7 @@ pub const Context = struct {
 
     //TODO this field is for clickWidget, label or move to something
     click_timer: u64 = 0,
+    held_timer: u64 = 0,
     last_clicked: ?WidgetId = null,
 
     scroll_claimed_mouse: bool = false,
@@ -1151,6 +1191,7 @@ pub const Context = struct {
 
         self.layout.reset();
         self.click_timer += 1;
+        self.held_timer = if (self.input_state.mouse_left_held) self.held_timer + 1 else 0;
 
         if (self.mouse_released) {
             self.mouse_grab_id = null;
@@ -1758,6 +1799,8 @@ pub const Context = struct {
             .text_area = trect,
             .caret = null,
             .slice = contents.items,
+            .selection_pos_min = 0,
+            .selection_pos_max = 0,
         };
 
         if (self.isActiveTextinput(id)) {
@@ -1772,6 +1815,11 @@ pub const Context = struct {
             const sl = tb.getSlice();
             const caret_x = font.textBounds(sl[0..@as(usize, @intCast(tb.head))], trect.h).x;
             ret.caret = caret_x;
+            if (tb.head != tb.tail) {
+                const tail_x = font.textBounds(sl[0..@intCast(tb.tail)], trect.h).x;
+                ret.selection_pos_max = @max(caret_x, tail_x);
+                ret.selection_pos_min = @min(caret_x, tail_x);
+            }
 
             if (!std.mem.eql(u8, sl, contents.items)) {
                 try contents.resize(sl.len);
@@ -1787,11 +1835,16 @@ pub const Context = struct {
             if (cin) |cc| {
                 self.textbox_state.setCaret(cc - 1);
             }
+        } else if (click == .held and self.held_timer > 4) {
+            const cin = font.nearestGlyphX(self.textbox_state.getSlice(), trect.h, self.input_state.mouse_pos.sub(trect.pos()));
+            if (cin) |cc|
+                self.textbox_state.head = @intCast(cc);
         }
         ret.slice = contents.items;
         return ret;
     }
 
+    // TODO Should we defer updates of number_ptr until enter is pressed or the textbox unfocused?
     pub fn textboxNumberGeneric(self: *Self, number_ptr: anytype, font: *Font, params: struct {
         text_inset: f32,
     }) !?GenericWidget.Textbox {
@@ -2186,7 +2239,7 @@ pub const GuiDrawContext = struct {
             .text => |t| {
                 const p = t.pos.toF();
 
-                draw.textPx(p, t.string, t.font, t.size * 0.7, cc(t.color));
+                draw.textPx(p, t.string, t.font, t.size, cc(t.color));
             },
             .line => |l| {
                 draw.line(l.a, l.b, cc(l.color));

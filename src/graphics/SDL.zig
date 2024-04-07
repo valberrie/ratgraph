@@ -88,6 +88,7 @@ pub const Window = struct {
     should_exit: bool = false,
 
     mouse: MouseState = undefined,
+    mod: keycodes.KeymodMask = 0,
 
     //key_state: [c.SDL_NUM_SCANCODES]ButtonState = [_]ButtonState{.low} ** c.SDL_NUM_SCANCODES,
     key_state: KeyStateT = [_]ButtonState{.low} ** c.SDL_NUM_SCANCODES,
@@ -271,6 +272,7 @@ pub const Window = struct {
         for (&self.key_state) |*k| {
             k.* = .low;
         }
+        self.mod = c.SDL_GetModState();
 
         self.keys.resize(0) catch unreachable;
         self.last_frame_keyboard_state = self.keyboard_state;
@@ -397,19 +399,26 @@ pub const Window = struct {
     }
 };
 
-pub const BindType = [2][]const u8;
+pub const BindType = struct {
+    pub const Binding = struct {
+        keycodes.Scancode,
+        keycodes.KeymodMask,
+    };
+    name: []const u8,
+    bind: Binding,
+};
+
 pub const BindList = []const BindType;
 
 ///Takes a list of bindings{"name", "key_name"} and generates an enum
 ///can be used with BindingMap and a switch() to map key input events to actions
 pub fn GenerateBindingEnum(comptime map: BindList) type {
     const TypeInfo = std.builtin.Type;
-    var fields: [map.len + 1]TypeInfo.EnumField = undefined;
+    var fields: [map.len]TypeInfo.EnumField = undefined;
 
     inline for (map, 0..) |bind, b_i| {
-        fields[b_i] = .{ .name = bind[0], .value = b_i };
+        fields[b_i] = .{ .name = bind.name, .value = b_i };
     }
-    fields[map.len] = .{ .name = "no_action", .value = map.len };
     return @Type(TypeInfo{ .Enum = .{
         .fields = fields[0..],
         .tag_type = std.math.IntFittingRange(0, map.len),
@@ -418,67 +427,34 @@ pub fn GenerateBindingEnum(comptime map: BindList) type {
     } });
 }
 
-pub fn Bind(comptime map: BindList) type {
+pub fn Bind(comptime bind_list: BindList) type {
     return struct {
         const Self = @This();
-        pub const Map = map;
-        const bind_enum = GenerateBindingEnum(map);
+        pub const bindlist = bind_list;
+        const BindEnum = GenerateBindingEnum(bind_list);
 
-        scancode_table: [@intFromEnum(keycodes.Scancode.ODES)]bind_enum,
-        bind_table: [map.len]keycodes.Scancode,
+        mappings: [bind_list.len]BindType.Binding = [_]BindType.Binding{.{ .UNKNOWN, 0 }} ** bind_list.len,
 
         pub fn init() @This() {
-            var ret: @This() = undefined;
+            var ret: @This() = .{};
 
-            for (&ret.scancode_table) |*item|
-                item.* = .no_action;
-
-            for (map, 0..) |bind, i| {
-                var buffer: [256]u8 = undefined;
-                //if (bind.len >= buffer.len)
-                //    @compileError("Keybinding name to long");
-
-                std.mem.copy(u8, buffer[0..], bind[1]);
-                buffer[bind[1].len] = 0;
-
-                const sc = c.SDL_GetScancodeFromName(&buffer[0]);
-                //if (sc == c.SDL_SCANCODE_UNKNOWN) @compileError("Unknown scancode");
-                ret.scancode_table[sc] = @as(bind_enum, @enumFromInt(i));
-                ret.bind_table[i] = @as(keycodes.Scancode, @enumFromInt(sc));
+            for (bind_list, 0..) |bind, i| {
+                ret.mappings[i] = bind.bind;
             }
 
             return ret;
         }
 
-        pub fn getScancode(self: *const @This(), key: bind_enum) keycodes.Scancode {
-            return self.bind_table[@intFromEnum(key)];
-        }
-
-        pub fn get(self: *const @This(), scancode: keycodes.Scancode) bind_enum {
-            return self.scancode_table[@intFromEnum(scancode)];
-        }
-
-        pub fn heldIterator(self: *const @This(), win: *const Window) struct {
-            win: *const Window,
-            parent: *const Self,
-            index: usize = 0,
-            pub fn next(it: *@This()) ?bind_enum {
-                if (it.index == it.parent.bind_table.len)
-                    return null;
-                const sc = it.parent.bind_table[it.index];
-                if (it.win.keydown(sc)) {
-                    defer it.index += 1;
-                    return @enumFromInt(it.index);
-                }
-                it.index += 1;
-                return it.next();
+        pub fn getWithMod(self: *const @This(), scancode: keycodes.Scancode, mod: keycodes.KeymodMask) ?BindEnum {
+            for (self.mappings, 0..) |m, i| {
+                if (m[0] == scancode and m[1] == mod)
+                    return @enumFromInt(i);
             }
-        } {
-            return .{
-                .win = win,
-                .parent = self,
-                .index = 0,
-            };
+            return null;
+        }
+
+        pub fn get(self: *const @This(), scancode: keycodes.Scancode) ?BindEnum {
+            return self.scancode_table[@intFromEnum(scancode)].binding;
         }
     };
 }
