@@ -241,6 +241,22 @@ pub const Window = struct {
         return dpi;
     }
 
+    pub fn setClipboard(alloc: std.mem.Allocator, text: []const u8) !void {
+        const sl = try alloc.allocSentinel(u8, text.len, 0);
+        @memcpy(sl[0..text.len], text);
+        if (c.SDL_SetClipboardText(sl) != 0) {
+            sdlLogErr();
+        }
+        alloc.free(sl);
+    }
+
+    /// Caller owns slice
+    pub fn getClipboard(alloc: std.mem.Allocator) ![]const u8 {
+        const clip = c.SDL_GetClipboardText();
+        defer c.SDL_free(clip);
+        return try alloc.dupe(u8, std.mem.span(clip));
+    }
+
     pub fn enableNativeIme(self: *const Self, enable: bool) bool {
         _ = self;
         //_ = c.SDL_SetHint("SDL_HINT_IME_INTERNAL_EDITING", "1");

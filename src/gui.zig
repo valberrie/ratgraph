@@ -338,8 +338,14 @@ pub const RetainedState = struct {
             .{ .name = "select_left", .bind = .{ .LEFT, M.mask(&.{.LSHIFT}) } },
             .{ .name = "select_word_right", .bind = .{ .RIGHT, M.mask(&.{ .LCTRL, .LSHIFT }) } },
             .{ .name = "select_word_left", .bind = .{ .LEFT, M.mask(&.{ .LCTRL, .LSHIFT }) } },
+            //TODO Should "A" be a keycode not a scancode? On dvorak ctrl-a,z,x,c,v are all remapped. What happens with non english keyboard layouts.
             .{ .name = "select_all", .bind = .{ .A, M.mask(&.{.LCTRL}) } },
+            .{ .name = "copy", .bind = .{ .C, M.mask(&.{.LCTRL}) } },
+            .{ .name = "paste", .bind = .{ .V, M.mask(&.{.LCTRL}) } },
         });
+
+        const setClipboard: fn (std.mem.Allocator, []const u8) std.mem.Allocator.Error!void = graph.SDL.Window.setClipboard;
+        const getClipboard: fn (std.mem.Allocator) std.mem.Allocator.Error![]const u8 = graph.SDL.Window.getClipboard;
 
         const SingleLineMovement = enum {
             left,
@@ -422,7 +428,14 @@ pub const RetainedState = struct {
             self.tail = 0;
         }
 
+        pub fn getSelectionSlice(self: *Self) []const u8 {
+            const min = @min(self.tail, self.head);
+            const max = @max(self.tail, self.head);
+            return self.codepoints.items[@intCast(min)..@intCast(max)];
+        }
+
         pub fn deleteSelection(self: *Self) !void {
+            if (self.tail == self.head) return;
             const min = @min(self.tail, self.head);
             const max = @max(self.tail, self.head);
             try self.codepoints.replaceRange(@intCast(min), @intCast(max - min), "");
@@ -497,6 +510,17 @@ pub const RetainedState = struct {
                     .select_all => {
                         tb.tail = 0;
                         tb.head = @intCast(tb.codepoints.items.len);
+                    },
+                    .copy => {
+                        try setClipboard(tb.codepoints.allocator, tb.getSelectionSlice());
+                    },
+                    .paste => {
+                        try tb.deleteSelection();
+                        const clip = try getClipboard(tb.codepoints.allocator);
+                        defer tb.codepoints.allocator.free(clip);
+                        try tb.codepoints.insertSlice(@intCast(tb.head), clip);
+                        tb.head += @intCast(clip.len);
+                        tb.tail = tb.head;
                     },
                 }
             }
