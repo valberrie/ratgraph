@@ -242,8 +242,7 @@ pub const Window = struct {
     }
 
     pub fn setClipboard(alloc: std.mem.Allocator, text: []const u8) !void {
-        const sl = try alloc.allocSentinel(u8, text.len, 0);
-        @memcpy(sl[0..text.len], text);
+        const sl = try alloc.dupeZ(u8, text);
         if (c.SDL_SetClipboardText(sl) != 0) {
             sdlLogErr();
         }
