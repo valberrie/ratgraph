@@ -50,7 +50,7 @@ pub const MouseState = struct {
 
     wheel_delta: Vec2f,
 
-    pub fn setButtons(self: *MouseState, sdl_button_mask: u32) void {
+    pub fn setButtonsSDL(self: *MouseState, sdl_button_mask: u32) void {
         const b = sdl_button_mask;
         self.left.set(b & c.SDL_BUTTON_LMASK != 0);
         self.right.set(b & c.SDL_BUTTON_RMASK != 0);
@@ -259,7 +259,7 @@ pub const Window = struct {
         {
             var x: c_int = undefined;
             var y: c_int = undefined;
-            self.mouse.setButtons(c.SDL_GetMouseState(&x, &y));
+            self.mouse.setButtonsSDL(c.SDL_GetMouseState(&x, &y));
             self.mouse.pos = .{ .x = @floatFromInt(x), .y = @floatFromInt(y) };
 
             _ = c.SDL_GetRelativeMouseState(&x, &y);

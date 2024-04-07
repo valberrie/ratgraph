@@ -122,7 +122,8 @@ pub const InputState = struct {
     pub const DefaultKeyboardState = graph.SDL.Window.KeyboardStateT.initEmpty();
     //TODO switch to using new graphics.zig MouseState
     //make clickwidget support rightClicks, double click etc
-    //Figure out textinput
+    //Figure out textinput, make it a part of this?
+    //This struct should not depend on SDL.
     mouse_pos: Vec2f = .{ .x = 0, .y = 0 },
     mouse_delta: Vec2f = .{ .x = 0, .y = 0 },
     mouse_left_held: bool = false,
@@ -2046,7 +2047,8 @@ pub const GuiDrawContext = struct {
         self.window_fbs.deinit();
     }
 
-    pub fn drawGui(self: *Self, draw: *graph.ImmediateDrawingContext, font: *graph.Font, gui: *Context, win_w: i32, win_h: i32) !void {
+    pub fn drawGui(self: *Self, draw: *graph.ImmediateDrawingContext, gui: *Context) !void {
+        const scr_dim = draw.screen_dimensions;
         const ignore_cache = true;
         for (gui.windows.items[0..gui.this_frame_num_windows], 0..) |w, i| {
             if (i >= self.window_fbs.items.len) {
@@ -2064,21 +2066,21 @@ pub const GuiDrawContext = struct {
                     if (n.data.scissor) |sz| {
                         scissor = true;
                         scissor_depth = n.depth;
-                        try self.drawCommand(.{ .scissor = .{ .area = sz } }, draw, font);
+                        try self.drawCommand(.{ .scissor = .{ .area = sz } }, draw);
                     }
                     if (n.data.scissor == null) {
                         if (scissor and n.depth <= scissor_depth) {
                             scissor = false;
-                            try self.drawCommand(.{ .scissor = .{ .area = null } }, draw, font);
+                            try self.drawCommand(.{ .scissor = .{ .area = null } }, draw);
                         }
                     }
                     for (n.data.commands.items) |command| {
-                        try self.drawCommand(command, draw, font);
+                        try self.drawCommand(command, draw);
                     }
                     n.data.draw_backup = false;
                 }
                 if (scissor) //Clear a remaning scissor
-                    try self.drawCommand(.{ .scissor = .{ .area = null } }, draw, font);
+                    try self.drawCommand(.{ .scissor = .{ .area = null } }, draw);
             }
             try draw.flush(w.area);
             //draw.screen_dimensions = .{ .x = @as(f32, @floatFromInt(win_w)), .y = @as(f32, @floatFromInt(win_h)) };
@@ -2091,9 +2093,9 @@ pub const GuiDrawContext = struct {
             //    self.window_fbs.items[i].texture,
             //);
         }
-        draw.screen_dimensions = .{ .x = @as(f32, @floatFromInt(win_w)), .y = @as(f32, @floatFromInt(win_h)) };
+        draw.screen_dimensions = scr_dim;
         graph.c.glBindFramebuffer(graph.c.GL_FRAMEBUFFER, 0);
-        graph.c.glViewport(0, 0, win_w, win_h);
+        graph.c.glViewport(0, 0, @intFromFloat(scr_dim.x), @intFromFloat(scr_dim.y));
         const old_zindex = draw.zindex;
         for (self.window_fbs.items[0..gui.this_frame_num_windows], 0..) |fb, i| {
             draw.zindex = old_zindex + @as(u16, @intCast(gui.windows.items[i].depth));
@@ -2175,9 +2177,8 @@ pub const GuiDrawContext = struct {
         //try ctx.drawRectTex(parea, graph.Rec(0, 0, self.main_rtexture.texture.w, self.main_rtexture.texture.h), Color.White, self.main_rtexture.texture);
     }
 
-    pub fn drawCommand(self: *Self, command: DrawCommand, draw: *graph.ImmediateDrawingContext, font: *graph.Font) !void {
+    pub fn drawCommand(self: *Self, command: DrawCommand, draw: *graph.ImmediateDrawingContext) !void {
         const cc = graph.ptypes.charColorToInt;
-        _ = font;
         switch (command) {
             .rect_filled => |rf| {
                 draw.rect(rf.r, cc(rf.color));

@@ -494,7 +494,7 @@ pub const FileBrowser = struct {
     }
 
     fn filepreview(self: *Self, wrap: *Os9Gui) !void {
-        const gui = wrap.gui;
+        const gui = &wrap.gui;
         const area = gui.getArea() orelse return;
         gui.draw9Slice(area, Os9Gui.inset9, wrap.texture, wrap.scale);
         const na = area.inset(Os9Gui.inset9.w / 3);
@@ -504,7 +504,7 @@ pub const FileBrowser = struct {
     }
 
     fn fileItem(self: *Self, wrap: *Os9Gui, entry: DirEntry, index: usize, columns: []const FileColumn, bg: ?Color) !bool {
-        const gui = wrap.gui;
+        const gui = &wrap.gui;
         const rec = gui.getArea() orelse return false;
         const pada = 4;
         if (bg) |bb| {
@@ -630,7 +630,7 @@ pub const FileBrowser = struct {
     }
 
     pub fn update(self: *Self, wrap: *Os9Gui) !void {
-        const gui = wrap.gui;
+        const gui = &wrap.gui;
         const item_height = 35;
         const win_area = gui.getArea() orelse return;
         const border_area = win_area.inset(6 * wrap.scale);
@@ -1056,7 +1056,7 @@ pub const KeyboardDisplay = struct {
     }
 
     pub fn update(self: *Self, wrap: *Os9Gui) !void {
-        const gui = wrap.gui;
+        const gui = &wrap.gui;
         const win_area = gui.getArea() orelse return;
         const border_area = win_area.inset(6 * wrap.scale);
         const area = border_area.inset(6 * wrap.scale);
@@ -1421,7 +1421,7 @@ pub const AtlasEditor = struct {
     }
 
     pub fn update(self: *Self, wrap: *Os9Gui) !void {
-        const gui = wrap.gui;
+        const gui = &wrap.gui;
         const win_area = gui.getArea() orelse return;
         const border_area = win_area.inset(6 * wrap.scale);
         const area = border_area.inset(6 * wrap.scale);
@@ -1704,25 +1704,20 @@ pub const AtlasEditor = struct {
     }
 };
 
-/// Attempting to make a Mac os 9 style gui
-///
-/// Elements we need
-/// inset rect
-/// title bar
-/// Partition lines
-///
-/// Widgets:
-/// Button
-/// Drop down
-/// Text label
-/// text box with label
-/// scrollable list with selection
-/// checkbox
-/// header
-/// table with scroll area
-///
-/// TODO better textboxes
-/// tab to next textbox
+// Widgets:
+// Button
+// Drop down
+// Text label
+// text box with label
+// scrollable list with selection
+// checkbox
+// header
+// table with scroll area
+//
+// TODO
+// tab to next textbox
+// better textboxes
+// Make the assets static fields
 pub const Os9Gui = struct {
     const Self = @This();
 
@@ -1754,6 +1749,7 @@ pub const Os9Gui = struct {
         ar_str: std.ArrayList(u8),
     };
 
+    //TODO remove all of these and use AssetMap instead
     const border = itc(0xff);
     const wbg = itc(0xaaaaaaff);
     const shadow = itc(0x555555ff);
@@ -1803,19 +1799,15 @@ pub const Os9Gui = struct {
 
     texture: graph.Texture,
     scale: f32,
-    gui: *Gui.Context,
+    gui: Gui.Context,
+    gui_draw_ctx: Gui.GuiDrawContext,
     font: graph.Font,
     icon_font: graph.Font,
 
     drop_down: ?Gui.Context.WidgetId = null,
     drop_down_scroll: Vec2f = .{ .x = 0, .y = 0 },
 
-    crass: Vec2f = .{ .x = 0, .y = 0 },
-
-    p_index: usize = 0,
-    cpop_index: ?usize = null,
-
-    pub fn init(alloc: std.mem.Allocator, scale: f32, gui: *Gui.Context) !Self {
+    pub fn init(alloc: std.mem.Allocator, scale: f32) !Self {
         const dir = std.fs.cwd();
         const icon_list = comptime blk: {
             const info = @typeInfo(Icons);
@@ -1827,10 +1819,11 @@ pub const Os9Gui = struct {
             break :blk list;
         };
         return .{
-            .gui = gui,
+            .gui = try Gui.Context.init(alloc),
+            .gui_draw_ctx = try Gui.GuiDrawContext.init(alloc),
             .scale = scale,
             .texture = try graph.Texture.initFromImgFile(alloc, dir, "next_step.png", .{
-                //.mag_filter = graph.c.GL_NEAREST,
+                .mag_filter = graph.c.GL_NEAREST,
             }),
             .font = try graph.Font.init(alloc, dir, "fonts/roboto.ttf", 24, 163, .{}),
             .icon_font = try graph.Font.init(
@@ -1845,121 +1838,27 @@ pub const Os9Gui = struct {
             ),
         };
     }
+
     pub fn deinit(self: *Self) void {
+        self.gui.deinit();
+        self.gui_draw_ctx.deinit();
         self.texture.deinit();
         self.font.deinit();
         self.icon_font.deinit();
     }
 
-    pub fn update(self: *Self) !void {
-        const gui = self.gui;
-        const scale = self.scale;
-        const area = gui.getArea() orelse return;
-        gui.draw9Slice(area, os9win, self.texture, scale);
-        //const title = "Keyboard";
-        const title_h = 20 * scale;
-        const s4 = scale * 4;
-        const inside = Rect.new(area.x + s4, area.y + title_h, area.w - s4 * 2, area.h - title_h - s4);
-        gui.draw9Slice(inside, os9in, self.texture, scale);
-
-        _ = try gui.beginLayout(Gui.SubRectLayout, .{ .rect = inside.inset(4 * scale) }, .{});
-        defer gui.endLayout();
-        {
-            const nh = 20 * scale;
-            var vl = try gui.beginLayout(Gui.VerticalLayout, .{ .item_height = nh, .padding = .{ .bottom = 6 * scale } }, .{});
-            defer gui.endLayout();
-            vl.current_h += vl.padding.bottom;
-            _ = self.button("Click me");
-            vl.pushHeight(vl.item_height * 4);
-            _ = try gui.beginLayout(Gui.HorizLayout, .{ .count = 2 }, .{});
-            const buttons = [_][]const u8{ "Opt 1", "two", "Just save", "Load It" };
-            for (0..2) |_| {
-                _ = try gui.beginLayout(Gui.VerticalLayout, .{ .item_height = nh }, .{});
-                for (buttons) |btn| {
-                    _ = self.button(btn);
-                }
-                gui.endLayout();
-            }
-
-            gui.endLayout();
-
-            const a = gui.getArea() orelse return;
-            const mt = "My Area";
-            const ts = 12 * scale;
-            const bounds = gui.font.textBounds(mt, ts);
-            const bx = bounds.x * 1.2;
-            gui.draw9Border(a, os9line, self.texture, scale, a.w / 2 - bx / 2, a.w / 2 + bx / 2);
-            gui.drawText(mt, Vec2f.new(a.x + a.w / 2 - bounds.x / 2, a.y - ts / 2), ts, Color.Black, &self.font);
-            //gui.spinner(&val);
-            self.checkbox("Checkbox", &self.sample_data.flag);
-            gui.tooltip("This checkbox sucks", ts);
-            vl.pushHeight(os9tabstart.h * scale);
-            _ = try self.tabs(SampleEnum, &self.sample_data.en);
-            vl.current_h -= (vl.padding.top + vl.padding.bottom + scale * 1);
-            vl.pushHeight(vl.item_height * 5);
-            const taba = gui.getArea() orelse return;
-            const tabb = tabsBorderCalc(SampleEnum, self.sample_data.en, taba.w);
-            gui.drawRectFilled(taba, itc(0xeeeeeeff));
-            gui.draw9Border(
-                taba,
-                os9tabborder,
-                self.texture,
-                scale,
-                tabb[0] - 2 * scale,
-                tabb[1] - 4 * scale,
-            );
-            _ = self.button("hello");
-            _ = self.button("hello");
-            gui.tooltip("Pressing this button causes great pain", ts);
-
-            try self.enumDropdown(SampleEnum, &self.sample_data.en);
-            try self.enumDropdown(Icons, &self.sample_data.icon);
-            self.sliderOpts(&self.sample_data.float, -10, 200);
-            //self.scrollBar(&self.sample_data.float, -100, 200, .horizontal);
-            try self.textbox(&self.sample_data.ar_str);
-            try self.textbox(&self.sample_data.ar_str);
-            try self.textboxNumber(&self.sample_data.int_edit);
-            try self.textboxNumber(&self.sample_data.float);
-            gui.tooltip("This number represents my death", ts);
-            try self.textboxNumber(&self.sample_data.uint_edit);
-            {
-                _ = try gui.beginLayout(Gui.HorizLayout, .{ .count = 2 }, .{});
-                defer gui.endLayout();
-                const aa = (gui.getArea() orelse return).inset(3 * self.scale);
-                gui.drawTextFmt("My float", .{}, aa, aa.h, Color.Black, .{}, &self.font);
-                try self.textboxNumber(&self.sample_data.float_edit);
-            }
-            vl.pushHeight(100 * scale);
-            const hhh = 100 * scale;
-            if (try gui.beginScroll(&self.scroll_offset, .{ .bar_w = 14 * scale, .scroll_area_w = 100 * scale, .scroll_area_h = hhh })) |scroll| {
-                {
-                    gui.drawRectFilled(gui.scroll_bounds.?, Color.Gray);
-                    defer gui.endScroll();
-                    _ = try gui.beginLayout(Gui.VerticalLayout, .{ .item_height = 20 * scale }, .{});
-                    defer gui.endLayout();
-                    if (self.button("hello button")) {
-                        //try gui.console.print("pushed the button lol\n", .{});
-                    }
-                }
-                {
-                    const sd = scroll;
-                    if (sd.vertical_slider_area) |va| {
-                        _ = try gui.beginLayout(Gui.SubRectLayout, .{ .rect = va }, .{});
-                        defer gui.endLayout();
-                        const smax = hhh;
-                        self.scrollBar(&sd.offset.y, 0, smax, .vertical);
-                    }
-                    if (sd.horiz_slider_area) |ha| {
-                        _ = try gui.beginLayout(Gui.SubRectLayout, .{ .rect = ha }, .{});
-                        defer gui.endLayout();
-                        const smax = hhh;
-                        self.scrollBar(&sd.offset.x, 0, smax, .horizontal);
-                    }
-                }
-            }
-            vl.pushHeight(100 * scale);
-            //gui.drawConsole(gui.console, ts);
+    pub fn beginFrame(self: *Self, input_state: Gui.InputState, win: *graph.SDL.Window) !void {
+        switch (self.gui.text_input_state.state) {
+            .start => win.startTextInput(),
+            .stop => win.stopTextInput(),
+            .cont => self.gui.text_input_state.buffer = win.text_input,
+            .disabled => {},
         }
+        try self.gui.reset(input_state);
+    }
+
+    pub fn endFrame(self: *Self, draw: *graph.ImmediateDrawingContext) !void {
+        try self.gui_draw_ctx.drawGui(draw, &self.gui);
     }
 
     pub fn beginTlWindow(self: *Self, parea: Rect) !bool {
@@ -1970,7 +1869,10 @@ pub const Os9Gui = struct {
             self.gui.draw9Slice(win_area, Os9Gui.os9win, os9_ctx.texture, os9_ctx.scale);
             self.gui.draw9Slice(border_area, Os9Gui.os9in, os9_ctx.texture, os9_ctx.scale);
             _ = try self.gui.beginLayout(Gui.SubRectLayout, .{ .rect = area }, .{});
+            return true;
         }
+        self.gui.endWindow();
+        return false;
     }
     pub fn endTlWindow(self: *Self) void {
         self.gui.endLayout();
@@ -2041,7 +1943,7 @@ pub const Os9Gui = struct {
     }
 
     pub fn tabs(self: *Self, comptime list_type: type, selected: *list_type) !list_type {
-        const gui = self.gui;
+        const gui = &self.gui;
         const info = @typeInfo(list_type);
         const fields = info.Enum.fields;
         _ = try gui.beginLayout(Gui.HorizLayout, .{ .count = fields.len, .paddingh = 0 }, .{});
@@ -2254,7 +2156,7 @@ pub const Os9Gui = struct {
     }
 
     pub fn buttonEx(self: *Self, comptime fmt: []const u8, args: anytype, params: struct { disabled: bool = false }) bool {
-        const gui = self.gui;
+        const gui = &self.gui;
         const d = gui.buttonGeneric();
         const sl = switch (d.state) {
             .none, .hover => os9btn,
@@ -2273,7 +2175,7 @@ pub const Os9Gui = struct {
     pub fn scrollBar(self: *Self, pos: *f32, min: f32, max: f32, orientation: Gui.Orientation, params: struct {
         handle_w: f32 = os9scrollhandle.h,
     }) void {
-        const gui = self.gui;
+        const gui = &self.gui;
         if (gui.sliderGeneric(pos, min, max, .{
             .handle_offset_y = os9handleoffset * self.scale,
             .handle_offset_x = os9handleoffset * self.scale,
@@ -2292,7 +2194,7 @@ pub const Os9Gui = struct {
     }
 
     pub fn slider(self: *Self, value: anytype, min: anytype, max: anytype) void {
-        const gui = self.gui;
+        const gui = &self.gui;
         if (gui.sliderGeneric(value, min, max, .{
             .handle_w = os9shuttle.w * self.scale,
             .handle_h = os9shuttle.h * self.scale,
@@ -2303,7 +2205,7 @@ pub const Os9Gui = struct {
     }
 
     pub fn checkbox(self: *Self, label_: []const u8, checked: *bool) bool {
-        const gui = self.gui;
+        const gui = &self.gui;
         if (gui.checkboxGeneric(checked)) |d| {
             const area = d.area;
 
@@ -2367,7 +2269,7 @@ pub const Os9Gui = struct {
     pub fn enumDropdown(self: *Self, comptime enumT: type, enum_val: *enumT) !void {
         if (true)
             return;
-        const gui = self.gui;
+        const gui = &self.gui;
         if (try gui.enumDropdownGeneric(enumT, enum_val, .{
             .max_items = 4,
             .scroll_bar_w = os9scrollw * self.scale,
@@ -2397,7 +2299,7 @@ pub const Os9Gui = struct {
     }
 
     pub fn textboxNumber(self: *Self, number_ptr: anytype) !void {
-        const gui = self.gui;
+        const gui = &self.gui;
         if (try gui.textboxNumberGeneric(number_ptr, &self.font, .{ .text_inset = self.scale * 3 })) |d| {
             const tr = d.text_area;
             gui.draw9Slice(d.area, inset9, self.texture, self.scale);
@@ -2415,7 +2317,7 @@ pub const Os9Gui = struct {
     //floats in textboxes are messy
 
     pub fn textbox(self: *Self, contents: *std.ArrayList(u8)) !void {
-        const gui = self.gui;
+        const gui = &self.gui;
         if (try gui.textboxGeneric(contents, &self.font, .{ .text_inset = 3 * self.scale })) |d| {
             const tr = d.text_area;
             gui.draw9Slice(d.area, inset9, self.texture, self.scale);
@@ -2460,7 +2362,7 @@ pub const GuiTest = struct {
     }
 
     pub fn update(self: *Self, wrap: *Os9Gui) !void {
-        const gui = wrap.gui;
+        const gui = &wrap.gui;
         const scale = wrap.scale;
         const area = gui.getArea() orelse return;
         gui.draw9Slice(area, Os9Gui.os9win, wrap.texture, scale);
@@ -2878,9 +2780,22 @@ pub const TestConfig = struct {
     padding: graph.Padding = graph.Padding.new(12, 0, 12, 12),
     filek: std.fs.File.Kind = .file,
 };
+//current usage
+//ogui = Os9gui.init(alloc);
+//
+//while window_good
+//  ogui.beginFrame(input_state)
+//      ogui.beginTlWindow(area);
+//          beginlayout
+//              widget
+//              widget
+//              widget
+//          endlayout
+//      osgui.endTlWindow();
+//
+//  ogui.endFrame()
 
 pub fn main() anyerror!void {
-    //_ = graph.MarioData.dd;
     var gpa = std.heap.GeneralPurposeAllocator(.{ .retain_metadata = true, .never_unmap = false, .verbose_log = false, .stack_trace_frames = 8 }){};
     defer _ = gpa.detectLeaks();
     const alloc = gpa.allocator();
@@ -2912,10 +2827,10 @@ pub fn main() anyerror!void {
     defer debug_dir.close();
     var ass = try assetLoad(alloc);
     defer ass.deinit();
-    const o_win = ass.map.get("window.png").?;
-    const o_inwin = ass.map.get("window_inner.png").?;
-    const o_bg = ass.map.get("bg.png").?;
-    const o_tb = ass.map.get("tb2.png").?;
+    //const o_win = ass.map.get("window.png").?;
+    //const o_inwin = ass.map.get("window_inner.png").?;
+    //const o_bg = ass.map.get("bg.png").?;
+    //const o_tb = ass.map.get("tb2.png").?;
 
     graph.c.glLineWidth(1);
 
@@ -2928,20 +2843,8 @@ pub fn main() anyerror!void {
     var my_str = std.ArrayList(u8).init(alloc);
     defer my_str.deinit();
 
-    var gui = try Gui.Context.init(alloc);
-    defer gui.deinit();
-
-    var gui2 = try Gui.Context.init(alloc);
-    defer gui2.deinit();
-
-    var gui2_draw_context = try Gui.GuiDrawContext.init(alloc);
-    defer gui2_draw_context.deinit();
-
     Gui.hash_timer = try std.time.Timer.start();
     Gui.hash_time = 0;
-
-    var gui_draw_context = try Gui.GuiDrawContext.init(alloc);
-    defer gui_draw_context.deinit();
 
     var draw = graph.ImmediateDrawingContext.init(alloc, win.getDpi());
     defer draw.deinit();
@@ -2975,7 +2878,7 @@ pub fn main() anyerror!void {
     var gt = GuiTest.init(alloc);
     defer gt.deinit();
 
-    var os9gui = try Os9Gui.init(alloc, scale, &gui);
+    var os9gui = try Os9Gui.init(alloc, scale);
     defer os9gui.deinit();
 
     //NEEDS TO BE SET BEFORE LUA RUNS
@@ -2997,7 +2900,6 @@ pub fn main() anyerror!void {
 
     //END LUA
     win.pumpEvents();
-    var win_rect = graph.Rec(1000, 0, win.screen_dimensions.x - 1000, win.screen_dimensions.y);
 
     if (cli_opts.wireframe != null)
         graph.c.glPolygonMode(graph.c.GL_FRONT_AND_BACK, graph.c.GL_LINE);
@@ -3005,13 +2907,7 @@ pub fn main() anyerror!void {
         try draw.begin(0x2f2f2fff, win.screen_dimensions.toF());
         win.pumpEvents(); //Important that this is called after beginDraw for input lag reasons
 
-        switch (gui.text_input_state.state) {
-            .start => win.startTextInput(),
-            .stop => win.stopTextInput(),
-            .cont => gui.text_input_state.buffer = win.text_input,
-            .disabled => {},
-        }
-
+        const win_rect = graph.Rect.newV(.{ .x = 0, .y = 0 }, draw.screen_dimensions);
         gui_timer.reset();
         Gui.hash_time = 0;
         const is: Gui.InputState = .{
@@ -3024,42 +2920,26 @@ pub fn main() anyerror!void {
             .key_state = &win.key_state,
             .keys = win.keys.slice(),
         };
-        try gui.reset(is);
-        try gui2.reset(is);
+        try os9gui.beginFrame(is, &win);
 
         gui_time = gui_timer.read();
 
-        if (true) {
-            const winarea = graph.Rec(0, 0, win.screen_dimensions.x, win.screen_dimensions.y);
-            const sp = winarea.split(.vertical, winarea.w / 2);
+        //if (win.keydown(.LSHIFT) and win_rect.containsPoint(win.mouse.pos)) {
+        //    win_rect.x += win.mouse.delta.x;
+        //    win_rect.y += win.mouse.delta.y;
+        //}
+        //if (win.keydown(.SPACE) and win_rect.containsPoint(win.mouse.pos)) {
+        //    win_rect.w += win.mouse.delta.x;
+        //    win_rect.h += win.mouse.delta.y;
+        //}
 
-            //draw.rect(sp[1], 0xff000fff);
-            //const r = graph.Rec(0, 0, @divTrunc(win.screen_dimensions.x, 2), win.screen_dimensions.y);
-            if (win.keydown(.LSHIFT) and win_rect.containsPoint(win.mouse.pos)) {
-                win_rect.x += win.mouse.delta.x;
-                win_rect.y += win.mouse.delta.y;
-            }
-            if (win.keydown(.SPACE) and win_rect.containsPoint(win.mouse.pos)) {
-                win_rect.w += win.mouse.delta.x;
-                win_rect.h += win.mouse.delta.y;
-            }
-
-            //parent_area = graph.Rec(r.x + r.w / 4, r.y + r.h / 4, r.w / 2, r.h / 2);
-            //_ = try gui.beginLayout(Gui.SubRectLayout, .{ .rect = parent_area }, .{});
-            //_ = try gui.beginLayout(Gui.SubRectLayout, .{ .rect = parent_area }, .{});
-            //defer gui.endLayout();
-            try gui.beginWindow(win_rect);
-            defer gui.endWindow();
-            const handle_w_px = 20;
-            const h_handle = graph.Rec(win_rect.x + win_rect.w - handle_w_px, win_rect.y, handle_w_px, win_rect.h);
-            const v_handle = graph.Rec(win_rect.x, win_rect.y + win_rect.h - handle_w_px, win_rect.w, handle_w_px);
-            var unused: f32 = 0;
-            _ = gui.draggable(h_handle, .{ .x = 1, .y = 0 }, &(win_rect.w), &unused, .{ .override_depth_test = true });
-            _ = gui.draggable(v_handle, .{ .x = 0, .y = 1 }, &unused, &(win_rect.h), .{ .override_depth_test = true });
+        if (try os9gui.beginTlWindow(win_rect)) {
+            defer os9gui.endTlWindow();
 
             switch (current_app) {
                 .keyboard_display => try kbd.update(&os9gui),
                 .lua_test => {
+                    const gui = &os9gui.gui;
                     if (gui.getArea()) |win_area| {
                         const border_area = win_area.inset(6 * os9_ctx.scale);
                         const area = border_area.inset(6 * os9_ctx.scale);
@@ -3093,6 +2973,7 @@ pub fn main() anyerror!void {
                     }
                 },
                 .crass => {
+                    const gui = &os9gui.gui;
                     if (gui.getArea()) |win_area| {
                         const border_area = win_area.inset(6 * os9_ctx.scale);
                         const area = border_area.inset(6 * os9_ctx.scale);
@@ -3114,49 +2995,48 @@ pub fn main() anyerror!void {
                     }
                 },
             }
-            try gui.beginWindow(graph.Rec(0, 0, 1000, 1000));
-            {
-                defer gui.endWindow();
-                const a = gui.getArea() orelse unreachable;
-                const s = tc.scale;
-                gui.draw9Slice(a, o_win, ass.texture, s);
-                _ = o_inwin;
-                gui.draw9Slice(a.inset(tc.win_inset * s), o_bg, ass.texture, s);
-                _ = try gui.beginLayout(Gui.SubRectLayout, .{ .rect = a.inset(tc.win_inset * s) }, .{});
-                defer gui.endLayout();
-                _ = try gui.beginLayout(Gui.VerticalLayout, .{
-                    .item_height = tc.item_height,
-                    .padding = tc.padding,
-                }, .{});
-                defer gui.endLayout();
-                gui.draw9Slice(gui.getArea().?, o_tb, ass.texture, s);
-                gui.draw9Slice(gui.getArea().?, o_tb, ass.texture, s);
-                gui.draw9Slice(gui.getArea().?, o_win, ass.texture, s);
-            }
-
-            try gui_draw_context.drawGui(&draw, &font, &gui, win.screen_dimensions.x, win.screen_dimensions.y);
-
-            if (false) {
-                var node = gui.layout_cache.first;
-                const rr = sp[0];
-                const ix = rr.x;
-                var cursor = Rec(ix, rr.y, rr.w / 5, 40);
-                while (node) |n| : (node = n.next) {
-                    var color: u32 = 0xffffffff;
-                    if (n.data.rec.containsPoint(win.mouse.pos)) {
-                        color = 0xff0000ff;
-                        if (win.keydown(.A)) {
-                            draw.rect(n.data.rec, 0xff55);
-                        }
-                    }
-
-                    cursor.x = ix + F(n.depth) * 100;
-                    draw.rect(cursor.inset(4), color);
-                    cursor.y += cursor.h;
-                }
-            }
+            //if(false){
+            //try gui.beginWindow(graph.Rec(0, 0, 1000, 1000));
+            //    defer gui.endWindow();
+            //    const a = gui.getArea() orelse unreachable;
+            //    const s = tc.scale;
+            //    gui.draw9Slice(a, o_win, ass.texture, s);
+            //    _ = o_inwin;
+            //    gui.draw9Slice(a.inset(tc.win_inset * s), o_bg, ass.texture, s);
+            //    _ = try gui.beginLayout(Gui.SubRectLayout, .{ .rect = a.inset(tc.win_inset * s) }, .{});
+            //    defer gui.endLayout();
+            //    _ = try gui.beginLayout(Gui.VerticalLayout, .{
+            //        .item_height = tc.item_height,
+            //        .padding = tc.padding,
+            //    }, .{});
+            //    defer gui.endLayout();
+            //    gui.draw9Slice(gui.getArea().?, o_tb, ass.texture, s);
+            //    gui.draw9Slice(gui.getArea().?, o_tb, ass.texture, s);
+            //    gui.draw9Slice(gui.getArea().?, o_win, ass.texture, s);
+            //}
         }
 
+        //if (false) {
+        //    var node = gui.layout_cache.first;
+        //    const rr = sp[0];
+        //    const ix = rr.x;
+        //    var cursor = Rec(ix, rr.y, rr.w / 5, 40);
+        //    while (node) |n| : (node = n.next) {
+        //        var color: u32 = 0xffffffff;
+        //        if (n.data.rec.containsPoint(win.mouse.pos)) {
+        //            color = 0xff0000ff;
+        //            if (win.keydown(.A)) {
+        //                draw.rect(n.data.rec, 0xff55);
+        //            }
+        //        }
+
+        //        cursor.x = ix + F(n.depth) * 100;
+        //        draw.rect(cursor.inset(4), color);
+        //        cursor.y += cursor.h;
+        //    }
+        //}
+
+        try os9gui.endFrame(&draw);
         graph.c.glDisable(graph.c.GL_STENCIL_TEST);
 
         try draw.end();
