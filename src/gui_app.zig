@@ -1829,7 +1829,9 @@ pub const Os9Gui = struct {
         return .{
             .gui = gui,
             .scale = scale,
-            .texture = try graph.Texture.initFromImgFile(alloc, dir, "next_step.png", .{ .mag_filter = graph.c.GL_NEAREST }),
+            .texture = try graph.Texture.initFromImgFile(alloc, dir, "next_step.png", .{
+                //.mag_filter = graph.c.GL_NEAREST,
+            }),
             .font = try graph.Font.init(alloc, dir, "fonts/roboto.ttf", 24, 163, .{}),
             .icon_font = try graph.Font.init(
                 alloc,
@@ -2883,7 +2885,7 @@ pub fn main() anyerror!void {
     defer _ = gpa.detectLeaks();
     const alloc = gpa.allocator();
 
-    var current_app: enum { keyboard_display, filebrowser, atlas_edit, gtest, lua_test, crass } = .crass;
+    var current_app: enum { keyboard_display, filebrowser, atlas_edit, gtest, lua_test, crass } = .filebrowser;
     var arg_it = try std.process.ArgIterator.initWithAllocator(alloc);
     defer arg_it.deinit();
     const Arg = ArgUtil.Arg;
@@ -2923,9 +2925,17 @@ pub fn main() anyerror!void {
         .debug_dir = debug_dir,
     });
     defer font.deinit();
+    var my_str = std.ArrayList(u8).init(alloc);
+    defer my_str.deinit();
 
     var gui = try Gui.Context.init(alloc);
     defer gui.deinit();
+
+    var gui2 = try Gui.Context.init(alloc);
+    defer gui2.deinit();
+
+    var gui2_draw_context = try Gui.GuiDrawContext.init(alloc);
+    defer gui2_draw_context.deinit();
 
     Gui.hash_timer = try std.time.Timer.start();
     Gui.hash_time = 0;
@@ -3004,7 +3014,7 @@ pub fn main() anyerror!void {
 
         gui_timer.reset();
         Gui.hash_time = 0;
-        try gui.reset(.{
+        const is: Gui.InputState = .{
             .mouse_pos = win.mouse.pos,
             .mouse_delta = win.mouse.delta,
             .mouse_left_held = win.mouse.left == .high,
@@ -3013,7 +3023,9 @@ pub fn main() anyerror!void {
             .mouse_wheel_down = win.mouse.middle == .high,
             .key_state = &win.key_state,
             .keys = win.keys.slice(),
-        });
+        };
+        try gui.reset(is);
+        try gui2.reset(is);
 
         gui_time = gui_timer.read();
 
@@ -3094,6 +3106,7 @@ pub fn main() anyerror!void {
                         try os9gui.enumCombo(&tc.filek);
                         try os9gui.textboxNumber(&tc.scale);
                         try os9gui.textboxNumber(&tc.win_inset);
+                        try os9gui.textbox(&my_str);
                         vl.pushRemaining();
                         try os9gui.propertyTable(&tc);
                         //try os9gui.editProperty(Gui.Context, &gui, "gui", 0);
