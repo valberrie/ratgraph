@@ -627,7 +627,9 @@ pub fn hashW(hasher: anytype, key: anytype, comptime strat: std.hash.Strategy) v
         .Opaque => {},
         .Optional => if (key) |k| hashW(hasher, k, strat),
         .Float => {
-            std.hash.autoHashStrat(hasher, @as(i32, @intFromFloat(key * 10)), strat);
+            const f = if (std.math.isFinite(key)) key else 0 * 10;
+            const ff = if (@fabs(f) >= std.math.maxInt(i32)) std.math.maxInt(i32) else f;
+            std.hash.autoHashStrat(hasher, @as(i32, @intFromFloat(ff)), strat);
         },
         .Int, .Bool => std.hash.autoHashStrat(hasher, key, strat),
         else => @compileError("can't hash " ++ @typeName(Key)),
@@ -1902,6 +1904,7 @@ pub const Context = struct {
         };
 
         if (self.isActiveTextinput(id)) {
+            const tb = &self.textbox_state;
             const charset = switch (number_t) {
                 .int => "-0123456789",
                 .uint => "0123456789",
@@ -1915,6 +1918,11 @@ pub const Context = struct {
             );
             const sl = self.textbox_state.getSlice();
             const caret_x = font.textBounds(sl[0..@as(usize, @intCast(self.textbox_state.head))], tarea.h).x;
+            if (tb.head != tb.tail) {
+                const tail_x = font.textBounds(sl[0..@intCast(tb.tail)], tarea.h).x;
+                ret.selection_pos_max = @max(caret_x, tail_x);
+                ret.selection_pos_min = @min(caret_x, tail_x);
+            }
             ret.caret = caret_x;
             if (sl.len == 0) {
                 number_ptr.* = 0;

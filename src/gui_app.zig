@@ -2136,7 +2136,7 @@ pub const Os9Gui = struct {
                 self.label("null", .{});
             },
             .Bool => _ = self.checkbox("", prop),
-            .Enum => try self.enumCombo(prop),
+            .Enum => try self.enumCombo("{s}", .{@tagName(prop.*)}, prop),
             .Int, .Float => try self.textboxNumber(prop),
             else => self.gui.skipArea(),
         }
@@ -2224,7 +2224,7 @@ pub const Os9Gui = struct {
         return false;
     }
 
-    pub fn enumCombo(self: *Self, enum_value: anytype) !void {
+    pub fn enumCombo(self: *Self, comptime fmt: []const u8, args: anytype, enum_value: anytype) !void {
         const err_prefix = @typeName(@This()) ++ ".enumCombo: ";
         const invalid = err_prefix ++ "Argument \'enum_value\' expects a mutable pointer to an enum. Recieved: " ++ @typeName(@TypeOf(enum_value));
         const e_info = @typeInfo(@TypeOf(enum_value));
@@ -2234,7 +2234,7 @@ pub const Os9Gui = struct {
         if (enum_info != .Enum) @compileError(invalid);
         const id = self.gui.getId();
 
-        if (self.buttonEx("Enum {s}: {s}", .{ @typeName(enum_type), @tagName(enum_value.*) }, .{})) {
+        if (self.buttonEx(fmt, args, .{})) {
             self.drop_down = id;
             self.drop_down_scroll = .{ .x = 0, .y = 0 };
             return;
@@ -2306,6 +2306,12 @@ pub const Os9Gui = struct {
             if (d.is_invalid)
                 gui.drawRectFilled(d.text_area, itc(0xff000086));
             gui.drawTextFmt("{s}", .{d.slice}, d.text_area, d.text_area.h, Color.Black, .{}, &self.font);
+            gui.drawRectFilled(Rect.new(
+                d.selection_pos_min + d.text_area.x,
+                d.text_area.y,
+                d.selection_pos_max - d.selection_pos_min,
+                d.text_area.h,
+            ), itc(0x0000ff55));
             if (d.caret) |of| {
                 gui.drawRectFilled(Rect.new(of + tr.x, tr.y + 2, 3, tr.h - 4), Color.Black);
             }
@@ -2317,11 +2323,24 @@ pub const Os9Gui = struct {
     //floats in textboxes are messy
     //Support raw slices with alloc?
 
-    pub fn textbox(self: *Self, contents: *std.ArrayList(u8)) !void {
+    pub fn textboxEx(self: *Self, contents: *std.ArrayList(u8), params: struct {
+        disabled: bool = false,
+        invalid: bool = false,
+    }) !void {
         const gui = &self.gui;
+        if (params.disabled) {
+            const a = self.gui.getArea() orelse return;
+            const tr = a.inset(3 * self.scale);
+            gui.draw9Slice(a, inset9, self.texture, self.scale);
+            gui.drawTextFmt("{s}", .{contents.items}, tr, tr.h, itc(0x00aa), .{}, &self.font);
+            gui.drawRectFilled(a, itc(0xffffff75));
+            return;
+        }
         if (try gui.textboxGeneric(contents, &self.font, .{ .text_inset = 3 * self.scale })) |d| {
             const tr = d.text_area;
             gui.draw9Slice(d.area, inset9, self.texture, self.scale);
+            if (params.invalid)
+                gui.drawRectFilled(tr, itc(0xff0000ff));
             gui.drawTextFmt("{s}", .{d.slice}, d.text_area, d.text_area.h, Color.Black, .{}, &self.font);
             gui.drawRectFilled(Rect.new(
                 d.selection_pos_min + d.text_area.x,
@@ -2334,10 +2353,18 @@ pub const Os9Gui = struct {
             }
         }
     }
+
+    pub fn textbox(self: *Self, contents: *std.ArrayList(u8)) !void {
+        try self.textboxEx(contents, .{});
+    }
 };
 
 pub const GuiTest = struct {
     const Self = @This();
+    const Fullname = struct {
+        name: []const u8,
+        surname: []const u8,
+    };
 
     arr: std.ArrayList(u8),
     start_date: std.ArrayList(u8),
@@ -2355,14 +2382,51 @@ pub const GuiTest = struct {
 
     flight_status: enum { one_way, return_flight } = .one_way,
 
-    pub fn init(alloc: std.mem.Allocator) Self {
-        return .{
+    task: enum { counter, temp, flight, timer, crud } = .crud,
+    timer: std.time.Timer,
+    max_time: u64 = std.time.ns_per_s * 10,
+
+    scroll: Vec2f = .{ .x = 0, .y = 0 },
+    names: std.ArrayList(Fullname),
+    name_box: std.ArrayList(u8),
+    surname_box: std.ArrayList(u8),
+    filter: std.ArrayList(u8),
+    selected_index: ?usize = null,
+
+    pub fn init(alloc: std.mem.Allocator) !Self {
+        var ret = Self{
+            .filter = std.ArrayList(u8).init(alloc),
+            .name_box = std.ArrayList(u8).init(alloc),
+            .surname_box = std.ArrayList(u8).init(alloc),
+            .names = std.ArrayList(Fullname).init(alloc),
             .arr = std.ArrayList(u8).init(alloc),
             .start_date = std.ArrayList(u8).init(alloc),
             .end_date = std.ArrayList(u8).init(alloc),
+            .timer = try std.time.Timer.start(),
         };
+        const epsec = std.time.epoch.EpochSeconds{ .secs = @intCast(std.time.timestamp()) };
+        const epday = epsec.getEpochDay();
+        const epyear = epday.calculateYearDay();
+        const epmday = epyear.calculateMonthDay();
+        try ret.start_date.writer().print("{d:0>2}.{d:0>2}.{d}", .{ epmday.month.numeric(), epmday.day_index + 1, epyear.year });
+        try ret.end_date.appendSlice(ret.start_date.items);
+        try ret.names.appendSlice(&.{
+            .{ .name = try alloc.dupe(u8, "crass"), .surname = try alloc.dupe(u8, "house") },
+            .{ .name = try alloc.dupe(u8, "tony"), .surname = try alloc.dupe(u8, "santo") },
+            .{ .name = try alloc.dupe(u8, "george"), .surname = try alloc.dupe(u8, "clooney") },
+        });
+        return ret;
     }
     pub fn deinit(self: *Self) void {
+        for (self.names.items) |n| {
+            self.names.allocator.free(n.name);
+            self.names.allocator.free(n.surname);
+        }
+
+        self.filter.deinit();
+        self.name_box.deinit();
+        self.surname_box.deinit();
+        self.names.deinit();
         self.start_date.deinit();
         self.end_date.deinit();
         self.arr.deinit();
@@ -2373,94 +2437,137 @@ pub const GuiTest = struct {
         const scale = wrap.scale;
         const area = gui.getArea() orelse return;
         gui.draw9Slice(area, Os9Gui.os9win, wrap.texture, scale);
-        var vl = try wrap.beginSubLayout(area.inset(6 * scale), Gui.VerticalLayout, .{ .item_height = 20 * scale, .padding = .{ .bottom = 6 * scale } });
+        const VLP = Gui.VerticalLayout{ .item_height = 20 * scale, .padding = .{ .bottom = 6 * scale } };
+        var vl = try wrap.beginSubLayout(area.inset(6 * scale), Gui.VerticalLayout, VLP);
         defer wrap.endSubLayout();
-        {
-            _ = try gui.beginLayout(Gui.HorizLayout, .{ .count = 2 }, .{});
-            defer gui.endLayout();
-            wrap.labelEx("{d}", .{self.count}, .{});
-            //try wrap.textbox(&self.arr);
-            if (wrap.button("Count")) {
-                self.count += 1;
-            }
-        }
-        if (true) {
-            _ = try gui.beginLayout(Gui.HorizLayout, .{ .count = 4 }, .{});
-            defer gui.endLayout();
-            wrap.labelEx("Farenheit = ", .{}, .{});
-            var temp_f = self.temp_f;
-            try wrap.textboxNumber(&temp_f);
-            if (temp_f != self.temp_f)
-                self.temp_f = temp_f;
-            const temp_ci: f32 = (temp_f - 32) * (5.0 / 9.0);
-            var temp_c = temp_ci;
-            wrap.labelEx("Celsius = ", .{}, .{});
-            try wrap.textboxNumber(&temp_c);
-            if (temp_c != temp_ci)
-                self.temp_f = temp_c * (9.0 / 5.0) + 32;
+        try wrap.enumCombo("Task: {s}", .{@tagName(self.task)}, &self.task);
+        switch (self.task) {
+            .counter => {
+                _ = try gui.beginLayout(Gui.HorizLayout, .{ .count = 2 }, .{});
+                defer gui.endLayout();
+                wrap.labelEx("{d}", .{self.count}, .{});
+                //try wrap.textbox(&self.arr);
+                if (wrap.button("Count")) {
+                    self.count += 1;
+                }
+            },
+            .temp => {
+                _ = try gui.beginLayout(Gui.HorizLayout, .{ .count = 4 }, .{});
+                defer gui.endLayout();
+                wrap.labelEx("Farenheit = ", .{}, .{});
+                var temp_f = self.temp_f;
+                try wrap.textboxNumber(&temp_f);
+                if (temp_f != self.temp_f)
+                    self.temp_f = temp_f;
+                const temp_ci: f32 = (temp_f - 32) * (5.0 / 9.0);
+                var temp_c = temp_ci;
+                wrap.labelEx("Celsius = ", .{}, .{});
+                try wrap.textboxNumber(&temp_c);
+                if (temp_c != temp_ci)
+                    self.temp_f = temp_c * (9.0 / 5.0) + 32;
 
-            if (self.child_pos == null)
-                self.child_pos = area.pos();
-            const c_area = graph.Rect.newV(self.child_pos.?, area.dim().smul(0.3));
-            if (gui.isKeyDown(.SPACE) and gui.isCursorInRect(c_area)) {
-                self.child_pos.? = self.child_pos.?.add(gui.input_state.mouse_delta);
-            }
+                if (self.child_pos == null)
+                    self.child_pos = area.pos();
+                const c_area = graph.Rect.newV(self.child_pos.?, area.dim().smul(0.3));
+                if (gui.isKeyDown(.SPACE) and gui.isCursorInRect(c_area)) {
+                    self.child_pos.? = self.child_pos.?.add(gui.input_state.mouse_delta);
+                }
 
-            // C = (F - 32) * (5/9)
-            //  F = C * (9/5) + 32.
-            //try wrap.textbox(&self.arr);
-        }
-        {
-            try wrap.enumCombo(&self.flight_status);
-            try wrap.textbox(&self.start_date);
-            try wrap.textbox(&self.end_date);
-            switch (self.flight_status) {
-                .return_flight => {
-                    wrap.label("Crass", .{});
-                },
-                .one_way => {
-                    wrap.label("one way", .{});
-                },
-            }
-            vl.pushHeight(vl.item_height * 10);
-            {
-                const a = wrap.gui.getArea() orelse unreachable;
-                wrap.gui.draw(.{ .set_camera = .{ .cam_area = graph.Rec(0, 0, 1000, 1000), .screen_area = a } });
-                defer wrap.gui.draw(.{ .set_camera = null });
-                //_ = try wrap.gui.beginLayout(Gui.SubRectLayout, .{ .rect = a }, .{});
-                //defer wrap.gui.endLayout();
-                wrap.gui.drawRectFilled(graph.Rect.newV(self.crass, .{ .x = 200, .y = 200 }), itc(0xff));
-                const am = 20;
-                if (wrap.gui.keyState(.D) == .high)
-                    self.crass.x += am;
-                if (wrap.gui.keyState(.A) == .high)
-                    self.crass.x -= am;
-                if (wrap.gui.keyState(.W) == .high)
-                    self.crass.y -= am;
-                if (wrap.gui.keyState(.S) == .high)
-                    self.crass.y += am;
-            }
+                // C = (F - 32) * (5/9)
+                //  F = C * (9/5) + 32.
+                //try wrap.textbox(&self.arr);
+            },
+            .flight => {
+                try wrap.enumCombo("Status: {s}", .{@tagName(self.flight_status)}, &self.flight_status);
+                try wrap.textboxEx(&self.start_date, .{});
+                try wrap.textboxEx(&self.end_date, .{ .disabled = self.flight_status == .one_way });
+                if (wrap.button("Book")) {}
+            },
+            .timer => {
+                const t = self.timer.read();
+                const tt = if (t > self.max_time) self.max_time else t;
+                blk: { //Custom widget inline
+                    const a = gui.getArea() orelse break :blk;
+                    gui.drawRectFilled(
+                        graph.Rec(a.x, a.y, a.w * @as(f32, @floatFromInt(tt)) / @as(f32, @floatFromInt(self.max_time)), a.h),
+                        itc(0x44ff),
+                    );
+                }
+                wrap.label("time: {d:.1}s", .{@as(f32, @floatFromInt(tt / std.time.ns_per_ms)) / 1000});
+                wrap.slider(&self.max_time, 0, std.time.ns_per_s * 20);
 
-            //try wrap.propertyTable(wrap);
-            wrap.label("test", .{});
+                if (wrap.button("Reset")) {
+                    self.timer.reset();
+                }
+            },
+            .crud => {
+                {
+                    try wrap.textbox(&self.filter);
+                    _ = try gui.beginLayout(Gui.HorizLayout, .{ .count = 3 }, .{});
+                    defer gui.endLayout();
+                    if (wrap.buttonEx("create", .{}, .{ .disabled = self.name_box.items.len == 0 or self.surname_box.items.len == 0 })) {
+                        try self.names.append(.{
+                            .name = try self.names.allocator.dupe(u8, self.name_box.items),
+                            .surname = try self.names.allocator.dupe(u8, self.surname_box.items),
+                        });
+                        try self.name_box.resize(0);
+                        try self.surname_box.resize(0);
+                    }
+                    if (wrap.buttonEx("update", .{}, .{ .disabled = self.selected_index == null })) {
+                        const n = &self.names.items[self.selected_index.?];
+                        self.names.allocator.free(n.surname);
+                        self.names.allocator.free(n.name);
+                        n.surname = try self.names.allocator.dupe(u8, self.surname_box.items);
+                        n.name = try self.names.allocator.dupe(u8, self.name_box.items);
+                    }
+                    if (wrap.buttonEx("delete", .{}, .{ .disabled = self.selected_index == null })) {
+                        const n = self.names.orderedRemove(self.selected_index.?);
+                        self.names.allocator.free(n.surname);
+                        self.names.allocator.free(n.name);
+                        self.selected_index = if (self.selected_index.? > 0) self.selected_index.? - 1 else null;
+                    }
+                }
+                vl.pushRemaining();
+                {
+                    _ = try gui.beginLayout(Gui.HorizLayout, .{ .count = 2 }, .{});
+                    defer gui.endLayout();
+                    if (try wrap.beginVScroll(&self.scroll, .{ .sw = gui.layout.last_requested_bounds.?.w / 2 })) |scroll| {
+                        defer wrap.endVScroll(scroll);
+                        gui.draw9Slice(scroll.area, Os9Gui.inset9, wrap.texture, scale);
+                        var num_ommitted: usize = 0;
+                        for (self.names.items, 0..) |n, i| {
+                            if (std.mem.startsWith(u8, n.surname, self.filter.items)) {
+                                wrap.label("{s}, {s}", .{ n.surname, n.name });
+                                const lr = gui.layout.last_requested_bounds.?;
+                                const click = gui.clickWidget(lr);
+                                if (click == .click) {
+                                    self.selected_index = i;
+                                    self.name_box.clearRetainingCapacity();
+                                    self.surname_box.clearRetainingCapacity();
+                                    try self.name_box.appendSlice(n.name);
+                                    try self.surname_box.appendSlice(n.surname);
+                                }
+                                if (self.selected_index) |si| {
+                                    if (si == i)
+                                        gui.drawRectFilled(lr, itc(0xff22));
+                                }
+                            } else {
+                                num_ommitted += 1;
+                            }
+                        }
+                        wrap.label("Filtered out: {d} results", .{num_ommitted});
+                    }
+                    {
+                        _ = try gui.beginLayout(Gui.TableLayout, .{ .item_height = VLP.item_height, .columns = 2 }, .{});
+                        defer gui.endLayout();
+                        wrap.label("Name: ", .{});
+                        try wrap.textbox(&self.name_box);
+                        wrap.label("Surname: ", .{});
+                        try wrap.textbox(&self.surname_box);
+                    }
+                }
+            },
         }
-        if (wrap.button("popup"))
-            self.is_popped = true;
-        if (self.is_popped) {
-            const pa = gui.layout.last_requested_bounds.?;
-            const a = graph.Rect.newV(pa.pos(), .{ .x = pa.w, .y = pa.h * 5 });
-            if (gui.input_state.mouse_left_clicked and !gui.isCursorInRect(a) and gui.window_index_grabbed_mouse == gui.window_index.?)
-                self.is_popped = false;
-            try gui.beginWindow(a);
-            defer gui.endWindow();
-            gui.draw9Slice(a, Os9Gui.os9win, wrap.texture, scale);
-            _ = try wrap.beginSubLayout(a.inset(6 * scale), Gui.VerticalLayout, .{ .item_height = 20 * scale, .padding = .{ .bottom = 6 * scale } });
-            defer wrap.endSubLayout();
-            if (wrap.button("close"))
-                self.is_popped = false;
-            try wrap.enumCombo(&self.f_kind);
-        }
-        try wrap.textboxNumber(&wrap.scale);
     }
 };
 
@@ -2882,7 +2989,7 @@ pub fn main() anyerror!void {
     var kbd = KeyboardDisplay.init(alloc);
     defer kbd.deinit();
 
-    var gt = GuiTest.init(alloc);
+    var gt = try GuiTest.init(alloc);
     defer gt.deinit();
 
     var os9gui = try Os9Gui.init(alloc, scale);
@@ -2992,7 +3099,7 @@ pub fn main() anyerror!void {
                         var vl = try gui.beginLayout(Gui.VerticalLayout, .{ .item_height = 40 }, .{});
                         defer gui.endLayout();
                         os9gui.slider(&tc.scale, 0.1, 4);
-                        try os9gui.enumCombo(&tc.filek);
+                        try os9gui.enumCombo("filek", .{}, &tc.filek);
                         try os9gui.textboxNumber(&tc.scale);
                         try os9gui.textboxNumber(&tc.win_inset);
                         try os9gui.textbox(&my_str);
