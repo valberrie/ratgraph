@@ -652,7 +652,7 @@ pub const OpaqueDataStore = struct {
     const DataStoreMapT = std.StringHashMap(DataItem);
 
     pub const DataItem = struct {
-        type_name_hash: u64,
+        type_name: []const u8,
         data: []u8,
     };
 
@@ -669,6 +669,7 @@ pub const OpaqueDataStore = struct {
         var item = vit.next();
         while (item) |v| : (item = vit.next()) {
             self.alloc.free(v.data);
+            self.alloc.free(v.type_name);
         }
         for (self.keys.items) |key| {
             self.alloc.free(key);
@@ -678,14 +679,17 @@ pub const OpaqueDataStore = struct {
         self.map.deinit();
     }
 
+    pub fn storeI(self: *Self, comptime data_type: type, init_value: data_type, name: []const u8) !*data_type {
+        const s = try self.store(data_type, name);
+        if (s.is_init)
+            s.data.* = init_value;
+        return s.data;
+    }
+
     pub fn store(self: *Self, comptime data_type: type, name: []const u8) !struct {
         data: *data_type,
         is_init: bool,
     } {
-        var hasher = std.hash.Wyhash.init(0);
-        std.hash.autoHashStrat(&hasher, @typeName(data_type), .Shallow);
-        const hash = hasher.final();
-
         var is_init = false;
         if (!self.map.contains(name)) {
             is_init = true;
@@ -695,10 +699,11 @@ pub const OpaqueDataStore = struct {
             const data_untyped = try self.alloc.alloc(u8, @sizeOf(data_type));
             //const data = @as(*data_type, @ptrCast(@alignCast(data_untyped)));
             //data.* = init_value;
-            try self.map.put(name_store, .{ .type_name_hash = hash, .data = data_untyped });
+            try self.map.put(name_store, .{ .type_name = try self.alloc.dupe(u8, @typeName(data_type)), .data = data_untyped });
         }
         const v = self.map.get(name) orelse unreachable;
-        if (v.type_name_hash != hash) return error.wrongType;
+        //if (v.type_name_hash != hash) return error.wrongType;
+        if (!std.mem.eql(u8, v.type_name, @typeName(data_type))) return error.wrongType;
         return .{ .data = @as(*data_type, @ptrCast(@alignCast(v.data))), .is_init = is_init };
     }
 };
@@ -1129,13 +1134,9 @@ pub const Context = struct {
 
     //prop table
     //pop_index ?usize
-    pub fn storeLayoutData(self: *Self, comptime T: type, name: []const u8) !struct {
-        data: *T,
-        is_init: bool,
-    } {
+    pub fn storeLayoutData(self: *Self, comptime T: type, init_value: T, name: []const u8) !*T {
         if (self.current_layout_cache_data) |lcd| {
-            const r = try lcd.ds.store(T, name);
-            return .{ .data = r.data, .is_init = r.is_init };
+            return try lcd.ds.storeI(T, init_value, name);
         }
         unreachable;
     }
@@ -2133,6 +2134,8 @@ pub const GuiDrawContext = struct {
     }
 
     pub fn drawGui(self: *Self, draw: *graph.ImmediateDrawingContext, gui: *Context) !void {
+        graph.c.glEnable(graph.c.GL_DEPTH_TEST);
+        defer graph.c.glDisable(graph.c.GL_DEPTH_TEST);
         const scr_dim = draw.screen_dimensions;
         const ignore_cache = true;
         for (gui.windows.items[0..gui.this_frame_num_windows], 0..) |w, i| {

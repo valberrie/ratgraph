@@ -210,11 +210,13 @@ pub const Window = struct {
         //c.glEnable(c.GL_STENCIL_TEST);
         c.glEnable(c.GL_DEBUG_OUTPUT);
 
-        return Self{
+        var ret = Self{
             .win = win,
             .ctx = context,
             .text_input = "",
         };
+        ret.pumpEvents();
+        return ret;
     }
 
     pub fn destroyWindow(self: Self) void {

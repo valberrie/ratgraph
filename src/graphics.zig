@@ -37,7 +37,7 @@ pub const Colori = ptypes.Colori;
 pub const itc = ptypes.itc;
 pub const Shader = GL.Shader;
 const gui_app = @import("gui_app.zig");
-const Os9Gui = gui_app.Os9Gui;
+pub const Os9Gui = gui_app.Os9Gui;
 
 pub const GL = @import("graphics/gl.zig");
 pub const glID = GL.glID;
@@ -948,6 +948,7 @@ pub const ImmediateDrawingContext = struct {
         const sortctx = MapKeySortCtx{ .items = self.batches.keys() }; // Sort the batches by params.draw_priority
         self.batches.sort(sortctx);
         var b_it = self.batches.iterator();
+        c.glEnable(c.GL_BLEND);
         while (b_it.next()) |b| {
             inline for (@typeInfo(Batches).Union.fields, 0..) |ufield, i| {
                 if (i == @intFromEnum(b.value_ptr.*)) {
@@ -1110,7 +1111,7 @@ pub const RenderTexture = struct {
         c.glGenRenderbuffers(1, &ret.stencil_rb);
         c.glBindRenderbuffer(c.GL_RENDERBUFFER, ret.stencil_rb);
         c.glRenderbufferStorage(c.GL_RENDERBUFFER, c.GL_DEPTH_STENCIL, w, h);
-        c.glFramebufferRenderbuffer(c.GL_FRAMEBUFFER, c.GL_STENCIL_ATTACHMENT, c.GL_RENDERBUFFER, ret.stencil_rb);
+        c.glFramebufferRenderbuffer(c.GL_FRAMEBUFFER, c.GL_DEPTH_STENCIL_ATTACHMENT, c.GL_RENDERBUFFER, ret.stencil_rb);
 
         c.glFramebufferTexture(c.GL_FRAMEBUFFER, c.GL_COLOR_ATTACHMENT0, ret.texture.id, 0);
         const draw_buffers = [_]c.GLenum{c.GL_COLOR_ATTACHMENT0};

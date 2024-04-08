@@ -1765,7 +1765,7 @@ pub const Os9Gui = struct {
 
     const text_disabled = itc(0x222222ff);
 
-    const os9win = Rec(0, 12, 6, 6);
+    pub const os9win = Rec(0, 12, 6, 6);
     const os9in = Rec(6, 12, 6, 6);
     const os9line = Rec(0, 18, 6, 6);
     const os9drop = Rec(6, 18, 6, 6);
@@ -1807,8 +1807,7 @@ pub const Os9Gui = struct {
     drop_down: ?Gui.Context.WidgetId = null,
     drop_down_scroll: Vec2f = .{ .x = 0, .y = 0 },
 
-    pub fn init(alloc: std.mem.Allocator, scale: f32) !Self {
-        const dir = std.fs.cwd();
+    pub fn init(alloc: std.mem.Allocator, asset_dir: std.fs.Dir, scale: f32) !Self {
         const icon_list = comptime blk: {
             const info = @typeInfo(Icons);
             var list: [info.Enum.fields.len]u21 = undefined;
@@ -1822,13 +1821,13 @@ pub const Os9Gui = struct {
             .gui = try Gui.Context.init(alloc),
             .gui_draw_ctx = try Gui.GuiDrawContext.init(alloc),
             .scale = scale,
-            .texture = try graph.Texture.initFromImgFile(alloc, dir, "next_step.png", .{
+            .texture = try graph.Texture.initFromImgFile(alloc, asset_dir, "next_step.png", .{
                 .mag_filter = graph.c.GL_NEAREST,
             }),
-            .font = try graph.Font.init(alloc, dir, "fonts/roboto.ttf", 24, 163, .{}),
+            .font = try graph.Font.init(alloc, asset_dir, "fonts/roboto.ttf", 24, 163, .{}),
             .icon_font = try graph.Font.init(
                 alloc,
-                std.fs.cwd(),
+                asset_dir,
                 "fonts/remix.ttf",
                 12,
                 163,
@@ -1877,6 +1876,15 @@ pub const Os9Gui = struct {
     pub fn endTlWindow(self: *Self) void {
         self.gui.endLayout();
         self.gui.endWindow();
+    }
+
+    pub fn beginV(self: *Self) !*Gui.VerticalLayout {
+        const VLP = Gui.VerticalLayout{ .item_height = 20 * self.scale, .padding = .{ .bottom = 6 * self.scale } };
+        return try self.gui.beginLayout(Gui.VerticalLayout, VLP, .{});
+    }
+
+    pub fn endL(self: *Self) void {
+        self.gui.endLayout();
     }
 
     pub fn beginSubLayout(self: *Self, sub: Rect, comptime Layout_T: type, layout_data: Layout_T) !*Layout_T {
@@ -2005,13 +2013,11 @@ pub const Os9Gui = struct {
         _ = try self.gui.beginLayout(Gui.SubRectLayout, .{ .rect = in }, .{});
         defer self.gui.endLayout();
         const do_scroll = (in.h < item_height * num_lines);
-        const scr = try self.gui.storeLayoutData(Vec2f, "popped_prop_index");
-        if (scr.is_init)
-            scr.data.* = .{ .x = 0, .y = 0 };
+        const scr = try self.gui.storeLayoutData(Vec2f, .{ .x = 0, .y = 0 }, "popped_prop_index");
 
         const sd = blk: {
             if (do_scroll) {
-                break :blk .{ .scroll = try self.gui.beginScroll(scr.data, .{
+                break :blk .{ .scroll = try self.gui.beginScroll(scr, .{
                     .vertical_scroll = true,
                     .bar_w = os9scrollw * self.scale,
                     .scroll_area_h = item_height * num_lines,
@@ -2040,13 +2046,13 @@ pub const Os9Gui = struct {
             if (self.gui.mouse_grab_id == null and !self.gui.scroll_claimed_mouse and w.scroll_bounds.?.containsPoint(self.gui.input_state.mouse_pos)) {
                 self.gui.scroll_claimed_mouse = true;
                 const pixel_per_line = 20 * self.scale;
-                scr.data.y = std.math.clamp(scr.data.y + self.gui.input_state.mouse_wheel_delta * -pixel_per_line * 3, 0, 1000);
+                scr.y = std.math.clamp(scr.y + self.gui.input_state.mouse_wheel_delta * -pixel_per_line * 3, 0, 1000);
             }
             self.gui.endScroll();
             if (sd.?.scroll.vertical_slider_area) |va| {
                 _ = self.gui.beginLayout(Gui.SubRectLayout, .{ .rect = va }, .{}) catch unreachable;
                 defer self.gui.endLayout();
-                self.scrollBar(&scr.data.y, 0, if (max < 0) 0 else max, .vertical, .{
+                self.scrollBar(&scr.y, 0, if (max < 0) 0 else max, .vertical, .{
                     .handle_w = if (max > sd.?.area.h) os9scrollhandle.h * self.scale else sd.?.area.h - max,
                 });
             }
@@ -2064,16 +2070,14 @@ pub const Os9Gui = struct {
                         try self.textboxNumber(&prop.y);
                     },
                     else => {
-                        const scr = try self.gui.storeLayoutData(bool, self.gui.scratchPrint("s{s}{d}", .{ field_name, index }));
-                        if (scr.is_init)
-                            scr.data.* = false;
+                        const scr = try self.gui.storeLayoutData(bool, false, self.gui.scratchPrint("s{s}{d}", .{ field_name, index }));
                         if (self.button("edit"))
-                            scr.data.* = true;
-                        if (scr.data.*) {
+                            scr.* = true;
+                        if (scr.*) {
                             const pa = self.gui.layout.last_requested_bounds orelse return;
                             const a = graph.Rect.newV(pa.pos(), .{ .x = pa.w, .y = pa.h * 5 });
                             if (self.gui.input_state.mouse_left_clicked and !self.gui.isCursorInRect(a) and self.gui.window_index_grabbed_mouse == self.gui.window_index.?)
-                                scr.data.* = false;
+                                scr.* = false;
                             try self.gui.beginWindow(a);
                             defer self.gui.endWindow();
                             try self.propertyTable(prop);
@@ -2094,23 +2098,20 @@ pub const Os9Gui = struct {
                         } else {
                             const scr = try self.gui.storeLayoutData(
                                 struct { pop: bool, scr: Vec2f },
+                                .{ .pop = false, .scr = .{ .x = 0, .y = 0 } },
                                 self.gui.scratchPrint("sp{s}{d}", .{ field_name, index }),
                             );
-                            if (scr.is_init) {
-                                scr.data.pop = false;
-                                scr.data.scr = .{ .x = 0, .y = 0 };
-                            }
                             if (self.button("view"))
-                                scr.data.pop = true;
-                            if (scr.data.pop) {
+                                scr.pop = true;
+                            if (scr.pop) {
                                 const pa = self.gui.layout.last_requested_bounds.?;
                                 const a = graph.Rect.newV(pa.pos(), .{ .x = pa.w, .y = pa.h * 5 });
                                 if (self.gui.input_state.mouse_left_clicked and !self.gui.isCursorInRect(a) and self.gui.window_index_grabbed_mouse == self.gui.window_index.?)
-                                    scr.data.pop = false;
+                                    scr.pop = false;
                                 try self.gui.beginWindow(a);
                                 defer self.gui.endWindow();
 
-                                if (try self.beginVScroll(&scr.data.scr, .{ .sw = a.w })) |file_scroll| {
+                                if (try self.beginVScroll(&scr.scr, .{ .sw = a.w })) |file_scroll| {
                                     defer self.endVScroll(file_scroll);
                                     for (prop.*, 0..) |*item, i| {
                                         try self.editProperty(p.child, item, field_name, i + index);

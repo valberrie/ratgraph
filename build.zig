@@ -5,7 +5,7 @@ fn getSrcDir() []const u8 {
 }
 const srcdir = getSrcDir();
 
-pub fn linkLibrary(exe: *std.build.LibExeObjStep) void {
+pub fn linkLibrary(exe: *std.Build.Step.Compile) void {
     const cdir = "c_libs";
 
     const include_paths = [_][]const u8{
