@@ -2,7 +2,7 @@ const std = @import("std");
 const testing = std.testing;
 
 pub fn SparseSet(comptime child_type: type, comptime index_type: type) type {
-    if (!std.meta.trait.hasField("i")(child_type)) {
+    if (!@hasField(child_type, "i")) {
         @compileError("Child type must have a i index variable");
     } else {
         const ch: child_type = undefined;
@@ -61,7 +61,7 @@ pub fn SparseSet(comptime child_type: type, comptime index_type: type) type {
         }
 
         pub fn init(alloc: std.mem.Allocator) !Self {
-            var ret = Self{ .sparse = std.ArrayList(index_type).init(alloc), .dense = std.ArrayList(child_type).init(alloc) };
+            const ret = Self{ .sparse = std.ArrayList(index_type).init(alloc), .dense = std.ArrayList(child_type).init(alloc) };
             return ret;
         }
 

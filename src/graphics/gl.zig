@@ -71,7 +71,7 @@ pub fn generateVertexAttributes(vao: c_uint, vbo: c_uint, comptime T: anytype) v
     switch (info) {
         .Struct => {
             const st = info.Struct;
-            if (st.layout != .Packed) @compileError("generateVertexAttributes only supports packed structs");
+            if (st.layout != .@"packed") @compileError("generateVertexAttributes only supports packed structs");
             inline for (st.fields, 0..) |field, f_i| {
                 switch (field.type) {
                     Vec2f => floatVertexAttrib(vao, vbo, f_i, 2, T, field.name),

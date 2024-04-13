@@ -12,17 +12,17 @@ pub const Argument = enum {
 };
 
 pub const ArgItem = struct {
-    name: []const u8,
+    name: [:0]const u8,
     doc: []const u8,
     arg_type: Argument,
     type_override: ?type = null,
 };
 
-pub fn Arg(comptime name: []const u8, comptime T: Argument, comptime doc_string: []const u8) ArgItem {
+pub fn Arg(comptime name: [:0]const u8, comptime T: Argument, comptime doc_string: []const u8) ArgItem {
     return .{ .name = name, .arg_type = T, .doc = doc_string };
 }
 
-pub fn ArgCustom(comptime name: []const u8, comptime T: type, comptime doc_string: []const u8) ArgItem {
+pub fn ArgCustom(comptime name: [:0]const u8, comptime T: type, comptime doc_string: []const u8) ArgItem {
     return .{ .name = name, .arg_type = .override, .doc = doc_string, .type_override = T };
 }
 
@@ -45,7 +45,7 @@ fn generateArgStruct(comptime arg_list: []const ArgItem) type {
         fields[i] = .{ .name = arg.name, .type = T, .default_value = null, .is_comptime = false, .alignment = @alignOf(T) };
     }
 
-    return @Type(Type{ .Struct = .{ .layout = .Auto, .fields = &fields, .decls = &.{}, .is_tuple = false } });
+    return @Type(Type{ .Struct = .{ .layout = .auto, .fields = &fields, .decls = &.{}, .is_tuple = false } });
 }
 
 pub fn parseArgs(comptime arg_list: []const ArgItem, arg_it: anytype) !generateArgStruct(arg_list) {

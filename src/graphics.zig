@@ -151,7 +151,7 @@ pub const BakedAtlas = struct {
 
         const atlas_size: i32 = @intFromFloat(@sqrt(@as(f32, @floatFromInt(running_area)) * 2));
         try pack_ctx.pack(atlas_size, atlas_size);
-        var bit = try Bitmap.initBlank(alloc, atlas_size, atlas_size, .rgba_8);
+        const bit = try Bitmap.initBlank(alloc, atlas_size, atlas_size, .rgba_8);
 
         _ = bit;
         unreachable;
@@ -344,13 +344,14 @@ pub const Atlas = struct {
         defer json_p.deinit();
         const sets_to_load = json.sets;
 
-        const cpy = std.mem.copy;
-        var ret_j: AtlasJson = AtlasJson{ .img_dir_path = try alloc.alloc(u8, json.img_dir_path.len), .sets = try alloc.alloc(AtlasJson.SetJson, json.sets.len) };
-        cpy(u8, ret_j.img_dir_path, json.img_dir_path);
+        var ret_j: AtlasJson = AtlasJson{
+            .img_dir_path = try alloc.dupe(u8, json.img_dir_path),
+            .sets = try alloc.alloc(AtlasJson.SetJson, json.sets.len),
+        };
 
         if (sets_to_load.len == 0) return error.noSets;
 
-        var img_dir = try dir.openDir(json.img_dir_path, .{});
+        const img_dir = try dir.openDir(json.img_dir_path, .{});
         //defer img_dir.close();
 
         var textures = std.ArrayList(Texture).init(alloc);
@@ -358,12 +359,10 @@ pub const Atlas = struct {
         for (sets_to_load, 0..) |item, i| {
             try textures.append(try Texture.initFromImgFile(alloc, img_dir, item.filename, .{ .mag_filter = c.GL_NEAREST, .min_filter = c.GL_NEAREST }));
 
-            ret_j.sets[i] = .{ .filename = try alloc.alloc(u8, item.filename.len), .tilesets = try alloc.alloc(SubTileset, item.tilesets.len) };
-            cpy(u8, ret_j.sets[i].filename, item.filename);
+            ret_j.sets[i] = .{ .filename = try alloc.dupe(u8, item.filename), .tilesets = try alloc.alloc(SubTileset, item.tilesets.len) };
             for (item.tilesets, 0..) |ts, j| {
                 ret_j.sets[i].tilesets[j] = ts;
-                ret_j.sets[i].tilesets[j].description = try alloc.alloc(u8, ts.description.len);
-                cpy(u8, ret_j.sets[i].tilesets[j].description, ts.description);
+                ret_j.sets[i].tilesets[j].description = try alloc.dupe(u8, ts.description);
             }
         }
 

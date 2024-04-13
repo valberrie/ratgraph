@@ -37,15 +37,6 @@ pub fn linkLibrary(exe: *std.Build.Step.Compile) void {
     exe.linkSystemLibrary("lua");
 }
 
-//pub fn addPackage(exe: *std.build.LibExeObjStep, name: []const u8) void {
-//    exe.addPackage(.{
-//        .name = name,
-//        .source = .{ .path = srcdir ++ "/src/graphics.zig" },
-//        .dependencies = &[_]std.build.Pkg{.{ .name = "zalgebra", .source = .{ .path = srcdir ++ "/zig_libs/zalgebra/src/main.zig" } }},
-//    });
-//    //exe.addPackagePath(name, srcdir ++ "/src/graphics.zig");
-//}
-
 pub fn module(b: *std.Build, compile: *std.Build.Step.Compile) *std.Build.Module {
     linkLibrary(compile);
     return b.createModule(.{ .source_file = .{ .path = srcdir ++ "/src/graphics.zig" }, .dependencies = &[_]std.Build.ModuleDependency{.{ .name = "zalgebra", .module = zalgebra(b, compile) }} });
@@ -106,7 +97,7 @@ pub fn build(b: *std.Build) void {
     });
 
     const zalgebra_module = zalgebra_dep.module("zalgebra");
-    exe.addModule("zalgebra", zalgebra_module);
+    exe.root_module.addImport("zalgebra", zalgebra_module);
 
     // Similar to creating the run step earlier, this exposes a `test` step to
     // the `zig build --help` menu, providing a way for the user to request

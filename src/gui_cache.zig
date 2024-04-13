@@ -245,7 +245,7 @@ pub fn StackCache(comptime NodeData: type, comptime eql_fn: fn (NodeData, NodeDa
 
         fn destroy_node(self: *Self, node: *Node) void {
             self.dealloc_count += 1;
-            if (comptime std.meta.trait.hasFn("deinit")(NodeData)) {
+            if (comptime std.meta.hasFn(NodeData, "deinit")) {
                 @field(NodeData, "deinit")(&node.data);
             }
             self.alloc.destroy(node);

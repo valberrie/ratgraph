@@ -58,7 +58,7 @@ pub const SplitPlan = struct {
             r: ?*const Node = null,
         },
         area: struct {
-            name: []const u8,
+            name: [:0]const u8,
         },
 
         //pub fn draw(self: Node, ctx: *Gui.Context, area: Rect) void {
@@ -81,7 +81,7 @@ pub const SplitPlan = struct {
         //}
     };
 
-    pub fn A(name: []const u8) Node {
+    pub fn A(name: [:0]const u8) Node {
         return .{ .area = .{ .name = name } };
     }
 
@@ -131,7 +131,7 @@ pub const SplitPlan = struct {
         var index: usize = 0;
         insertNames(plan, &index, &fields);
 
-        return @Type(.{ .Struct = .{ .layout = .Auto, .fields = &fields, .decls = &.{}, .is_tuple = false } });
+        return @Type(.{ .Struct = .{ .layout = .auto, .fields = &fields, .decls = &.{}, .is_tuple = false } });
     }
 
     fn calcRecur(comptime node: Node, ret: anytype, area: Rect) void {
@@ -352,7 +352,7 @@ pub const FileBrowser = struct {
 
     pub fn init(alloc: std.mem.Allocator, settings_dir: std.fs.Dir) !Self {
         const cwd = std.fs.cwd();
-        var file: ?std.fs.File = settings_dir.openFile("file_browser_config.json", .{}) catch |err| switch (err) {
+        const file: ?std.fs.File = settings_dir.openFile("file_browser_config.json", .{}) catch |err| switch (err) {
             error.FileNotFound => null,
             else => return err,
         };
@@ -433,7 +433,7 @@ pub const FileBrowser = struct {
 
     pub fn popuplate_entries(self: *Self) !void {
         self.file_scroll = .{ .x = 0, .y = 0 };
-        var it_dir = self.dir.openIterableDir(".", .{}) catch {
+        var it_dir = self.dir.openDir(".", .{ .iterate = true }) catch {
             self.dir = try self.dir.openDir("..", .{});
             self.clear_entries();
             self.popuplate_entries() catch |err| {
@@ -451,8 +451,7 @@ pub const FileBrowser = struct {
                     continue;
                 }
             }
-            const alloc_name = try self.alloc.alloc(u8, item.name.len);
-            std.mem.copy(u8, alloc_name, item.name);
+            const alloc_name = try self.alloc.dupe(u8, item.name);
             const stat = self.dir.statFile(item.name) catch null;
             if (stat) |s| {
                 try self.entries.append(.{ .name = alloc_name, .kind = item.kind, .mtime = @intCast(@divFloor(s.mtime, std.time.ns_per_s)), .size = s.size });
@@ -1085,7 +1084,7 @@ pub const KeyboardDisplay = struct {
             const kh = kw;
             for (keyboard) |row| {
                 var x: f32 = row.x * kw;
-                var y: f32 = row.y * kh;
+                const y: f32 = row.y * kh;
                 for (row.keys) |key| {
                     const ww = key.width * kw;
                     switch (key.ktype) {
@@ -1156,9 +1155,9 @@ pub const MapEditor = struct {
             const bt = floorPos(b, fts);
             const w = at.x - bt.x;
             const h = at.y - bt.y;
-            const bounds = graph.Rec(if (w > 0) bt.x else at.x, if (h > 0) bt.y else at.y, @fabs(w) + ts, @fabs(h) + ts);
-            const wp: usize = @intFromFloat(@floor(@fabs(w) / fts) + 1);
-            const hp: usize = @intFromFloat(@floor(@fabs(h) / fts) + 1);
+            const bounds = graph.Rec(if (w > 0) bt.x else at.x, if (h > 0) bt.y else at.y, @abs(w) + ts, @abs(h) + ts);
+            const wp: usize = @intFromFloat(@floor(@abs(w) / fts) + 1);
+            const hp: usize = @intFromFloat(@floor(@abs(h) / fts) + 1);
 
             return .{ .bounds = bounds, .w = wp, .h = hp, .ts = fts };
         }
@@ -1335,7 +1334,7 @@ pub const MapEditor = struct {
                                 const tt = gui.clickWidget(graph.Rec(0, 0, 0, 0), .{ .teleport_area = canvas });
                                 const fp = floorPos(pos, 16);
                                 if (gui.isKeyDown(.LSHIFT) and self.last_placed_pos != null) {
-                                    var a_it = AreaIt.init(pos, self.last_placed_pos.?, 16);
+                                    const a_it = AreaIt.init(pos, self.last_placed_pos.?, 16);
                                     gui.drawRectOutline(a_it.bounds, Color.White);
                                 } else {
                                     gui.drawRectOutline(graph.Rec(fp.x, fp.y, 16, 16), Color.White);
@@ -2616,7 +2615,7 @@ pub const Lua = struct {
     }
 
     pub fn zstring(str: []const u8) [*c]const u8 {
-        std.mem.copy(u8, &zstring_buffer, str);
+        @memcpy(zstring_buffer[0..str.len], str);
         zstring_buffer[str.len] = 0;
         return &zstring_buffer[0];
     }
@@ -2833,7 +2832,7 @@ pub const AssetMap = struct {
 };
 
 pub fn assetLoad(alloc: std.mem.Allocator) !AssetMap {
-    var idir = try std.fs.cwd().openIterableDir("asset/os9gui", .{});
+    var idir = try std.fs.cwd().openDir("asset/os9gui", .{ .iterate = true });
     defer idir.close();
     var walker = try idir.walk(
         alloc,
@@ -2928,7 +2927,7 @@ pub fn main() anyerror!void {
     if (cli_opts.app) |app|
         current_app = app;
 
-    var scale = if (cli_opts.scale) |s| s else 2.0;
+    const scale = if (cli_opts.scale) |s| s else 2.0;
     var win = try graph.SDL.Window.createWindow("My window", .{
         .double_buffer = true,
         .window_flags = &.{
@@ -2993,13 +2992,13 @@ pub fn main() anyerror!void {
     var gt = try GuiTest.init(alloc);
     defer gt.deinit();
 
-    var os9gui = try Os9Gui.init(alloc, scale);
+    var os9gui = try Os9Gui.init(alloc, std.fs.cwd(), scale);
     defer os9gui.deinit();
 
     //NEEDS TO BE SET BEFORE LUA RUNS
     os9_ctx = os9gui;
     //BEGIN LUA
-    var L = lua.luaL_newstate();
+    const L = lua.luaL_newstate();
     lua.luaL_openlibs(L);
     Lua.register(L);
     const lf = lua.luaL_loadfilex(L, "script.lua", "bt");

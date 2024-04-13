@@ -197,7 +197,7 @@ pub fn main() !void {
     var draw = graph.ImmediateDrawingContext.init(alloc, win.getDpi());
     defer draw.deinit();
 
-    var cam = graph.Camera2D{
+    const cam = graph.Camera2D{
         .cam_area = graph.Rec(0, 0, 20, 20),
         .screen_area = graph.Rec(0, 0, 800, 600),
     };

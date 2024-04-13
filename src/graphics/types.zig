@@ -311,7 +311,7 @@ pub const Camera2D = struct {
     }
 
     pub fn zoom(self: *Self, dist: f32, zoom_target: Vec2f) void {
-        if (@fabs(dist) > 0.00001) {
+        if (@abs(dist) > 0.00001) {
             const m_init = self.toCamV(zoom_target);
             const h = self.cam_area.w * dist;
             const v = self.cam_area.h * dist;
@@ -590,19 +590,19 @@ pub fn colorToHsva(color: CharColor) Hsva {
 
     const M = 0.001;
     const hue: f32 = 60 * blk: {
-        if (@fabs(C) < M) {
+        if (@abs(C) < M) {
             break :blk 0;
-        } else if (@fabs(max - r) < M) {
+        } else if (@abs(max - r) < M) {
             break :blk @mod((g - b) / C, 6);
-        } else if (@fabs(max - g) < M) {
+        } else if (@abs(max - g) < M) {
             break :blk ((b - r) / C) + 2;
-        } else if (@fabs(max - b) < M) {
+        } else if (@abs(max - b) < M) {
             break :blk ((r - g) / C) + 4;
         }
         unreachable;
     };
 
-    const sat: f32 = if (@fabs(max) < M) 0 else C / max;
+    const sat: f32 = if (@abs(max) < M) 0 else C / max;
     return .{ .h = hue, .s = sat, .v = max, .a = fl[3] };
 }
 
@@ -616,7 +616,7 @@ pub fn hsvaToColor(hsva: Hsva) CharColor {
 
     const C = V * S;
     const hp = (@mod(H, 360)) / 60.0;
-    const X = C * (1 - @fabs(@mod(hp, 2) - 1));
+    const X = C * (1 - @abs(@mod(hp, 2) - 1));
     const rgb1 = switch (@as(u32, @intFromFloat(hp))) {
         0 => za.Vec3.new(C, X, 0),
         1 => za.Vec3.new(X, C, 0),

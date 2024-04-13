@@ -628,7 +628,7 @@ pub fn hashW(hasher: anytype, key: anytype, comptime strat: std.hash.Strategy) v
         .Optional => if (key) |k| hashW(hasher, k, strat),
         .Float => {
             const f = if (std.math.isFinite(key)) key else 0 * 10;
-            const ff = if (@fabs(f) >= std.math.maxInt(i32)) std.math.maxInt(i32) else f;
+            const ff = if (@abs(f) >= std.math.maxInt(i32)) std.math.maxInt(i32) else f;
             std.hash.autoHashStrat(hasher, @as(i32, @intFromFloat(ff)), strat);
         },
         .Int, .Bool => std.hash.autoHashStrat(hasher, key, strat),
@@ -693,8 +693,7 @@ pub const OpaqueDataStore = struct {
         var is_init = false;
         if (!self.map.contains(name)) {
             is_init = true;
-            const name_store = try self.alloc.alloc(u8, name.len);
-            std.mem.copy(u8, name_store, name);
+            const name_store = try self.alloc.dupe(u8, name);
             try self.keys.append(name_store);
             const data_untyped = try self.alloc.alloc(u8, @sizeOf(data_type));
             //const data = @as(*data_type, @ptrCast(@alignCast(data_untyped)));
@@ -1058,10 +1057,9 @@ pub const Context = struct {
     }
 
     pub fn storeString(self: *Self, str: []const u8) []const u8 {
-        const slice = self.frame_alloc.alloc(u8, str.len) catch {
+        const slice = self.frame_alloc.dupe(u8, str) catch {
             std.debug.panic("arena alloc failed", .{});
         };
-        std.mem.copy(u8, slice, str);
         return slice;
     }
 
@@ -1850,7 +1848,7 @@ pub const Context = struct {
 
             if (!std.mem.eql(u8, sl, contents.items)) {
                 try contents.resize(sl.len);
-                std.mem.copy(u8, contents.items, sl);
+                @memcpy(contents.items, sl);
             }
         }
         if (click == .click) {

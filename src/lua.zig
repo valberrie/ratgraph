@@ -16,7 +16,7 @@ state: Ls,
 fba: std.heap.FixedBufferAllocator,
 
 pub fn init() @This() {
-    var l = lua.luaL_newstate();
+    const l = lua.luaL_newstate();
     lua.luaL_openlibs(l);
     return .{
         .fba = std.heap.FixedBufferAllocator.init(&fba_buffer),

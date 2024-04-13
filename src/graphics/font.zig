@@ -334,7 +334,7 @@ pub const Font = struct {
             }
 
             const fpad = @as(f32, @floatFromInt(padding));
-            var glyph = Glyph{
+            const glyph = Glyph{
                 .tr = .{ .x = -1, .y = -1, .w = @as(f32, @floatFromInt(bitmap.width)) + fpad, .h = @as(f32, @floatFromInt(bitmap.rows)) + fpad },
                 .offset_x = @as(f32, @floatFromInt(metrics.horiBearingX)) / 64,
                 .offset_y = @as(f32, @floatFromInt(metrics.horiBearingY)) / 64,
@@ -607,7 +607,7 @@ pub const Bitmap = struct {
     }
 
     pub fn initFromPngBuffer(alloc: Alloc, buffer: []const u8) !Bitmap {
-        var pngctx = c.spng_ctx_new(0);
+        const pngctx = c.spng_ctx_new(0);
         defer c.spng_ctx_free(pngctx);
         _ = c.spng_set_png_buffer(pngctx, &buffer[0], buffer.len);
 
@@ -650,7 +650,7 @@ pub const Bitmap = struct {
         const len = @as(usize, @intCast(num_channel * x * y));
         const decoded = try alloc.alloc(u8, len);
         defer alloc.free(decoded);
-        std.mem.copy(u8, decoded, img_buf[0..len]);
+        @memcpy(decoded, img_buf[0..len]);
 
         return try initFromBuffer(alloc, decoded, x, y, switch (num_channel) {
             4 => .rgba_8,
@@ -692,7 +692,7 @@ pub const Bitmap = struct {
     pub fn writeToPngFile(self: *Self, dir: Dir, sub_path: []const u8) !void {
         var out_file = try dir.createFile(sub_path, .{});
         defer out_file.close();
-        var pngctx = c.spng_ctx_new(c.SPNG_CTX_ENCODER);
+        const pngctx = c.spng_ctx_new(c.SPNG_CTX_ENCODER);
         defer c.spng_ctx_free(pngctx);
 
         _ = c.spng_set_option(pngctx, c.SPNG_ENCODE_TO_BUFFER, 1);

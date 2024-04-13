@@ -14,7 +14,7 @@ pub fn simulateMove(game: anytype, cols: *std.ArrayList(Collision), id: u32, dx:
     const pl = try game.ecs.get(id, .col_rect);
 
     const area = graph.Rect.hull(pl, pl.addV(dx, dy));
-    var rects_to_check = try game.grid.getObjectsInArea(game.temp_alloc.allocator(), area);
+    const rects_to_check = try game.grid.getObjectsInArea(game.temp_alloc.allocator(), area);
 
     for (rects_to_check.items) |o_id| {
         if (o_id == id) continue;
@@ -38,7 +38,7 @@ pub fn simulateMoveNew(game: anytype, cols: *std.ArrayList(Collision), id: u32, 
     const pl = plc.rect;
 
     const area = graph.Rect.hull(pl, pl.addV(dx, dy));
-    var rects_to_check = try game.grid.getObjectsInArea(game.temp_alloc.allocator(), area);
+    const rects_to_check = try game.grid.getObjectsInArea(game.temp_alloc.allocator(), area);
 
     for (rects_to_check.items) |o_id| {
         if (o_id == id) continue;

@@ -334,7 +334,7 @@ pub const Window = struct {
                 },
                 c.SDL_TEXTINPUT => {
                     const slice = std.mem.sliceTo(&event.text.text, 0);
-                    std.mem.copy(u8, &self.text_input_buffer, slice);
+                    @memcpy(&self.text_input_buffer, slice);
                     self.text_input = self.text_input_buffer[0..slice.len];
                 },
                 c.SDL_KEYMAPCHANGED => {
@@ -421,7 +421,7 @@ pub const BindType = struct {
         keycodes.Scancode,
         keycodes.KeymodMask,
     };
-    name: []const u8,
+    name: [:0]const u8,
     bind: Binding,
 };
 
