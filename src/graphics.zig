@@ -266,6 +266,10 @@ pub const BakedAtlas = struct {
         return .{ .si = self.getSi(name), .ti = ti };
     }
 
+    pub fn getT(self: *Self, name: []const u8, ti: usize) Rect {
+        return self.getTexRec(self.getSi(name), ti);
+    }
+
     pub fn deinit(self: *Self) void {
         self.tilesets_map.deinit();
         for (self.tilesets.items) |*ts| {

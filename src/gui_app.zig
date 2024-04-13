@@ -2877,7 +2877,7 @@ pub fn assetLoad(alloc: std.mem.Allocator, dir: std.fs.Dir, sub_path: []const u8
                     try bmps.append(try graph.Bitmap.initFromPngFile(alloc, w.dir, w.basename));
                     try rpack.appendRect(index, bmps.items[index].w, bmps.items[index].h);
                     //names has the same indicies as bmps
-                    try ret.names.append(try alloc.dupe(u8, w.path));
+                    try ret.names.append(try alloc.dupe(u8, w.path[0 .. w.path.len - ".png".len]));
                 } else if (std.mem.endsWith(u8, w.basename, ".json")) {
                     const path = try alloc.dupe(u8, w.path);
                     try json_files.append(.{
@@ -2903,13 +2903,16 @@ pub fn assetLoad(alloc: std.mem.Allocator, dir: std.fs.Dir, sub_path: []const u8
     try out_bmp.writeToPngFile(std.fs.cwd(), "testpack.png");
     ret.texture = graph.Texture.initFromBitmap(out_bmp, .{ .mag_filter = graph.c.GL_NEAREST });
 
-    if (comptime std.meta.hasFn(@TypeOf(context), "parseJson")) {
-        for (json_files.items) |jf| {
-            var f = try idir.openFile(jf.path, .{});
-            defer f.close();
-            const s = try f.readToEndAlloc(alloc, std.math.maxInt(usize));
-            defer alloc.free(s);
-            try context.parseJson(s, jf.dir_path, jf.basename, &ret);
+    const ctype = @typeInfo(@TypeOf(context));
+    if (ctype == .Pointer) {
+        if (comptime std.meta.hasFn(ctype.Pointer.child, "parseJson")) {
+            for (json_files.items) |jf| {
+                var f = try idir.openFile(jf.path, .{});
+                defer f.close();
+                const s = try f.readToEndAlloc(alloc, std.math.maxInt(usize));
+                defer alloc.free(s);
+                try context.parseJson(s, jf.dir_path, jf.basename, &ret);
+            }
         }
     }
     return ret;
