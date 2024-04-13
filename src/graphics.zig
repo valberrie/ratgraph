@@ -296,20 +296,15 @@ pub const Atlas = struct {
             defer json_p.deinit();
             const sets_to_load = json.sets;
 
-            const cpy = std.mem.copy;
-            var ret_j: AtlasJson = AtlasJson{ .img_dir_path = try alloc.alloc(u8, json.img_dir_path.len), .sets = try alloc.alloc(AtlasJson.SetJson, json.sets.len) };
-            cpy(u8, ret_j.img_dir_path, json.img_dir_path);
+            var ret_j: AtlasJson = AtlasJson{ .img_dir_path = try alloc.dupe(u8, json.img_dir_path), .sets = try alloc.alloc(AtlasJson.SetJson, json.sets.len) };
 
             if (sets_to_load.len == 0) return error.noSets;
 
             for (sets_to_load, 0..) |item, i| {
-                ret_j.sets[i] = .{ .filename = try alloc.alloc(u8, item.filename.len), .tilesets = try alloc.alloc(SubTileset, item.tilesets.len) };
-                cpy(u8, ret_j.sets[i].filename, item.filename);
+                ret_j.sets[i] = .{ .filename = try alloc.dupe(u8, item.filename), .tilesets = try alloc.alloc(SubTileset, item.tilesets.len) };
                 for (item.tilesets, 0..) |ts, j| {
                     ret_j.sets[i].tilesets[j] = ts;
                     ret_j.sets[i].tilesets[j].description = try alloc.dupe(u8, ts.description);
-                    //ret_j.sets[i].tilesets[j].description = try alloc.alloc(u8, ts.description.len);
-                    //cpy(u8, ret_j.sets[i].tilesets[j].description, ts.description);
                 }
             }
 

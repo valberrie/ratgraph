@@ -334,7 +334,7 @@ pub const Window = struct {
                 },
                 c.SDL_TEXTINPUT => {
                     const slice = std.mem.sliceTo(&event.text.text, 0);
-                    @memcpy(&self.text_input_buffer, slice);
+                    @memcpy(self.text_input_buffer[0..slice.len], slice);
                     self.text_input = self.text_input_buffer[0..slice.len];
                 },
                 c.SDL_KEYMAPCHANGED => {

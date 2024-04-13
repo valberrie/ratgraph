@@ -3,7 +3,7 @@ const SparseSet = @import("graphics/sparse_set.zig").SparseSet;
 
 pub const MapField = struct {
     ftype: type,
-    name: []const u8,
+    name: [:0]const u8,
     allow_getPtr: bool = true,
     callback: ?struct {
         create_pointer: type = void,
@@ -13,7 +13,7 @@ pub const MapField = struct {
     } = null,
 };
 
-pub fn Component(comptime name: []const u8, comptime _type: type) MapField {
+pub fn Component(comptime name: [:0]const u8, comptime _type: type) MapField {
     return .{ .ftype = _type, .name = name };
 }
 
@@ -124,29 +124,30 @@ pub fn GenRegistryStructs(comptime fields: FieldList) struct {
         .decls = &.{},
         .is_exhaustive = true,
     } });
+    const lt = .auto;
 
     return .{
         .callbacks = @Type(TypeInfo{ .Struct = .{
-            .layout = .Auto,
+            .layout = lt,
             .fields = callback_fields[0..],
             .decls = &.{},
             .is_tuple = false,
         } }),
         .union_type = @Type(TypeInfo{ .Union = .{
-            .layout = .Auto,
+            .layout = lt,
             .fields = union_fields[0..],
             .decls = &.{},
             .tag_type = EnumType,
         } }),
         .tombstone_bit = fields.len,
         .reg = @Type(TypeInfo{ .Struct = .{
-            .layout = .Auto,
+            .layout = lt,
             .fields = reg_fields[0..],
             .decls = &.{},
             .is_tuple = false,
         } }),
         .json = @Type(TypeInfo{ .Struct = .{
-            .layout = .Auto,
+            .layout = lt,
             .fields = json_fields[0..],
             .decls = &.{},
             .is_tuple = false,
@@ -159,7 +160,7 @@ pub fn GenRegistryStructs(comptime fields: FieldList) struct {
         //    .is_exhaustive = true,
         //} }),
         .queued = @Type(TypeInfo{ .Struct = .{
-            .layout = .Auto,
+            .layout = lt,
             .fields = queued_fields[0..],
             .decls = &.{},
             .is_tuple = false,
@@ -469,7 +470,7 @@ pub fn Registry(comptime field_names_l: FieldList) type {
             }
 
             return @Type(std.builtin.Type{ .Struct = .{
-                .layout = .Auto,
+                .layout = .auto,
                 .fields = fields[0..],
                 .decls = &.{},
                 .is_tuple = false,

@@ -5,7 +5,7 @@ fn getSrcDir() []const u8 {
 }
 const srcdir = getSrcDir();
 
-pub fn linkLibrary(exe: *std.Build.Step.Compile) void {
+pub fn linkLibrary(mod: *std.Build.Module) void {
     const cdir = "c_libs";
 
     const include_paths = [_][]const u8{
@@ -16,7 +16,7 @@ pub fn linkLibrary(exe: *std.Build.Step.Compile) void {
     };
 
     for (include_paths) |path| {
-        exe.addIncludePath(.{ .path = path });
+        mod.addIncludePath(.{ .path = path });
     }
 
     const c_source_files = [_][]const u8{
@@ -27,36 +27,17 @@ pub fn linkLibrary(exe: *std.Build.Step.Compile) void {
     };
 
     for (c_source_files) |cfile| {
-        exe.addCSourceFile(.{ .file = .{ .path = cfile }, .flags = &[_][]const u8{"-Wall"} });
+        mod.addCSourceFile(.{ .file = .{ .path = cfile }, .flags = &[_][]const u8{"-Wall"} });
     }
-    exe.linkLibC();
-    exe.linkSystemLibrary("sdl2");
-    exe.linkSystemLibrary("epoxy");
-    exe.linkSystemLibrary("freetype2");
-    exe.linkSystemLibrary("zlib");
-    exe.linkSystemLibrary("lua");
-}
-
-pub fn module(b: *std.Build, compile: *std.Build.Step.Compile) *std.Build.Module {
-    linkLibrary(compile);
-    return b.createModule(.{ .source_file = .{ .path = srcdir ++ "/src/graphics.zig" }, .dependencies = &[_]std.Build.ModuleDependency{.{ .name = "zalgebra", .module = zalgebra(b, compile) }} });
-}
-
-pub fn zalgebra(b: *std.Build, compile: *std.Build.Step.Compile) *std.Build.Module {
-    const zalgebra_dep = b.dependency("zalgebra", .{
-        .target = compile.target,
-        .optimize = compile.optimize,
-    });
-
-    const zalgebra_module = zalgebra_dep.module("zalgebra");
-    return zalgebra_module;
+    mod.link_libc = true;
+    mod.linkSystemLibrary("sdl2", .{});
+    mod.linkSystemLibrary("epoxy", .{});
+    mod.linkSystemLibrary("freetype2", .{});
+    mod.linkSystemLibrary("zlib", .{});
+    mod.linkSystemLibrary("lua", .{});
 }
 
 pub fn build(b: *std.Build) void {
-    // Standard target options allows the person running `zig build` to choose
-    // what target to build for. Here we do not override the defaults, which
-    // means any target is allowed, and the default is native. Other options
-    // for restricting supported target set are available.
     const target = b.standardTargetOptions(.{});
 
     const mode = b.standardOptimizeOption(.{});
@@ -69,7 +50,9 @@ pub fn build(b: *std.Build) void {
     });
     b.installArtifact(exe);
 
-    linkLibrary(exe);
+    linkLibrary(&exe.root_module);
+    const m = b.addModule("ratgraph", .{ .root_source_file = .{ .path = "src/graphics.zig" }, .target = target });
+    linkLibrary(m);
 
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());
@@ -87,7 +70,7 @@ pub fn build(b: *std.Build) void {
         .link_libc = true,
     });
     unit_tests.setExecCmd(&[_]?[]const u8{ "kcov", "kcov-output", null });
-    linkLibrary(unit_tests);
+    linkLibrary(&unit_tests.root_module);
 
     const run_unit_tests = b.addRunArtifact(unit_tests);
 
@@ -98,6 +81,7 @@ pub fn build(b: *std.Build) void {
 
     const zalgebra_module = zalgebra_dep.module("zalgebra");
     exe.root_module.addImport("zalgebra", zalgebra_module);
+    m.addImport("zalgebra", zalgebra_module);
 
     // Similar to creating the run step earlier, this exposes a `test` step to
     // the `zig build --help` menu, providing a way for the user to request
