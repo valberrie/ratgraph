@@ -2831,8 +2831,8 @@ pub const AssetMap = struct {
     }
 };
 
-pub fn assetLoad(alloc: std.mem.Allocator) !AssetMap {
-    var idir = try std.fs.cwd().openDir("asset/os9gui", .{ .iterate = true });
+pub fn assetLoad(alloc: std.mem.Allocator, dir: std.fs.Dir, sub_path: []const u8, context: anytype) !AssetMap {
+    var idir = try dir.openDir(sub_path, .{ .iterate = true });
     defer idir.close();
     var walker = try idir.walk(
         alloc,
@@ -2857,16 +2857,34 @@ pub fn assetLoad(alloc: std.mem.Allocator) !AssetMap {
     var rpack = graph.RectPack.init(alloc);
     defer rpack.deinit();
 
+    var json_files = std.ArrayList(struct {
+        path: []const u8, //allocated
+        basename: []const u8, //slice of path
+        dir_path: []const u8, //slice of path
+    }).init(alloc);
+    defer {
+        for (json_files.items) |jf| {
+            alloc.free(jf.path);
+        }
+        json_files.deinit();
+    }
+
     while (try walker.next()) |w| {
         switch (w.kind) {
             .file => {
-                std.debug.print("{s} {s}\n", .{ w.basename, w.path });
                 if (std.mem.endsWith(u8, w.basename, ".png")) {
                     const index = bmps.items.len;
                     try bmps.append(try graph.Bitmap.initFromPngFile(alloc, w.dir, w.basename));
                     try rpack.appendRect(index, bmps.items[index].w, bmps.items[index].h);
                     //names has the same indicies as bmps
                     try ret.names.append(try alloc.dupe(u8, w.path));
+                } else if (std.mem.endsWith(u8, w.basename, ".json")) {
+                    const path = try alloc.dupe(u8, w.path);
+                    try json_files.append(.{
+                        .path = path,
+                        .dir_path = path[0 .. w.path.len - w.basename.len],
+                        .basename = path[w.path.len - w.basename.len ..],
+                    });
                 }
             },
             else => {},
@@ -2884,6 +2902,16 @@ pub fn assetLoad(alloc: std.mem.Allocator) !AssetMap {
     }
     try out_bmp.writeToPngFile(std.fs.cwd(), "testpack.png");
     ret.texture = graph.Texture.initFromBitmap(out_bmp, .{ .mag_filter = graph.c.GL_NEAREST });
+
+    if (comptime std.meta.hasFn(@TypeOf(context), "parseJson")) {
+        for (json_files.items) |jf| {
+            var f = try idir.openFile(jf.path, .{});
+            defer f.close();
+            const s = try f.readToEndAlloc(alloc, std.math.maxInt(usize));
+            defer alloc.free(s);
+            try context.parseJson(s, jf.dir_path, jf.basename, &ret);
+        }
+    }
     return ret;
 }
 
@@ -2939,7 +2967,7 @@ pub fn main() anyerror!void {
     defer win.destroyWindow();
     var debug_dir = try std.fs.cwd().openDir("debug", .{});
     defer debug_dir.close();
-    var ass = try assetLoad(alloc);
+    var ass = try assetLoad(alloc, std.fs.cwd(), "asset/os9gui", {});
     defer ass.deinit();
     //const o_win = ass.map.get("window.png").?;
     //const o_inwin = ass.map.get("window_inner.png").?;

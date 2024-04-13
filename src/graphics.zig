@@ -36,7 +36,7 @@ pub const Hsva = ptypes.Hsva;
 pub const Colori = ptypes.Colori;
 pub const itc = ptypes.itc;
 pub const Shader = GL.Shader;
-const gui_app = @import("gui_app.zig");
+pub const gui_app = @import("gui_app.zig");
 pub const Os9Gui = gui_app.Os9Gui;
 
 pub const GL = @import("graphics/gl.zig");

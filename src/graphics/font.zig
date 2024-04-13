@@ -595,9 +595,11 @@ pub const Bitmap = struct {
     }
 
     pub fn initBlank(alloc: Alloc, width: anytype, height: anytype, format: ImageFormat) !Self {
+        const h = lcast(u32, height);
+        const w = lcast(u32, width);
         var ret = Self{ .format = format, .data = std.ArrayList(u8).init(alloc), .w = lcast(u32, width), .h = lcast(u32, height) };
         const num_comp = FormatCompCount[@intFromEnum(format)];
-        try ret.data.appendNTimes(0, num_comp * @as(usize, @intCast(width * height)));
+        try ret.data.appendNTimes(0, num_comp * w * h);
         return ret;
     }
 
