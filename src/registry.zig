@@ -168,8 +168,6 @@ pub fn GenRegistryStructs(comptime fields: FieldList) struct {
         .component_bit_set = std.bit_set.IntegerBitSet(fields.len + 1), //+ 1 for the tombstone bit
     };
 }
-//TODO generate a union of the types to allow for a function create(list_of_components_to_attach)
-//where each item in the list is a member of union.
 
 //TODO handle entity removal
 //fn getEntity

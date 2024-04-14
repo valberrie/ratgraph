@@ -1864,9 +1864,10 @@ pub const Os9Gui = struct {
         if (self.gui.getArea()) |win_area| {
             const border_area = win_area.inset(6 * os9_ctx.scale);
             const area = border_area.inset(6 * os9_ctx.scale);
+            _ = try self.gui.beginLayout(Gui.SubRectLayout, .{ .rect = area }, .{});
+            self.gui.drawRectFilled(win_area, itc(0x222222ff));
             self.gui.draw9Slice(win_area, Os9Gui.os9win, os9_ctx.texture, os9_ctx.scale);
             self.gui.draw9Slice(border_area, Os9Gui.os9in, os9_ctx.texture, os9_ctx.scale);
-            _ = try self.gui.beginLayout(Gui.SubRectLayout, .{ .rect = area }, .{});
             return true;
         }
         self.gui.endWindow();
@@ -1886,6 +1887,10 @@ pub const Os9Gui = struct {
         self.gui.endLayout();
     }
 
+    pub fn beginL(self: *Self, layout: anytype) !*@TypeOf(layout) {
+        return try self.gui.beginLayout(@TypeOf(layout), layout, .{});
+    }
+
     pub fn beginSubLayout(self: *Self, sub: Rect, comptime Layout_T: type, layout_data: Layout_T) !*Layout_T {
         _ = try self.gui.beginLayout(Gui.SubRectLayout, .{ .rect = sub }, .{});
         return try self.gui.beginLayout(Layout_T, layout_data, .{});
@@ -1894,6 +1899,45 @@ pub const Os9Gui = struct {
     pub fn endSubLayout(self: *Self) void {
         self.gui.endLayout();
         self.gui.endLayout();
+    }
+
+    pub fn beginScroll(self: *Self, scr: *Vec2f, opts: struct { sw: f32 = 10000 }, child_layout: anytype) !?struct { area: Rect, scroll: Gui.Context.ScrollData, child: *@TypeOf(child_layout) } {
+        if (try self.gui.beginScroll(scr, .{
+            .vertical_scroll = true,
+            .bar_w = os9scrollw * self.scale,
+            .scroll_area_w = opts.sw,
+            .scroll_area_h = 10000,
+        })) |scrolld| {
+            const lrq = self.gui.layout.last_requested_bounds;
+            return .{
+                .child = try self.gui.beginLayout(@TypeOf(child_layout), child_layout, .{}),
+                .scroll = scrolld,
+                .area = lrq orelse graph.Rec(0, 0, 0, 0),
+            };
+        }
+        return null;
+    }
+
+    pub fn endScroll(self: *Self, d: anytype, omax: f32) void {
+        const max = omax - d.area.h;
+        const sd = d.scroll;
+        const w = self.gui.getWindow();
+        if (max > 0) {
+            if (self.gui.mouse_grab_id == null and !self.gui.scroll_claimed_mouse and w.scroll_bounds.?.containsPoint(self.gui.input_state.mouse_pos)) {
+                self.gui.scroll_claimed_mouse = true;
+                const pixel_per_line = 20 * self.scale;
+                sd.offset.y = std.math.clamp(sd.offset.y + self.gui.input_state.mouse_wheel_delta * -pixel_per_line * 3, 0, max);
+            }
+        }
+        self.gui.endLayout();
+        self.gui.endScroll();
+        if (sd.vertical_slider_area) |va| {
+            _ = self.gui.beginLayout(Gui.SubRectLayout, .{ .rect = va }, .{}) catch unreachable;
+            defer self.gui.endLayout();
+            self.scrollBar(&sd.offset.y, 0, if (max < 0) 0 else max, .vertical, .{
+                .handle_w = if (max > d.area.h) os9scrollhandle.h * self.scale else d.area.h - max,
+            });
+        }
     }
 
     pub fn beginVScroll(self: *Self, scr: *Vec2f, opts: struct { sw: f32 = 10000, sh: f32 = 10000 }) !?Gui.Context.VLayoutScrollData {
@@ -2058,6 +2102,11 @@ pub const Os9Gui = struct {
         }
     }
 
+    pub fn toggleWindowPop(self: *Self, a: Rect, pop: *bool) void {
+        if (self.gui.input_state.mouse_left_clicked and !self.gui.isCursorInRect(a) and self.gui.window_index_grabbed_mouse == self.gui.window_index.?)
+            pop.* = false;
+    }
+
     pub fn editProperty(self: *Self, comptime T: type, prop: *T, comptime field_name: []const u8, index: usize) !void {
         switch (@typeInfo(T)) {
             .Struct => {
@@ -2068,7 +2117,14 @@ pub const Os9Gui = struct {
                         try self.textboxNumber(&prop.x);
                         try self.textboxNumber(&prop.y);
                     },
+                    std.ArrayList(u8) => {
+                        try self.textbox(prop);
+                    },
                     else => {
+                        if (std.meta.hasFn(T, "guiEditProperty")) {
+                            try prop.guiEditProperty(self);
+                            return;
+                        }
                         const scr = try self.gui.storeLayoutData(bool, false, self.gui.scratchPrint("s{s}{d}", .{ field_name, index }));
                         if (self.button("edit"))
                             scr.* = true;
