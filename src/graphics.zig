@@ -13,6 +13,7 @@ pub const Gui = @import("gui.zig");
 pub const SparseSet = @import("graphics/sparse_set.zig").SparseSet;
 pub const MarioData = @import("data_mario.zig");
 pub const Collision = @import("col.zig");
+pub const SpatialGrid = @import("spatial_grid.zig");
 pub const Ecs = @import("registry.zig");
 pub const Lua = @import("lua.zig");
 pub const V3 = za.Vec3;
