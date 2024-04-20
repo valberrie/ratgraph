@@ -1069,6 +1069,8 @@ pub const Context = struct {
     }
 
     pub fn keyState(self: *Self, scancode: graph.SDL.keycodes.Scancode) graph.SDL.ButtonState {
+        if (self.text_input_state.state != .disabled) return .low;
+
         return self.input_state.key_state.*[@intFromEnum(scancode)];
     }
 

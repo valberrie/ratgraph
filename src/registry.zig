@@ -40,6 +40,7 @@ pub fn GenRegistryStructs(comptime fields: FieldList) struct {
     queued: type,
     union_type: type,
     callbacks: type,
+    aggregate_type: type,
 } {
     const TypeInfo = std.builtin.Type;
 
@@ -53,9 +54,18 @@ pub fn GenRegistryStructs(comptime fields: FieldList) struct {
     const num_cbs = 4;
     var callback_fields: [fields.len * num_cbs]TypeInfo.StructField = undefined;
 
+    var big_ent_type: [fields.len]TypeInfo.StructField = undefined;
+
     inline for (fields, 0..) |f, lt_i| {
         const inner_struct = container_struct(f.ftype, ID_TYPE);
-        //const inner_struct = struct { item: f.ftype, i: ID_TYPE };
+        const anynull: ?f.ftype = null;
+        big_ent_type[lt_i] = .{
+            .name = f.name,
+            .type = ?f.ftype,
+            .default_value = &anynull,
+            .is_comptime = false,
+            .alignment = 0,
+        };
         reg_fields[lt_i] = .{
             .name = f.name,
             .type = SparseSet(inner_struct, ID_TYPE),
@@ -127,6 +137,12 @@ pub fn GenRegistryStructs(comptime fields: FieldList) struct {
     const lt = .auto;
 
     return .{
+        .aggregate_type = @Type(TypeInfo{ .Struct = .{
+            .layout = lt,
+            .fields = big_ent_type[0..],
+            .decls = &.{},
+            .is_tuple = false,
+        } }),
         .callbacks = @Type(TypeInfo{ .Struct = .{
             .layout = lt,
             .fields = callback_fields[0..],
@@ -336,6 +352,20 @@ pub fn Registry(comptime field_names_l: FieldList) type {
 
         pub fn attach(self: *Self, index: ID_TYPE, comptime component_type: Components, component: anytype) !void {
             try self.attachComponent(index, component_type, component);
+        }
+
+        pub fn attachC(self: *Self, index: ID_TYPE, component: Types.union_type) !void {
+            const ent = try self.getEntity(index);
+            const comp_id = @intFromEnum(component);
+            inline for (field_names_l, 0..) |field, i| {
+                if (i == comp_id) {
+                    if (ent.isSet(i)) return error.componentAlreadyAttached;
+                    try @field(self.data, field.name).insert(index, .{ .i = index, .item = @field(component, field.name) });
+                    ent.set(i);
+                    self.call_create_callback(@enumFromInt(i), @field(component, field.name), index);
+                    return;
+                }
+            }
         }
 
         pub fn set(self: *Self, index: ID_TYPE, comptime component_type: Components, component: anytype) !void {
