@@ -374,9 +374,9 @@ pub const Camera3D = struct {
         const rad = std.math.degreesToRadians;
         const cos = std.math.cos;
         const dir = za.Vec3.new(
-            cos(rad(f32, self.yaw)) * cos(rad(f32, self.pitch)),
-            sin(rad(f32, self.pitch)),
-            sin(rad(f32, self.yaw)) * cos(rad(f32, self.pitch)),
+            cos(rad(self.yaw)) * cos(rad(self.pitch)),
+            sin(rad(self.pitch)),
+            sin(rad(self.yaw)) * cos(rad(self.pitch)),
         );
         self.front = dir.norm();
     }

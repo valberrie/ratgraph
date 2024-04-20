@@ -128,7 +128,7 @@ pub fn tostring(L: Ls, idx: c_int) []const u8 {
 }
 
 pub fn zstring(str: []const u8) [*c]const u8 {
-    std.mem.copy(u8, &zstring_buffer, str);
+    @memcpy(zstring_buffer[0..str.len], str);
     zstring_buffer[str.len] = 0;
     return &zstring_buffer[0];
 }
@@ -147,6 +147,7 @@ pub fn getArg(self: *Self, L: Ls, comptime s: type, idx: c_int) s {
             if (enum_) |e|
                 break :blk e;
             self.putErrorFmt("Invalid enum value: {s}", .{str});
+            return undefined;
         },
         .Bool => lua.lua_toboolean(L, idx) == 1,
         .Union => |u| {
@@ -245,7 +246,7 @@ pub fn pushV(L: Ls, s: anytype) void {
                 pushV(L, @field(s, f.name));
                 lua.lua_settable(L, -3);
             }
-            if (comptime std.meta.trait.hasFn("setLuaTable")(sT)) {
+            if (comptime std.meta.hasFn(sT, "setLuaTable")) {
                 @field(sT, "setLuaTable")(L);
             }
         },
