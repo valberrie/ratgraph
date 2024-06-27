@@ -178,14 +178,19 @@ const LuaDraw = struct {
 };
 
 pub fn main() !void {
-    if (true) {
-        try gui_app.main();
-        return;
-    }
-
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.detectLeaks();
     const alloc = gpa.allocator();
+
+    var arg_it = try std.process.argsWithAllocator(alloc);
+    defer arg_it.deinit();
+
+    const Arg = graph.ArgGen.Arg;
+    const args = try graph.ArgGen.parseArgs(&.{
+        Arg("model", .string, "model to load"),
+        Arg("texture", .string, "texture to load"),
+        Arg("scale", .number, "scale the model"),
+    }, &arg_it);
 
     var win = try graph.SDL.Window.createWindow("zig-game-engine", .{});
     defer win.destroyWindow();
@@ -197,37 +202,104 @@ pub fn main() !void {
     var draw = graph.ImmediateDrawingContext.init(alloc, win.getDpi());
     defer draw.deinit();
 
-    const cam = graph.Camera2D{
-        .cam_area = graph.Rec(0, 0, 20, 20),
-        .screen_area = graph.Rec(0, 0, 800, 600),
-    };
+    var camera = graph.Camera3D{};
+    const tex = try graph.Texture.initFromImgFile(alloc, std.fs.cwd(), args.texture orelse "white.png", .{});
 
-    var lvm = graph.Lua.init();
-    lvm.registerAllStruct(LuaDraw.Api);
-    var ldraw = LuaDraw{
-        .draw = &draw,
-        .win = &win,
-        .vm = &lvm,
-        .font = &font,
-        .data = try LuaDraw.Data.init(alloc),
-    };
-    defer ldraw.data.deinit();
-    lua_draw = &ldraw;
-    lvm.loadAndRunFile("test.lua");
+    var cubes = graph.Cubes.init(alloc, tex, draw.textured_tri_3d_shader);
+    defer cubes.deinit();
+
+    const obj = try std.fs.cwd().openFile(args.model orelse return, .{});
+    const sl = try obj.reader().readAllAlloc(alloc, std.math.maxInt(usize));
+    var uvs = std.ArrayList(graph.Vec2f).init(alloc);
+    defer uvs.deinit();
+    var verts = std.ArrayList(graph.Vec3f).init(alloc);
+    defer verts.deinit();
+    defer alloc.free(sl);
+    var line_it = std.mem.splitAny(u8, sl, "\n\r");
+    const scale = args.scale orelse 0.2;
+    while (line_it.next()) |line| {
+        var tok = std.mem.tokenizeAny(u8, line, " \t");
+        const com = tok.next() orelse continue;
+        const eql = std.mem.eql;
+        if (eql(u8, com, "v")) {
+            errdefer std.debug.print("{s}\n", .{line});
+            const x = try std.fmt.parseFloat(f32, tok.next().?);
+            const y = try std.fmt.parseFloat(f32, tok.next().?);
+            const z = try std.fmt.parseFloat(f32, tok.next().?);
+            try verts.append(.{ .x = x, .y = y, .z = z });
+        } else if (eql(u8, com, "vt")) {
+            const u = try std.fmt.parseFloat(f32, tok.next().?);
+            const v = try std.fmt.parseFloat(f32, tok.next().?);
+            try uvs.append(.{ .x = u, .y = v });
+        } else if (eql(u8, com, "f")) {
+            var count: usize = 0;
+            const vi: u32 = @intCast(cubes.vertices.items.len);
+            while (tok.next()) |v| {
+                count += 1;
+                var sp = std.mem.splitScalar(u8, v, '/');
+                const ind = try std.fmt.parseInt(usize, sp.next().?, 10);
+                const uv = blk: {
+                    if (sp.next()) |uv| {
+                        if (uv.len > 0) {
+                            const uind = try std.fmt.parseInt(usize, uv, 10);
+                            break :blk uvs.items[uind - 1];
+                        }
+                    }
+                    break :blk graph.Vec2f{ .x = 0, .y = 0 };
+                };
+                const ver = verts.items[@intCast(ind - 1)];
+                try cubes.vertices.append(.{
+                    .x = scale * ver.x,
+                    .y = scale * ver.y,
+                    .z = scale * ver.z,
+                    .u = uv.x,
+                    .v = 1 - uv.y,
+                    .r = 1,
+                    .g = 1,
+                    .b = 1,
+                    .a = 1,
+                });
+                //try cubes.indicies.append(@intCast(cubes.vertices.items.len - 1));
+            }
+            switch (count) {
+                0...2 => unreachable,
+                3 => try cubes.indicies.appendSlice(&.{
+                    vi, vi + 1, vi + 2,
+                }),
+                4 => try cubes.indicies.appendSlice(&.{
+                    vi,
+                    vi + 1,
+                    vi + 2,
+                    vi + 3,
+                    vi,
+                    vi + 2,
+                }),
+                else => {
+                    std.debug.print("weird {d}\n", .{count});
+                },
+            }
+        } else if (eql(u8, com, "s")) {} else if (eql(u8, com, "vn")) {} else {
+            std.debug.print("{s}\n", .{line});
+        }
+    }
+    cubes.setData();
+    win.grabMouse(true);
 
     while (!win.should_exit) {
-        try draw.begin(ldraw.clear_color, win.screen_dimensions.toF());
+        try draw.begin(0x3fbaeaff, win.screen_dimensions.toF());
         win.pumpEvents();
-        draw.rect(cam.screen_area, 0x222222ff);
-        try draw.flush(null);
-        draw.rect(graph.Rec(10, 10, 20, 20), 0xffffffff);
-
-        draw.setViewport(cam.screen_area);
-        try draw.flush(cam.cam_area);
-        draw.setViewport(null);
-
-        //try lvm.callLuaFunction("loop");
-
+        camera.updateDebugMove(.{
+            .down = win.keydown(.LSHIFT),
+            .up = win.keydown(.SPACE),
+            .left = win.keydown(.A),
+            .right = win.keydown(.D),
+            .fwd = win.keydown(.W),
+            .bwd = win.keydown(.S),
+            .mouse_delta = win.mouse.delta,
+            .scroll_delta = win.mouse.wheel_delta.y,
+        });
+        const cmatrix = camera.getMatrix(3840.0 / 2160.0, 85, 0.1, 100000);
+        cubes.draw(win.screen_dimensions, cmatrix);
         try draw.end();
         win.swap();
     }
