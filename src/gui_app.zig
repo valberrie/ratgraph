@@ -2469,7 +2469,7 @@ pub const GuiTest = struct {
         try ret.names.appendSlice(&.{
             .{ .name = try alloc.dupe(u8, "crass"), .surname = try alloc.dupe(u8, "house") },
             .{ .name = try alloc.dupe(u8, "tony"), .surname = try alloc.dupe(u8, "santo") },
-            .{ .name = try alloc.dupe(u8, "george"), .surname = try alloc.dupe(u8, "clooney") },
+            .{ .name = try alloc.dupe(u8, "george"), .surname = try alloc.dupe(u8, "hh") },
         });
         return ret;
     }

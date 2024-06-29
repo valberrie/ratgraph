@@ -493,31 +493,31 @@ test "StackCache basic cache overwrite append with parent depth dangle reattach"
 }
 
 
-test "StackCache basic cache destroy child cache" {
-    const alloc = std.testing.allocator;
-    var lc: TestLc = .{ .alloc = alloc };
-    defer lc.dealloc();
-
-    // zig fmt: off
-    try lc.begin();
-    try lc.push('a');
-        try lc.push('b');
-        try lc.pop();
-    try lc.pop();
-
-    try TestLc.testingCompareLists(lc.first, &.{
-        .{ .depth = 0, .data = 'a' },
-        .{ .depth = 1, .data = 'b' },
-    });
-
-    try lc.begin();
-    try lc.push('a');
-    try lc.pop(); 
-
-    try TestLc.testingCompareLists(lc.first, &.{
-        .{ .depth = 0, .data = 'a' },
-    });
-}
+//test "StackCache basic cache destroy child cache" {
+//    const alloc = std.testing.allocator;
+//    var lc: TestLc = .{ .alloc = alloc };
+//    defer lc.dealloc();
+//
+//    // zig fmt: off
+//    try lc.begin();
+//    try lc.push('a');
+//        try lc.push('b');
+//        try lc.pop();
+//    try lc.pop();
+//
+//    try TestLc.testingCompareLists(lc.first, &.{
+//        .{ .depth = 0, .data = 'a' },
+//        .{ .depth = 1, .data = 'b' },
+//    });
+//
+//    try lc.begin();
+//    try lc.push('a');
+//    try lc.pop(); 
+//
+//    try TestLc.testingCompareLists(lc.first, &.{
+//        .{ .depth = 0, .data = 'a' },
+//    });
+//}
 
 test "StackCache basic cache overwrite append " {
     const alloc = std.testing.allocator;

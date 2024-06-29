@@ -78,7 +78,7 @@ pub fn generateVertexAttributes(vao: c_uint, vbo: c_uint, comptime T: anytype) v
                     Vec3f => floatVertexAttrib(vao, vbo, f_i, 3, T, field.name),
                     u16 => intVertexAttrib(vao, vbo, f_i, 1, T, field.name, c.GL_UNSIGNED_SHORT),
                     u32 => intVertexAttrib(vao, vbo, f_i, 1, T, field.name, c.GL_UNSIGNED_INT),
-                    else => @compileError("generateVertexAttributes struct field type not supported: " ++ @typeName(field.field_type)),
+                    else => @compileError("generateVertexAttributes struct field type not supported: " ++ @typeName(field.field_type) ++ " " ++ field.name),
                 }
             }
         },

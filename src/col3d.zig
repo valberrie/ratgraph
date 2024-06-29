@@ -5,9 +5,24 @@ pub const DELTA: f32 = 1e-10;
 pub fn CollisionType(comptime rect_type: type, comptime vector_type: type) type {
     _ = vector_type;
     return struct {
+        //TODO move this somewhere else
         pub const Cube = struct {
             pos: Vec,
             ext: Vec,
+
+            /// add "addition * norm" to ext
+            /// Negative normals also subtract "addition * norm" from pos
+            pub fn addInDir(self: Cube, addition: f32, normal: Vec) Cube {
+                var ret = self;
+                const n = normal.toArray();
+                for (n, 0..) |comp, i| {
+                    ret.ext.data[i] += addition * @abs(comp);
+                    if (comp < 0) {
+                        ret.pos.data[i] += addition * comp;
+                    }
+                }
+                return ret;
+            }
         };
         const Rect = rect_type;
 

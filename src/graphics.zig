@@ -863,10 +863,10 @@ pub const ImmediateDrawingContext = struct {
     }
 
     //TODO This needs to be drawn using a 3D camera
-    pub fn line3D(self: *Self, start_point: Vec3f, end_point: Vec3f, color: u32) void {
-        const b = &(self.getBatch(.{ .batch_kind = .color_line3D, .params = .{ .shader = self.colored_line3d_shader } }) catch unreachable).color_line3D;
-        b.vertices.append(.{ .pos = start_point, .color = color }) catch return;
-        b.vertices.append(.{ .pos = end_point, .color = color }) catch return;
+    pub fn line3D(self: *Self, start_point: za.Vec3, end_point: za.Vec3, color: u32) void {
+        const b = &(self.getBatch(.{ .batch_kind = .color_line3D, .params = .{ .shader = self.colored_line3d_shader, .camera = ._3d } }) catch unreachable).color_line3D;
+        b.vertices.append(.{ .pos = .{ .x = start_point.x(), .y = start_point.y(), .z = start_point.z() }, .color = color }) catch return;
+        b.vertices.append(.{ .pos = .{ .x = end_point.x(), .y = end_point.y(), .z = end_point.z() }, .color = color }) catch return;
     }
 
     // Winding order should be CCW
@@ -940,9 +940,10 @@ pub const ImmediateDrawingContext = struct {
         }
     }
 
-    pub fn flush(self: *Self, custom_camera: ?Rect) !void {
+    pub fn flush(self: *Self, custom_camera: ?Rect, camera_3d: ?Camera3D) !void {
         const cb = if (custom_camera) |cc| cc else Rec(0, 0, self.screen_dimensions.x, self.screen_dimensions.y);
         const view = za.orthographic(cb.x, cb.x + cb.w, cb.y + cb.h, cb.y, -100000, 1);
+        const view_3d = if (camera_3d) |c3| c3.getMatrix(self.screen_dimensions.x / self.screen_dimensions.y, 85, 0.1, 100000) else view;
         const model = za.Mat4.identity();
 
         const sortctx = MapKeySortCtx{ .items = self.batches.keys() }; // Sort the batches by params.draw_priority
@@ -953,15 +954,18 @@ pub const ImmediateDrawingContext = struct {
             inline for (@typeInfo(Batches).Union.fields, 0..) |ufield, i| {
                 if (i == @intFromEnum(b.value_ptr.*)) {
                     @field(b.value_ptr.*, ufield.name).pushVertexData();
-                    @field(b.value_ptr.*, ufield.name).draw(b.key_ptr.params, view, model);
+                    @field(b.value_ptr.*, ufield.name).draw(b.key_ptr.params, switch (b.key_ptr.params.camera) {
+                        ._2d => view,
+                        ._3d => view_3d,
+                    }, model);
                 }
             }
         }
         try self.clearBuffers();
     }
 
-    pub fn end(self: *Self) !void {
-        try self.flush(null);
+    pub fn end(self: *Self, camera_3d: ?Camera3D) !void {
+        try self.flush(null, camera_3d);
     }
 };
 
@@ -971,6 +975,7 @@ pub const BatchOptions = struct {
 };
 pub const DrawParams = struct {
     texture: ?c_uint = null,
+    camera: enum { _3d, _2d } = ._2d,
     ///The higher the number, the later the batch gets drawn.
     draw_priority: u8 = 0,
     shader: c_uint,
