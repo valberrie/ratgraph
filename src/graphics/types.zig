@@ -270,6 +270,14 @@ pub const Vec3f = packed struct {
             .z = v.data[2],
         };
     }
+
+    pub fn scale(self: @This(), factor: f32) @This() {
+        return .{
+            .x = self.x * factor,
+            .y = self.y * factor,
+            .z = self.z * factor,
+        };
+    }
 };
 
 pub const Camera2D = struct {

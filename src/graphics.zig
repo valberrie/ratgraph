@@ -862,6 +862,7 @@ pub const ImmediateDrawingContext = struct {
         self.text(pos, fbs.getWritten(), font, pt_size, color);
     }
 
+    //TODO This needs to be drawn using a 3D camera
     pub fn line3D(self: *Self, start_point: Vec3f, end_point: Vec3f, color: u32) void {
         const b = &(self.getBatch(.{ .batch_kind = .color_line3D, .params = .{ .shader = self.colored_line3d_shader } }) catch unreachable).color_line3D;
         b.vertices.append(.{ .pos = start_point, .color = color }) catch return;
@@ -1200,11 +1201,11 @@ pub const Cubes = struct {
         GL.bufferData(c.GL_ELEMENT_ARRAY_BUFFER, self.ebo, u32, self.indicies.items);
     }
 
-    pub fn draw(b: *Self, screen_dim: Vec2i, view: za.Mat4) void {
+    pub fn draw(b: *Self, screen_dim: Vec2i, view: za.Mat4, model: za.Mat4) void {
         //const view = za.orthographic(0, @intToFloat(f32, screenw), @intToFloat(f32, screenh), 0, -100000, 1).translate(za.Vec3.new(0, 0, 0));
 
         c.glViewport(0, 0, screen_dim.x, screen_dim.y);
-        const model = za.Mat4.identity();
+        //const model = za.Mat4.identity();
         c.glUseProgram(b.shader);
         c.glBindVertexArray(b.vao);
 
@@ -1313,6 +1314,11 @@ pub const Cubes = struct {
     });
     // zig fmt: on
 
+    }
+
+    pub fn clear(self: *Self) void {
+        self.vertices.clearRetainingCapacity();
+        self.indicies.clearRetainingCapacity();
     }
 
     pub fn deinit(self: *Self) void {
