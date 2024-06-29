@@ -10,6 +10,7 @@ const pow = std.math.pow;
 const sqrt = std.math.sqrt;
 
 const gui_app = @import("gui_app.zig");
+const itm = 0.0254;
 
 threadlocal var lua_draw: *LuaDraw = undefined;
 const LuaDraw = struct {
@@ -269,6 +270,10 @@ fn snapV3(v: V3f, snap: f32) V3f {
     return V3f{ .data = @divFloor(v.data, @as(@Vector(3, f32), @splat(snap))) * @as(@Vector(3, f32), @splat(snap)) };
 }
 
+fn snap1(comp: f32, snap: f32) f32 {
+    return @divFloor(comp, snap) * snap;
+}
+
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.detectLeaks();
@@ -315,7 +320,6 @@ pub fn main() !void {
 
     var cubes_grnd = graph.Cubes.init(alloc, ggrid, draw.textured_tri_3d_shader);
     defer cubes_grnd.deinit();
-    try cubes_grnd.cube(-1000, -1, -1000, 2000, 1, 2000, graph.Rec(0, 0, ggrid.w * 2000, ggrid.h * 2000), null);
     cubes_grnd.setData();
 
     var cubes = graph.Cubes.init(alloc, tex, draw.textured_tri_3d_shader);
@@ -325,34 +329,46 @@ pub fn main() !void {
     defer cubes_im.deinit();
 
     var lumber = std.ArrayList(ColType.Cube).init(alloc);
+    {
+        if (std.fs.cwd().openFile("lumber.json", .{}) catch null) |infile| {
+            const sl = try infile.reader().readAllAlloc(alloc, std.math.maxInt(usize));
+            defer alloc.free(sl);
+            const j = try std.json.parseFromSlice([]const ColType.Cube, alloc, sl, .{});
+            defer j.deinit();
+            try lumber.appendSlice(j.value);
+        } else {
+            //Units are meter
+            //const extent = graph.Vec3f.new(38, 0, 89);
+            //Winding order default is CCW
+
+            const xw = 12 * 4 * itm;
+            const yw = 12 * 8 * itm;
+            for (0..5) |x| {
+                for (0..5) |y| {
+                    try lumber.append(.{ .pos = V3f.new(@as(f32, @floatFromInt(x)) * xw, 0, @as(f32, @floatFromInt(y)) * yw), .ext = V3f.new(12 * 4, 0.75, 12 * 8).scale(itm) });
+                }
+            }
+            for (0..6) |i| {
+                const fi: f32 = @floatFromInt(i);
+                try lumber.append(.{ .pos = V3f.new(fi * 12 * itm, -1, 0), .ext = V3f.new(0.038, 8 * 18 * itm, 0.089) });
+            }
+
+            //try cubes.cubeVec(V3f.new(50, 0, 0), V3f.new(38, 300, 89), tex.rect());
+            //try cubes.cubeVec(V3f.new(0, -100, 0), V3f.new(25.4 * 4 * 12, 0.75 * 25.4, 25.4 * 8 * 12), tex.rect());
+
+        }
+    }
     defer lumber.deinit();
+    defer {
+        const outfile = std.fs.cwd().createFile("lumber.json", .{}) catch unreachable;
+        std.json.stringify(lumber.items, .{}, outfile.writer()) catch unreachable;
+        outfile.close();
+    }
 
     var uvs = std.ArrayList(graph.Vec2f).init(alloc);
     defer uvs.deinit();
     var verts = std.ArrayList(graph.Vec3f).init(alloc);
     defer verts.deinit();
-    const itm = 0.0254;
-    {
-        //Units are meter
-        //const extent = graph.Vec3f.new(38, 0, 89);
-        //Winding order default is CCW
-
-        const xw = 12 * 4 * itm;
-        const yw = 12 * 8 * itm;
-        for (0..5) |x| {
-            for (0..5) |y| {
-                try lumber.append(.{ .pos = V3f.new(@as(f32, @floatFromInt(x)) * xw, 0, @as(f32, @floatFromInt(y)) * yw), .ext = V3f.new(12 * 4, 0.75, 12 * 8).scale(itm) });
-            }
-        }
-        for (0..6) |i| {
-            const fi: f32 = @floatFromInt(i);
-            try lumber.append(.{ .pos = V3f.new(fi * 12 * itm, -1, 0), .ext = V3f.new(0.038, 8 * 18 * itm, 0.089) });
-        }
-
-        //try cubes.cubeVec(V3f.new(50, 0, 0), V3f.new(38, 300, 89), tex.rect());
-        //try cubes.cubeVec(V3f.new(0, -100, 0), V3f.new(25.4 * 4 * 12, 0.75 * 25.4, 25.4 * 8 * 12), tex.rect());
-
-    }
 
     const obj = try std.fs.cwd().openFile("sky.obj", .{});
     const sl = try obj.reader().readAllAlloc(alloc, std.math.maxInt(usize));
@@ -724,11 +740,13 @@ pub fn main() !void {
 
         cubes_st.draw(win.screen_dimensions, cmatrix, graph.za.Mat4.identity().scale(graph.za.Vec3.new(1000, 1000, 1000)));
         cubes_grnd.draw(win.screen_dimensions, cmatrix, graph.za.Mat4.identity().scale(graph.za.Vec3.new(1, 1, 1)));
-        graph.c.glClear(graph.c.GL_DEPTH_BUFFER_BIT);
+        //graph.c.glClear(graph.c.GL_DEPTH_BUFFER_BIT);
         switch (tool) {
             .none => {},
             .pencil => {
-                var origin = snapV3(cam_bb.pos.add(cam_bb.ext.scale(0.5)), sel_snap);
+                var o = cam_bb.pos.add(cam_bb.ext.scale(0.5));
+                o.yMut().* = cam_bb.pos.y();
+                var origin = snapV3(o, sel_snap);
                 //origin.data = @divFloor(origin.data, @as(@Vector(3, f32), @splat(sel_snap))) * @as(@Vector(3, f32), @splat(sel_snap));
                 if (win.mouse.wheel_delta.y > 0)
                     pencil.grid_y += sel_snap;
@@ -738,21 +756,25 @@ pub fn main() !void {
                 switch (pencil.state) {
                     .init => {
                         pencil.state = .p1;
-                        pencil.grid_y = cam_bb.pos.y();
+                        pencil.grid_y = snap1(cam_bb.pos.y(), sel_snap);
                     },
                     .p1 => {
                         if (doesRayIntersectPlane(camera.pos, camera.front, origin, V3f.new(0, 1, 0))) |p| {
                             const pp = snapV3(p.add(V3f.new(sel_snap / 2, 0, sel_snap / 2)), sel_snap);
                             {
                                 const num_lines = 30;
+                                const half = @divTrunc(num_lines, 2) * sel_snap;
                                 for (0..num_lines + 1) |x| {
-                                    const half = @divTrunc(num_lines, 2) * sel_snap;
                                     const xd: f32 = @as(f32, @floatFromInt(x)) * sel_snap;
                                     const start = origin.add(V3f.new(xd - half, 0, -half));
                                     const starty = origin.add(V3f.new(-half, 0, xd - half));
                                     draw.line3D(start, start.add(V3f.new(0, 0, sel_snap * num_lines)), 0x00ff00ff);
                                     draw.line3D(starty, starty.add(V3f.new(sel_snap * num_lines, 0, 0)), 0x00ff00ff);
                                 }
+                                const p_feet = o;
+                                const penc_base = V3f.new(pp.x(), p_feet.y(), pp.z());
+                                draw.line3D(p_feet, penc_base, 0x444444ff);
+                                draw.line3D(penc_base, pp, 0x888888ff);
                             }
                             draw.point3D(pp, 0xff0000ff);
                             if (win.mouse.left == .rising) {
@@ -764,6 +786,8 @@ pub fn main() !void {
                     .p2 => {
                         if (doesRayIntersectPlane(camera.pos, camera.front, origin, V3f.new(0, 1, 0))) |p| {
                             const pp = snapV3(p.add(V3f.new(sel_snap / 2, 0, sel_snap / 2)), sel_snap);
+                            const cube = ColType.Cube.fromBounds(pp, pencil.p1);
+                            draw.cube(cube.pos, cube.ext, 0xffffffff);
                             {
                                 const num_lines = 30;
                                 for (0..num_lines + 1) |x| {
@@ -775,13 +799,12 @@ pub fn main() !void {
                                     draw.line3D(starty, starty.add(V3f.new(sel_snap * num_lines, 0, 0)), 0x00ff00ff);
                                 }
                             }
-                            const cube = ColType.Cube.fromBounds(pp, pencil.p1);
-                            draw.cube(cube.pos, cube.ext, 0xffffffff);
                             draw.point3D(pp, 0xff0000ff);
                             if (win.mouse.left == .rising) {
                                 pencil.state = .init;
                                 pencil.p2 = pp;
-                                try lumber.append(cube);
+                                if (@reduce(.Mul, cube.ext.data) != 0)
+                                    try lumber.append(cube);
                             }
                         }
                     },
