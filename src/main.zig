@@ -256,6 +256,19 @@ fn doesRayIntersectBoundingBox(comptime numdim: usize, comptime ft: type, min_b:
     return coord;
 }
 
+fn doesRayIntersectPlane(ray_0: V3f, ray_norm: V3f, plane_0: V3f, plane_norm: V3f) ?V3f {
+    const ln = ray_norm.dot(plane_norm);
+    if (ln == 0)
+        return null;
+
+    const d = (plane_0.sub(ray_0).dot(plane_norm)) / ln;
+    return ray_0.add(ray_norm.scale(d));
+}
+
+fn snapV3(v: V3f, snap: f32) V3f {
+    return V3f{ .data = @divFloor(v.data, @as(@Vector(3, f32), @splat(snap))) * @as(@Vector(3, f32), @splat(snap)) };
+}
+
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.detectLeaks();
@@ -297,6 +310,7 @@ pub fn main() !void {
     var cubes_st = graph.Cubes.init(alloc, sky_tex, draw.textured_tri_3d_shader);
     defer cubes_st.deinit();
     graph.c.glEnable(graph.c.GL_CULL_FACE);
+    graph.c.glEnable(graph.c.GL_POINT_SMOOTH);
     graph.c.glCullFace(graph.c.GL_BACK);
 
     var cubes_grnd = graph.Cubes.init(alloc, ggrid, draw.textured_tri_3d_shader);
@@ -419,7 +433,8 @@ pub fn main() !void {
     } = .none;
 
     var pencil: struct {
-        state: enum { p1, p2 } = .p1,
+        state: enum { init, p1, p2 } = .init,
+        grid_y: f32 = 0,
         p1: V3f = V3f.zero(),
         p2: V3f = V3f.zero(),
     } = .{};
@@ -571,122 +586,124 @@ pub fn main() !void {
         const cmatrix = third_cam.getMatrix(3840.0 / 2160.0, 85, 0.1, 100000);
 
         var point = V3f.zero();
-        switch (mode) {
-            .look => {
-                var nearest_i: ?usize = null;
-                var nearest: f32 = 0;
+        if (false) {
+            switch (mode) {
+                .look => {
+                    var nearest_i: ?usize = null;
+                    var nearest: f32 = 0;
 
-                for (lumber.items, 0..) |lum, i| {
-                    if (doesRayIntersectBoundingBox(3, f32, lum.pos.data, lum.pos.add(lum.ext).data, camera.pos.data, camera.front.data)) |int| {
-                        const p = V3f.new(int[0], int[1], int[2]);
-                        if (nearest_i == null) {
-                            nearest_i = i;
-                            nearest = p.distance(camera.pos);
-                            point = p;
-                        } else {
-                            const dist = p.distance(camera.pos);
-                            if (nearest > dist) {
-                                nearest = dist;
+                    for (lumber.items, 0..) |lum, i| {
+                        if (doesRayIntersectBoundingBox(3, f32, lum.pos.data, lum.pos.add(lum.ext).data, camera.pos.data, camera.front.data)) |int| {
+                            const p = V3f.new(int[0], int[1], int[2]);
+                            if (nearest_i == null) {
                                 nearest_i = i;
+                                nearest = p.distance(camera.pos);
                                 point = p;
+                            } else {
+                                const dist = p.distance(camera.pos);
+                                if (nearest > dist) {
+                                    nearest = dist;
+                                    nearest_i = i;
+                                    point = p;
+                                }
                             }
                         }
                     }
-                }
-                if (nearest_i) |i| {
-                    if (win.mouse.left == .high) {
-                        mode = .manipulate;
-                        sel_index = i;
-                        sel_dist = nearest;
-                    }
-                    const lum = &lumber.items[i];
-                    {
-                        var norm: @Vector(3, f32) = @splat(0);
-                        const p = point.toArray();
-                        const ex = lum.ext.toArray();
-                        for (lum.pos.toArray(), 0..) |dim, ind| {
-                            if (dim == p[ind]) {
-                                norm[ind] = -1;
-                                break;
-                            }
-                            if (dim + ex[ind] == p[ind]) {
-                                norm[ind] = 1;
-                                break;
-                            }
+                    if (nearest_i) |i| {
+                        if (win.mouse.left == .high) {
+                            mode = .manipulate;
+                            sel_index = i;
+                            sel_dist = nearest;
                         }
+                        const lum = &lumber.items[i];
+                        {
+                            var norm: @Vector(3, f32) = @splat(0);
+                            const p = point.toArray();
+                            const ex = lum.ext.toArray();
+                            for (lum.pos.toArray(), 0..) |dim, ind| {
+                                if (dim == p[ind]) {
+                                    norm[ind] = -1;
+                                    break;
+                                }
+                                if (dim + ex[ind] == p[ind]) {
+                                    norm[ind] = 1;
+                                    break;
+                                }
+                            }
 
-                        const n = V3f{ .data = norm };
-                        draw.line3D(
-                            point,
-                            point.add(n),
-                            0x00ff00ff,
-                        );
+                            const n = V3f{ .data = norm };
+                            draw.line3D(
+                                point,
+                                point.add(n),
+                                0x00ff00ff,
+                            );
 
-                        if (win.keyPressed(.R))
-                            lum.* = lum.addInDir(6 * itm, n);
-                        if (win.keyPressed(.F))
-                            lum.* = lum.addInDir(-6 * itm, n);
+                            if (win.keyPressed(.R))
+                                lum.* = lum.addInDir(6 * itm, n);
+                            if (win.keyPressed(.F))
+                                lum.* = lum.addInDir(-6 * itm, n);
+                        }
+                        // determine normal
+
+                        //line-plane intersection
+                        //try cubes_im.cube(
+                        //    lum.pos.x() - 0.01,
+                        //    lum.pos.y() - 0.01,
+                        //    lum.pos.z() - 0.01,
+                        //    lum.ext.x() + 0.02,
+                        //    lum.ext.y() + 0.02,
+                        //    lum.ext.z() + 0.02,
+                        //    tex.rect(),
+                        //    &[_]graph.CharColor{
+                        //        graph.itc(0x00ff00ff),
+                        //        graph.itc(0x00ff00ff),
+                        //        graph.itc(0x00ff00ff),
+                        //        graph.itc(0x00ff00ff),
+                        //        graph.itc(0x00ff00ff),
+                        //        graph.itc(0x00ff00ff),
+                        //    },
+                        //);
                     }
-                    // determine normal
+                },
+                .manipulate => {
+                    if (win.mouse.left != .high)
+                        mode = .look;
+                    const lum = &lumber.items[sel_index];
+                    //lum.origin = lum.origin.add(V3f.new(win.mouse.delta.y * 0.01, 0, win.mouse.delta.x * 0.01)); //win.mouse.delta.x
+                    const sin = std.math.sin;
+                    const rad = std.math.degreesToRadians;
+                    const cos = std.math.cos;
+                    const yw = rad(camera.yaw);
+                    const pf: f32 = if (camera.pitch < 0) -1.0 else 1.0;
 
-                    //line-plane intersection
-                    //try cubes_im.cube(
-                    //    lum.pos.x() - 0.01,
-                    //    lum.pos.y() - 0.01,
-                    //    lum.pos.z() - 0.01,
-                    //    lum.ext.x() + 0.02,
-                    //    lum.ext.y() + 0.02,
-                    //    lum.ext.z() + 0.02,
-                    //    tex.rect(),
-                    //    &[_]graph.CharColor{
-                    //        graph.itc(0x00ff00ff),
-                    //        graph.itc(0x00ff00ff),
-                    //        graph.itc(0x00ff00ff),
-                    //        graph.itc(0x00ff00ff),
-                    //        graph.itc(0x00ff00ff),
-                    //        graph.itc(0x00ff00ff),
-                    //    },
-                    //);
-                }
-            },
-            .manipulate => {
-                if (win.mouse.left != .high)
-                    mode = .look;
-                const lum = &lumber.items[sel_index];
-                //lum.origin = lum.origin.add(V3f.new(win.mouse.delta.y * 0.01, 0, win.mouse.delta.x * 0.01)); //win.mouse.delta.x
-                const sin = std.math.sin;
-                const rad = std.math.degreesToRadians;
-                const cos = std.math.cos;
-                const yw = rad(camera.yaw);
-                const pf: f32 = if (camera.pitch < 0) -1.0 else 1.0;
-
-                const fac = sel_dist / 1000;
-                const lx = win.keydown(.LCTRL);
-                const lz = win.keydown(.LSHIFT);
-                if (win.keydown(.A)) { //Rotate
-                } else {
-                    const x: f32 = if (lx) 0 else (sin(yw) * -win.mouse.delta.x + cos(yw) * win.mouse.delta.y * pf) * fac + sel_resid.x();
-                    const z: f32 = if (lz) 0 else (sin(yw) * win.mouse.delta.y * pf + cos(yw) * win.mouse.delta.x) * fac + sel_resid.z();
-                    const y: f32 = if (lx and lz) -win.mouse.delta.y * fac + sel_resid.y() else 0;
-                    const rx = @divFloor(x, sel_snap) * sel_snap;
-                    const ry = @divFloor(y, sel_snap) * sel_snap;
-                    const rz = @divFloor(z, sel_snap) * sel_snap;
-                    sel_resid = V3f.new(
-                        @mod(x, sel_snap),
-                        @mod(y, sel_snap),
-                        @mod(z, sel_snap),
-                    );
-                    const r = V3f.new(rx, ry, rz);
-
-                    if (win.keydown(.D) and r.length() > 0) {
-                        try lumber.append(lum.*);
-                        lumber.items[lumber.items.len - 1].pos = lum.pos.add(r);
+                    const fac = sel_dist / 1000;
+                    const lx = win.keydown(.LCTRL);
+                    const lz = win.keydown(.LSHIFT);
+                    if (win.keydown(.A)) { //Rotate
                     } else {
-                        //lum.origin = lum.origin.add(V3f.new(0, 0, win.mouse.delta.x * sel_dist / 100)); //win.mouse.delta.x
-                        lum.pos = lum.pos.add(r); //win.mouse.delta.x
+                        const x: f32 = if (lx) 0 else (sin(yw) * -win.mouse.delta.x + cos(yw) * win.mouse.delta.y * pf) * fac + sel_resid.x();
+                        const z: f32 = if (lz) 0 else (sin(yw) * win.mouse.delta.y * pf + cos(yw) * win.mouse.delta.x) * fac + sel_resid.z();
+                        const y: f32 = if (lx and lz) -win.mouse.delta.y * fac + sel_resid.y() else 0;
+                        const rx = @divFloor(x, sel_snap) * sel_snap;
+                        const ry = @divFloor(y, sel_snap) * sel_snap;
+                        const rz = @divFloor(z, sel_snap) * sel_snap;
+                        sel_resid = V3f.new(
+                            @mod(x, sel_snap),
+                            @mod(y, sel_snap),
+                            @mod(z, sel_snap),
+                        );
+                        const r = V3f.new(rx, ry, rz);
+
+                        if (win.keydown(.D) and r.length() > 0) {
+                            try lumber.append(lum.*);
+                            lumber.items[lumber.items.len - 1].pos = lum.pos.add(r);
+                        } else {
+                            //lum.origin = lum.origin.add(V3f.new(0, 0, win.mouse.delta.x * sel_dist / 100)); //win.mouse.delta.x
+                            lum.pos = lum.pos.add(r); //win.mouse.delta.x
+                        }
                     }
-                }
-            },
+                },
+            }
         }
         {
             try cubes.cube(cam_bb.pos.x(), cam_bb.pos.y(), cam_bb.pos.z(), cam_bb.ext.x(), cam_bb.ext.y(), cam_bb.ext.z(), Rec(0, 0, 1, 1), null);
@@ -708,19 +725,68 @@ pub fn main() !void {
         cubes_st.draw(win.screen_dimensions, cmatrix, graph.za.Mat4.identity().scale(graph.za.Vec3.new(1000, 1000, 1000)));
         cubes_grnd.draw(win.screen_dimensions, cmatrix, graph.za.Mat4.identity().scale(graph.za.Vec3.new(1, 1, 1)));
         graph.c.glClear(graph.c.GL_DEPTH_BUFFER_BIT);
-        if (false) {
-            var origin = cam_bb.pos.add(cam_bb.ext.scale(0.5));
-            origin.data = @divFloor(origin.data, @as(@Vector(3, f32), @splat(sel_snap))) * @as(@Vector(3, f32), @splat(sel_snap));
-            origin.yMut().* = point.y();
-            const num_lines = 30;
-            for (0..num_lines + 1) |x| {
-                const half = @divTrunc(num_lines, 2) * sel_snap;
-                const xd: f32 = @as(f32, @floatFromInt(x)) * sel_snap;
-                const start = origin.add(V3f.new(xd - half, 0, -half));
-                const starty = origin.add(V3f.new(-half, 0, xd - half));
-                draw.line3D(start, start.add(V3f.new(0, 0, sel_snap * num_lines)), 0x00ff00ff);
-                draw.line3D(starty, starty.add(V3f.new(sel_snap * num_lines, 0, 0)), 0x00ff00ff);
-            }
+        switch (tool) {
+            .none => {},
+            .pencil => {
+                var origin = snapV3(cam_bb.pos.add(cam_bb.ext.scale(0.5)), sel_snap);
+                //origin.data = @divFloor(origin.data, @as(@Vector(3, f32), @splat(sel_snap))) * @as(@Vector(3, f32), @splat(sel_snap));
+                if (win.mouse.wheel_delta.y > 0)
+                    pencil.grid_y += sel_snap;
+                if (win.mouse.wheel_delta.y < 0)
+                    pencil.grid_y -= sel_snap;
+                origin.yMut().* = pencil.grid_y;
+                switch (pencil.state) {
+                    .init => {
+                        pencil.state = .p1;
+                        pencil.grid_y = cam_bb.pos.y();
+                    },
+                    .p1 => {
+                        if (doesRayIntersectPlane(camera.pos, camera.front, origin, V3f.new(0, 1, 0))) |p| {
+                            const pp = snapV3(p.add(V3f.new(sel_snap / 2, 0, sel_snap / 2)), sel_snap);
+                            {
+                                const num_lines = 30;
+                                for (0..num_lines + 1) |x| {
+                                    const half = @divTrunc(num_lines, 2) * sel_snap;
+                                    const xd: f32 = @as(f32, @floatFromInt(x)) * sel_snap;
+                                    const start = origin.add(V3f.new(xd - half, 0, -half));
+                                    const starty = origin.add(V3f.new(-half, 0, xd - half));
+                                    draw.line3D(start, start.add(V3f.new(0, 0, sel_snap * num_lines)), 0x00ff00ff);
+                                    draw.line3D(starty, starty.add(V3f.new(sel_snap * num_lines, 0, 0)), 0x00ff00ff);
+                                }
+                            }
+                            draw.point3D(pp, 0xff0000ff);
+                            if (win.mouse.left == .rising) {
+                                pencil.state = .p2;
+                                pencil.p1 = pp;
+                            }
+                        }
+                    },
+                    .p2 => {
+                        if (doesRayIntersectPlane(camera.pos, camera.front, origin, V3f.new(0, 1, 0))) |p| {
+                            const pp = snapV3(p.add(V3f.new(sel_snap / 2, 0, sel_snap / 2)), sel_snap);
+                            {
+                                const num_lines = 30;
+                                for (0..num_lines + 1) |x| {
+                                    const half = @divTrunc(num_lines, 2) * sel_snap;
+                                    const xd: f32 = @as(f32, @floatFromInt(x)) * sel_snap;
+                                    const start = origin.add(V3f.new(xd - half, 0, -half));
+                                    const starty = origin.add(V3f.new(-half, 0, xd - half));
+                                    draw.line3D(start, start.add(V3f.new(0, 0, sel_snap * num_lines)), 0x00ff00ff);
+                                    draw.line3D(starty, starty.add(V3f.new(sel_snap * num_lines, 0, 0)), 0x00ff00ff);
+                                }
+                            }
+                            const cube = ColType.Cube.fromBounds(pp, pencil.p1);
+                            draw.cube(cube.pos, cube.ext, 0xffffffff);
+                            draw.point3D(pp, 0xff0000ff);
+                            if (win.mouse.left == .rising) {
+                                pencil.state = .init;
+                                pencil.p2 = pp;
+                                try lumber.append(cube);
+                            }
+                        }
+                    },
+                }
+            },
         }
         try draw.end(camera);
         win.swap();

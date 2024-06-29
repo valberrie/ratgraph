@@ -23,6 +23,14 @@ pub fn CollisionType(comptime rect_type: type, comptime vector_type: type) type 
                 }
                 return ret;
             }
+
+            pub fn fromBounds(p1: Vec, p2: Vec) Cube {
+                const ext = p1.sub(p2);
+                return Cube{
+                    .pos = Vec{ .data = @min(p1.data, p2.data) },
+                    .ext = Vec{ .data = @abs(ext.data) },
+                };
+            }
         };
         const Rect = rect_type;
 

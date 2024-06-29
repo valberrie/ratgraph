@@ -74,6 +74,7 @@ pub fn generateVertexAttributes(vao: c_uint, vbo: c_uint, comptime T: anytype) v
             if (st.layout != .@"packed") @compileError("generateVertexAttributes only supports packed structs");
             inline for (st.fields, 0..) |field, f_i| {
                 switch (field.type) {
+                    f32 => floatVertexAttrib(vao, vbo, f_i, 1, T, field.name),
                     Vec2f => floatVertexAttrib(vao, vbo, f_i, 2, T, field.name),
                     Vec3f => floatVertexAttrib(vao, vbo, f_i, 3, T, field.name),
                     u16 => intVertexAttrib(vao, vbo, f_i, 1, T, field.name, c.GL_UNSIGNED_SHORT),

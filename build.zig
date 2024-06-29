@@ -81,6 +81,7 @@ pub fn build(b: *std.Build) void {
 
     const zalgebra_module = zalgebra_dep.module("zalgebra");
     exe.root_module.addImport("zalgebra", zalgebra_module);
+    unit_tests.root_module.addImport("zalgebra", zalgebra_module);
     m.addImport("zalgebra", zalgebra_module);
 
     // Similar to creating the run step earlier, this exposes a `test` step to

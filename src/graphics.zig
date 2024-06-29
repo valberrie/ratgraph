@@ -538,18 +538,36 @@ pub const ImmediateDrawingContext = struct {
         pub const Color_2D = packed struct { pos: Vec2f, z: u16, color: u32 };
         pub const Color_Texture_2D = packed struct { pos: Vec2f, uv: Vec2f, z: u16, color: u32 }; // 22 bytes
         pub const Color_3D = packed struct { pos: Vec3f, color: u32 };
+        pub const Textured_3D = packed struct { pos: Vec3f, uv: Vec2f, color: u32 };
 
         //idea for a small vertex, xy are 14.2 or 13.3 fixed point. 2^13 allows for up to 8k with 8 subpixel positions
         //uv are also some fixed point maybe 13.3. These would not be normalized?
         pub const SmallTex = packed struct { x: u16, y: u16, u: u16, v: u16, z: u16 };
         //Total size: 10bytes
+
+        pub fn textured3D(x: f32, y: f32, z: f32, u: f32, v: f32, color: u32) Textured_3D {
+            return .{
+                .pos = Vec3f.new(x, y, z),
+                .uv = Vec2f.new(u, v),
+                .color = color,
+            };
+        }
+
+        pub fn color3D(x: f32, y: f32, z: f32, color: u32) Color_3D {
+            return .{
+                .pos = Vec3f.new(x, y, z),
+                .color = color,
+            };
+        }
     };
 
     pub const Batches = union(enum) {
         color_tri: NewBatch(VtxFmt.Color_2D, .{ .index_buffer = true, .primitive_mode = .triangles }),
         color_tri_tex: NewBatch(VtxFmt.Color_Texture_2D, .{ .index_buffer = true, .primitive_mode = .triangles }),
-        color_line3D: NewBatch(VtxFmt.Color_3D, .{ .index_buffer = false, .primitive_mode = .lines }),
         color_line: NewBatch(VtxFmt.Color_2D, .{ .index_buffer = false, .primitive_mode = .lines }),
+        color_line3D: NewBatch(VtxFmt.Color_3D, .{ .index_buffer = false, .primitive_mode = .lines }),
+        color_point3D: NewBatch(VtxFmt.Color_3D, .{ .index_buffer = false, .primitive_mode = .points }),
+        color_cube: NewBatch(VtxFmt.Color_3D, .{ .index_buffer = true, .primitive_mode = .triangles }),
     };
 
     const MapT = std.AutoArrayHashMap(MapKey, Batches);
@@ -570,8 +588,10 @@ pub const ImmediateDrawingContext = struct {
     font_shader: c_uint,
     colored_tri_shader: c_uint,
     colored_line3d_shader: c_uint,
+    colored_point3d_shader: c_uint,
     textured_tri_shader: c_uint,
     textured_tri_3d_shader: c_uint,
+    textured_tri_3d_shader_new: c_uint,
     dpi: f32,
 
     alloc: Alloc,
@@ -595,7 +615,9 @@ pub const ImmediateDrawingContext = struct {
 
             .colored_tri_shader = Shader.simpleShader(@embedFile(SD ++ "newtri.vert"), @embedFile(SD ++ "colorquad.frag")),
             .colored_line3d_shader = Shader.simpleShader(@embedFile(SD ++ "line3d.vert"), @embedFile(SD ++ "colorquad.frag")),
+            .colored_point3d_shader = Shader.simpleShader(@embedFile(SD ++ "line3d.vert"), @embedFile(SD ++ "point.fsh")),
             .textured_tri_shader = Shader.simpleShader(@embedFile(SD ++ "tex_tri2d.vert"), @embedFile(SD ++ "tex_tri2d.frag")),
+            .textured_tri_3d_shader_new = Shader.simpleShader(@embedFile(SD ++ "tex_tri3d.vsh"), @embedFile(SD ++ "tex_tri3d.fsh")),
 
             .font_shader = Shader.simpleShader(@embedFile(SD ++ "tex_tri2d.vert"), @embedFile(SD ++ "tex_tri2d_alpha.frag")),
         };
@@ -862,11 +884,67 @@ pub const ImmediateDrawingContext = struct {
         self.text(pos, fbs.getWritten(), font, pt_size, color);
     }
 
-    //TODO This needs to be drawn using a 3D camera
+    pub fn point3D(self: *Self, point: za.Vec3, color: u32) void {
+        const b = &(self.getBatch(.{ .batch_kind = .color_point3D, .params = .{ .shader = self.colored_point3d_shader, .camera = ._3d } }) catch unreachable).color_point3D;
+        b.vertices.append(.{ .pos = .{ .x = point.x(), .y = point.y(), .z = point.z() }, .color = color }) catch return;
+    }
+
     pub fn line3D(self: *Self, start_point: za.Vec3, end_point: za.Vec3, color: u32) void {
         const b = &(self.getBatch(.{ .batch_kind = .color_line3D, .params = .{ .shader = self.colored_line3d_shader, .camera = ._3d } }) catch unreachable).color_line3D;
         b.vertices.append(.{ .pos = .{ .x = start_point.x(), .y = start_point.y(), .z = start_point.z() }, .color = color }) catch return;
         b.vertices.append(.{ .pos = .{ .x = end_point.x(), .y = end_point.y(), .z = end_point.z() }, .color = color }) catch return;
+    }
+
+    pub fn cube(self: *Self, pos: za.Vec3, ext: za.Vec3, color: u32) void {
+        const px = pos.x();
+        const py = pos.y();
+        const pz = pos.z();
+        const sx = ext.x();
+        const sy = ext.y();
+        const sz = ext.z();
+        const b = &(self.getBatch(.{ .batch_kind = .color_cube, .params = .{
+            .shader = self.colored_line3d_shader,
+            .camera = ._3d,
+        } }) catch unreachable).color_cube;
+        b.indicies.appendSlice(&GL.genCubeIndicies(@as(u32, @intCast(b.vertices.items.len)))) catch return;
+        // zig fmt: off
+        b.vertices.appendSlice(&.{
+        // front
+        VtxFmt.color3D(px + sx, py + sy, pz, color), //0
+        VtxFmt.color3D(px + sx, py     , pz, color), //1
+        VtxFmt.color3D(px     , py     , pz, color), //2
+        VtxFmt.color3D(px     , py + sy, pz, color), //3
+
+        // backcolor
+        VtxFmt.color3D(px     , py + sy, pz + sz, color), //3
+        VtxFmt.color3D(px     , py     , pz + sz, color), //2
+        VtxFmt.color3D(px + sx, py     , pz + sz, color), //1
+        VtxFmt.color3D(px + sx, py + sy, pz + sz, color), //0
+
+
+        VtxFmt.color3D(px + sx, py, pz,      color),
+        VtxFmt.color3D(px + sx, py, pz + sz, color),
+        VtxFmt.color3D(px     , py, pz + sz, color),
+        VtxFmt.color3D(px     , py, pz     , color),
+
+        VtxFmt.color3D(px     , py + sy, pz     ,  color),
+        VtxFmt.color3D(px     , py + sy, pz + sz,  color),
+        VtxFmt.color3D(px + sx, py + sy, pz + sz,  color),
+        VtxFmt.color3D(px + sx, py + sy, pz,       color),
+
+        VtxFmt.color3D(px, py + sy, pz,       color),
+        VtxFmt.color3D(px, py , pz,           color),
+        VtxFmt.color3D(px, py , pz + sz,      color),
+        VtxFmt.color3D(px, py + sy , pz + sz, color),
+
+        VtxFmt.color3D(px + sx, py + sy , pz + sz, color),
+        VtxFmt.color3D(px + sx, py , pz + sz,      color),
+        VtxFmt.color3D(px + sx, py , pz,           color),
+        VtxFmt.color3D(px + sx, py + sy, pz,       color),
+
+
+    }) catch return;
+    // zig fmt: on
     }
 
     // Winding order should be CCW
@@ -1047,6 +1125,7 @@ pub fn NewBatch(comptime vertex_type: type, comptime batch_options: BatchOptions
                 c.glDrawElements(prim, @as(c_int, @intCast(self.indicies.items.len)), c.GL_UNSIGNED_INT, null);
             } else {
                 c.glLineWidth(3.0);
+                c.glPointSize(16.0);
                 c.glDrawArrays(prim, 0, @as(c_int, @intCast(self.vertices.items.len)));
             }
         }
