@@ -277,6 +277,106 @@ fn snap1(comp: f32, snap: f32) f32 {
     return @divFloor(comp, snap) * snap;
 }
 
+fn loadObj(alloc: std.mem.Allocator, dir: std.fs.Dir, filename: []const u8, scale: f32, tex: graph.Texture, shader: c_uint) !graph.Cubes {
+    var uvs = std.ArrayList(graph.Vec2f).init(alloc);
+    defer uvs.deinit();
+    var verts = std.ArrayList(graph.Vec3f).init(alloc);
+    defer verts.deinit();
+
+    var cubes = graph.Cubes.init(alloc, tex, shader);
+
+    const obj = try dir.openFile(filename, .{});
+    const sl = try obj.reader().readAllAlloc(alloc, std.math.maxInt(usize));
+    defer alloc.free(sl);
+    var line_it = std.mem.splitAny(u8, sl, "\n\r");
+    while (line_it.next()) |line| {
+        var tok = std.mem.tokenizeAny(u8, line, " \t");
+        const com = tok.next() orelse continue;
+        const eql = std.mem.eql;
+        if (eql(u8, com, "v")) {
+            errdefer std.debug.print("{s}\n", .{line});
+            const x = try std.fmt.parseFloat(f32, tok.next().?);
+            const y = try std.fmt.parseFloat(f32, tok.next().?);
+            const z = try std.fmt.parseFloat(f32, tok.next().?);
+            try verts.append(.{ .x = x, .y = y, .z = z });
+        } else if (eql(u8, com, "vt")) {
+            const u = try std.fmt.parseFloat(f32, tok.next().?);
+            const v = try std.fmt.parseFloat(f32, tok.next().?);
+            try uvs.append(.{ .x = u, .y = v });
+        } else if (eql(u8, com, "f")) {
+            var count: usize = 0;
+            const vi: u32 = @intCast(cubes.vertices.items.len);
+            while (tok.next()) |v| {
+                count += 1;
+                var sp = std.mem.splitScalar(u8, v, '/');
+                const ind = try std.fmt.parseInt(usize, sp.next().?, 10);
+                const uv = blk: {
+                    if (sp.next()) |uv| {
+                        if (uv.len > 0) {
+                            const uind = try std.fmt.parseInt(usize, uv, 10);
+                            break :blk uvs.items[uind - 1];
+                        }
+                    }
+                    break :blk graph.Vec2f{ .x = 0, .y = 0 };
+                };
+                const ver = verts.items[@intCast(ind - 1)];
+                try cubes.vertices.append(.{
+                    .x = scale * ver.x,
+                    .y = scale * ver.y,
+                    .z = scale * ver.z,
+                    .u = uv.x,
+                    .v = 1 - uv.y,
+                    .nx = 0,
+                    .ny = 0,
+                    .nz = 0,
+                    .color = 0xffffffff,
+                });
+                //try cubes.indicies.append(@intCast(cubes.vertices.items.len - 1));
+            }
+            switch (count) {
+                0...2 => unreachable,
+                3 => {
+                    const a = &cubes.vertices.items[vi];
+                    const b = &cubes.vertices.items[vi + 1];
+                    const c = &cubes.vertices.items[vi + 2];
+                    const p1 = V3f.new(a.x - b.x, a.y - b.y, a.z - b.z);
+                    const p2 = V3f.new(c.x - b.x, c.y - b.y, c.z - b.z);
+                    const norm = p1.cross(p2);
+                    a.nx = norm.x();
+                    b.nx = norm.x();
+                    c.nx = norm.x();
+                    a.ny = norm.y();
+                    b.ny = norm.y();
+                    c.ny = norm.y();
+                    a.nz = norm.z();
+                    b.nz = norm.z();
+                    c.nz = norm.z();
+                    try cubes.indicies.appendSlice(&.{
+                        vi, vi + 1, vi + 2,
+                    });
+                },
+                4 => {
+                    try cubes.indicies.appendSlice(&.{
+                        vi,
+                        vi + 1,
+                        vi + 2,
+                        vi + 3,
+                        vi,
+                        vi + 2,
+                    });
+                },
+                else => {
+                    std.debug.print("weird {d}\n", .{count});
+                },
+            }
+        } else if (eql(u8, com, "s")) {} else if (eql(u8, com, "vn")) {} else {
+            std.debug.print("{s}\n", .{line});
+        }
+    }
+    cubes.setData();
+    return cubes;
+}
+
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.detectLeaks();
@@ -339,8 +439,6 @@ pub fn main() !void {
         c.glBindFramebuffer(c.GL_FRAMEBUFFER, 0);
     }
 
-    var cubes_st = graph.Cubes.init(alloc, sky_tex, draw.textured_tri_3d_shader);
-    defer cubes_st.deinit();
     graph.c.glEnable(graph.c.GL_CULL_FACE);
     graph.c.glEnable(graph.c.GL_POINT_SMOOTH);
     graph.c.glCullFace(graph.c.GL_BACK);
@@ -389,81 +487,14 @@ pub fn main() !void {
         outfile.close();
     }
 
-    var uvs = std.ArrayList(graph.Vec2f).init(alloc);
-    defer uvs.deinit();
-    var verts = std.ArrayList(graph.Vec3f).init(alloc);
-    defer verts.deinit();
+    var cubes_st = try loadObj(alloc, std.fs.cwd(), "sky.obj", 0.3, sky_tex, draw.textured_tri_3d_shader);
+    defer cubes_st.deinit();
 
-    const obj = try std.fs.cwd().openFile("sky.obj", .{});
-    const sl = try obj.reader().readAllAlloc(alloc, std.math.maxInt(usize));
-    defer alloc.free(sl);
-    var line_it = std.mem.splitAny(u8, sl, "\n\r");
-    const scale = args.scale orelse 0.2;
-    while (line_it.next()) |line| {
-        var tok = std.mem.tokenizeAny(u8, line, " \t");
-        const com = tok.next() orelse continue;
-        const eql = std.mem.eql;
-        if (eql(u8, com, "v")) {
-            errdefer std.debug.print("{s}\n", .{line});
-            const x = try std.fmt.parseFloat(f32, tok.next().?);
-            const y = try std.fmt.parseFloat(f32, tok.next().?);
-            const z = try std.fmt.parseFloat(f32, tok.next().?);
-            try verts.append(.{ .x = x, .y = y, .z = z });
-        } else if (eql(u8, com, "vt")) {
-            const u = try std.fmt.parseFloat(f32, tok.next().?);
-            const v = try std.fmt.parseFloat(f32, tok.next().?);
-            try uvs.append(.{ .x = u, .y = v });
-        } else if (eql(u8, com, "f")) {
-            var count: usize = 0;
-            const vi: u32 = @intCast(cubes_st.vertices.items.len);
-            while (tok.next()) |v| {
-                count += 1;
-                var sp = std.mem.splitScalar(u8, v, '/');
-                const ind = try std.fmt.parseInt(usize, sp.next().?, 10);
-                const uv = blk: {
-                    if (sp.next()) |uv| {
-                        if (uv.len > 0) {
-                            const uind = try std.fmt.parseInt(usize, uv, 10);
-                            break :blk uvs.items[uind - 1];
-                        }
-                    }
-                    break :blk graph.Vec2f{ .x = 0, .y = 0 };
-                };
-                const ver = verts.items[@intCast(ind - 1)];
-                try cubes_st.vertices.append(.{
-                    .x = scale * ver.x,
-                    .y = scale * ver.y,
-                    .z = scale * ver.z,
-                    .u = uv.x,
-                    .v = 1 - uv.y,
-                    .nx = 0,
-                    .ny = 0,
-                    .nz = 0,
-                    .color = 0xffffffff,
-                });
-                //try cubes.indicies.append(@intCast(cubes.vertices.items.len - 1));
-            }
-            switch (count) {
-                0...2 => unreachable,
-                3 => try cubes_st.indicies.appendSlice(&.{
-                    vi, vi + 1, vi + 2,
-                }),
-                4 => try cubes_st.indicies.appendSlice(&.{
-                    vi,
-                    vi + 1,
-                    vi + 2,
-                    vi + 3,
-                    vi,
-                    vi + 2,
-                }),
-                else => {
-                    std.debug.print("weird {d}\n", .{count});
-                },
-            }
-        } else if (eql(u8, com, "s")) {} else if (eql(u8, com, "vn")) {} else {
-            std.debug.print("{s}\n", .{line});
-        }
-    }
+    const couch_tex = try graph.Texture.initFromImgFile(alloc, std.fs.cwd(), "drum.png", .{});
+    const couch_m = graph.za.Mat4.identity().translate(V3f.new(3, 0, 4));
+    var couch = try loadObj(alloc, std.fs.cwd(), "barrel.obj", 0.03, couch_tex, draw.textured_tri_3d_shader);
+    defer couch.deinit();
+
     cubes_st.setData();
     win.grabMouse(true);
 
@@ -767,8 +798,11 @@ pub fn main() !void {
 
             const view = light_proj.mul(light_view);
             cubes.shader = shadow_shader;
+            couch.shader = shadow_shader;
             cubes.draw(view, graph.za.Mat4.identity(), camera.pos, depth_map, view);
+            couch.draw(view, couch_m, camera.pos, depth_map, view);
             cubes.shader = light_shader;
+            couch.shader = light_shader;
 
             //render scene from lights perspective
 
@@ -777,6 +811,7 @@ pub fn main() !void {
             c.glClear(c.GL_COLOR_BUFFER_BIT | c.GL_DEPTH_BUFFER_BIT);
 
             cubes.draw(cmatrix, graph.za.Mat4.identity().scale(graph.za.Vec3.new(sc, sc, sc)), camera.pos, depth_map, view);
+            couch.draw(cmatrix, couch_m, camera.pos, depth_map, view);
         }
 
         cubes_st.draw(cmatrix, graph.za.Mat4.identity().scale(graph.za.Vec3.new(1000, 1000, 1000)), camera.pos, depth_map, null);
