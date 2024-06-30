@@ -5,9 +5,9 @@ layout (location = 0) out vec4 FragColor;
 
 
 uniform sampler2D text;
-uniform vec3 textColor;
 
 void main() {
+
     FragColor = texture(text, texcoord) * color;
 
 

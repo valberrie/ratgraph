@@ -8,6 +8,9 @@ const Col3d = @import("col3d.zig");
 
 const pow = std.math.pow;
 const sqrt = std.math.sqrt;
+const cos = std.math.cos;
+const sin = std.math.sin;
+const radians = std.math.degreesToRadians;
 
 const gui_app = @import("gui_app.zig");
 const itm = 0.0254;
@@ -311,6 +314,30 @@ pub fn main() !void {
     const sky_tex = try graph.Texture.initFromImgFile(alloc, std.fs.cwd(), args.texture orelse "sky06.png", .{
         .mag_filter = graph.c.GL_NEAREST,
     });
+    const light_shader = graph.Shader.simpleShader(@embedFile("graphics/shader/light.vert"), @embedFile("graphics/shader/light.frag"));
+    const shadow_shader = graph.Shader.simpleShader(@embedFile("graphics/shader/shadow_map.vert"), @embedFile("graphics/shader/shadow_map.frag"));
+
+    var depth_fbo: c_uint = 0;
+    var depth_map: c_uint = 0;
+    const s_w = 4096;
+    const s_h = 4096;
+    {
+        const c = graph.c;
+        c.glGenFramebuffers(1, &depth_fbo);
+        c.glGenTextures(1, &depth_map);
+        c.glBindTexture(c.GL_TEXTURE_2D, depth_map);
+        c.glTexImage2D(c.GL_TEXTURE_2D, 0, c.GL_DEPTH_COMPONENT, s_w, s_h, 0, c.GL_DEPTH_COMPONENT, c.GL_FLOAT, null);
+        c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_MIN_FILTER, c.GL_NEAREST);
+        c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_MAG_FILTER, c.GL_NEAREST);
+        c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_WRAP_S, c.GL_REPEAT);
+        c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_WRAP_T, c.GL_REPEAT);
+
+        c.glBindFramebuffer(c.GL_FRAMEBUFFER, depth_fbo);
+        c.glFramebufferTexture2D(c.GL_FRAMEBUFFER, c.GL_DEPTH_ATTACHMENT, c.GL_TEXTURE_2D, depth_map, 0);
+        c.glDrawBuffer(c.GL_NONE);
+        c.glReadBuffer(c.GL_NONE);
+        c.glBindFramebuffer(c.GL_FRAMEBUFFER, 0);
+    }
 
     var cubes_st = graph.Cubes.init(alloc, sky_tex, draw.textured_tri_3d_shader);
     defer cubes_st.deinit();
@@ -322,11 +349,8 @@ pub fn main() !void {
     defer cubes_grnd.deinit();
     cubes_grnd.setData();
 
-    var cubes = graph.Cubes.init(alloc, tex, draw.textured_tri_3d_shader);
+    var cubes = graph.Cubes.init(alloc, tex, light_shader);
     defer cubes.deinit();
-
-    var cubes_im = graph.Cubes.init(alloc, tex, draw.textured_tri_3d_shader);
-    defer cubes_im.deinit();
 
     var lumber = std.ArrayList(ColType.Cube).init(alloc);
     {
@@ -412,10 +436,10 @@ pub fn main() !void {
                     .z = scale * ver.z,
                     .u = uv.x,
                     .v = 1 - uv.y,
-                    .r = 1,
-                    .g = 1,
-                    .b = 1,
-                    .a = 1,
+                    .nx = 0,
+                    .ny = 0,
+                    .nz = 0,
+                    .color = 0xffffffff,
                 });
                 //try cubes.indicies.append(@intCast(cubes.vertices.items.len - 1));
             }
@@ -462,7 +486,7 @@ pub fn main() !void {
     var sel_index: usize = 0;
     var sel_dist: f32 = 0;
     var sel_resid = V3f.new(0, 0, 0);
-    const sel_snap: f32 = 12 * itm;
+    var sel_snap: f32 = 12 * itm;
 
     var p_velocity = V3f.new(0, 0, 0);
     var grounded = false;
@@ -471,19 +495,21 @@ pub fn main() !void {
         const dt = 1.0 / 60.0;
         _ = arena_alloc.reset(.retain_capacity);
         try draw.begin(0x3fbaeaff, win.screen_dimensions.toF());
-        cubes_im.clear();
         cubes.clear();
         for (lumber.items) |l| {
             try cubes.cube(l.pos.x(), l.pos.y(), l.pos.z(), l.ext.x(), l.ext.y(), l.ext.z(), tex.rect(), null);
         }
         win.pumpEvents();
 
+        if (win.keydown(.H))
+            camera.pos = V3f.new(1, 3, 1);
+
         const old_pos = camera.pos;
         switch (mode) {
             .look => {
                 var vx: f32 = 0;
                 var vz: f32 = 0;
-                const pspeed = 4 * dt;
+                const pspeed = 4;
                 if (win.keydown(.W)) {
                     const m = camera.front.mul(V3f.new(1, 0, 1)).norm();
                     vx += m.x();
@@ -510,12 +536,12 @@ pub fn main() !void {
                 p_velocity.zMut().* = xz_vel.z();
 
                 if (grounded and win.keydown(.SPACE))
-                    p_velocity.yMut().* = 0.1;
+                    p_velocity.yMut().* = 5;
 
                 if (!grounded)
-                    p_velocity.yMut().* -= 0.01;
+                    p_velocity.yMut().* -= 11 * dt;
 
-                camera.pos = camera.pos.add(p_velocity);
+                camera.pos = camera.pos.add(p_velocity.scale(dt));
 
                 camera.updateDebugMove(.{
                     .down = false,
@@ -538,6 +564,11 @@ pub fn main() !void {
             pencil = .{};
         }
 
+        if (win.keyPressed(.R))
+            sel_snap *= 2;
+        if (win.keyPressed(.F))
+            sel_snap /= 2;
+
         const sc = 1;
 
         const pex = 0.3;
@@ -551,10 +582,6 @@ pub fn main() !void {
                 for (lumber.items) |lum| {
                     if (ColType.detectCollision(cam_bb, lum, delta)) |col| {
                         try cols.append(col);
-                        //cam_bb.pos = old_pos.add()
-                        //using col.normal, set that component of touch to cam_bb.pos
-                        //same for goal then repeat
-                        //cam_bb.pos
                     }
                 }
                 if (cols.items.len > 0) {
@@ -599,7 +626,7 @@ pub fn main() !void {
         }
         var third_cam = camera;
         //third_cam.pos = third_cam.pos.sub(third_cam.front.scale(3));
-        const cmatrix = third_cam.getMatrix(3840.0 / 2160.0, 85, 0.1, 100000);
+        const cmatrix = third_cam.getMatrix(draw.screen_dimensions.x / draw.screen_dimensions.y, 85, 0.1, 100000);
 
         var point = V3f.zero();
         if (false) {
@@ -686,10 +713,7 @@ pub fn main() !void {
                         mode = .look;
                     const lum = &lumber.items[sel_index];
                     //lum.origin = lum.origin.add(V3f.new(win.mouse.delta.y * 0.01, 0, win.mouse.delta.x * 0.01)); //win.mouse.delta.x
-                    const sin = std.math.sin;
-                    const rad = std.math.degreesToRadians;
-                    const cos = std.math.cos;
-                    const yw = rad(camera.yaw);
+                    const yw = radians(camera.yaw);
                     const pf: f32 = if (camera.pitch < 0) -1.0 else 1.0;
 
                     const fac = sel_dist / 1000;
@@ -724,23 +748,39 @@ pub fn main() !void {
         {
             try cubes.cube(cam_bb.pos.x(), cam_bb.pos.y(), cam_bb.pos.z(), cam_bb.ext.x(), cam_bb.ext.y(), cam_bb.ext.z(), Rec(0, 0, 1, 1), null);
         }
+
         cubes.setData();
-        cubes.draw(win.screen_dimensions, cmatrix, graph.za.Mat4.identity().scale(graph.za.Vec3.new(sc, sc, sc)));
-        cubes_im.setData();
-        const cim = 1;
-        cubes_im.draw(win.screen_dimensions, cmatrix, graph.za.Mat4.identity().scale(graph.za.Vec3.new(cim, cim, cim)));
+        { //shadow map
+            const c = graph.c;
+            c.glViewport(0, 0, s_w, s_h);
+            c.glBindFramebuffer(c.GL_FRAMEBUFFER, depth_fbo);
+            c.glClear(c.GL_DEPTH_BUFFER_BIT);
 
-        draw.rect(Rec(@divTrunc(win.screen_dimensions.x, 2), @divTrunc(win.screen_dimensions.y, 2), 10, 10), 0xffffffff);
-        draw.textFmt(.{ .x = 0, .y = 400 }, "yaw: {d}\npitch: {d}\ngrounded {any}\ntool: {s}", .{
-            camera.yaw,
-            camera.pitch,
-            grounded,
-            @tagName(tool),
-        }, &font, 12, 0xffffffff);
+            //const light_dir = V3f.new(cos(radians(70)), sin(radians(70)), sin(radians(148))).norm();
+            const light_proj = graph.za.orthographic(-20, 20, -20, 20, 1, 10);
+            const light_view = graph.za.lookAt(
+                //light_dir.scale(-10),
+                V3f.new(-2, 4, -1),
+                V3f.new(0, 0, 0),
+                V3f.new(0, 1, 1),
+            );
 
-        cubes_st.draw(win.screen_dimensions, cmatrix, graph.za.Mat4.identity().scale(graph.za.Vec3.new(1000, 1000, 1000)));
-        cubes_grnd.draw(win.screen_dimensions, cmatrix, graph.za.Mat4.identity().scale(graph.za.Vec3.new(1, 1, 1)));
-        //graph.c.glClear(graph.c.GL_DEPTH_BUFFER_BIT);
+            const view = light_proj.mul(light_view);
+            cubes.shader = shadow_shader;
+            cubes.draw(view, graph.za.Mat4.identity(), camera.pos, depth_map, view);
+            cubes.shader = light_shader;
+
+            //render scene from lights perspective
+
+            c.glBindFramebuffer(c.GL_FRAMEBUFFER, 0);
+            c.glViewport(0, 0, win.screen_dimensions.x, win.screen_dimensions.y);
+            c.glClear(c.GL_COLOR_BUFFER_BIT | c.GL_DEPTH_BUFFER_BIT);
+
+            cubes.draw(cmatrix, graph.za.Mat4.identity().scale(graph.za.Vec3.new(sc, sc, sc)), camera.pos, depth_map, view);
+        }
+
+        cubes_st.draw(cmatrix, graph.za.Mat4.identity().scale(graph.za.Vec3.new(1000, 1000, 1000)), camera.pos, depth_map, null);
+        cubes_grnd.draw(cmatrix, graph.za.Mat4.identity().scale(graph.za.Vec3.new(1, 1, 1)), camera.pos, depth_map, null);
         switch (tool) {
             .none => {},
             .pencil => {
@@ -811,6 +851,25 @@ pub fn main() !void {
                 }
             },
         }
+        try draw.flush(null, camera);
+        graph.c.glClear(graph.c.GL_DEPTH_BUFFER_BIT);
+        { //draw a gizmo at crosshair
+            const p = camera.pos.add(camera.front.scale(1));
+            const l = 0.08;
+            draw.line3D(p, p.add(V3f.new(l, 0, 0)), 0xff0000ff);
+            draw.line3D(p, p.add(V3f.new(0, l, 0)), 0x0000ffff);
+            draw.line3D(p, p.add(V3f.new(0, 0, l)), 0x00ff00ff);
+        }
+        draw.textFmt(.{ .x = 0, .y = 400 }, "pos [{d:.2}, {d:.2}, {d:.2}]\nyaw: {d}\npitch: {d}\ngrounded {any}\ntool: {s}", .{
+            cam_bb.pos.x(),
+            cam_bb.pos.y(),
+            cam_bb.pos.z(),
+            camera.yaw,
+            camera.pitch,
+            grounded,
+            @tagName(tool),
+        }, &font, 12, 0xffffffff);
+        //draw.rectTex(graph.Rec(0, 0, 1024, 1024), graph.Rec(0, 0, s_w, s_h), .{ .w = s_w, .h = s_h, .id = depth_map });
         try draw.end(camera);
         win.swap();
     }

@@ -1268,9 +1268,41 @@ fn lerpVec(start: Vec2f, end: Vec2f, ratio: f32) Vec2f {
     return (.{ .x = lerp(start.x, end.x, ratio), .y = lerp(start.y, end.y, ratio) });
 }
 
+pub const CubeVert = packed struct {
+    x: f32,
+    y: f32,
+    z: f32,
+
+    u: f32,
+    v: f32,
+
+    nx: f32,
+    ny: f32,
+    nz: f32,
+
+    color: u32,
+};
+
+pub fn cubeVert(x: f32, y: f32, z: f32, u: f32, v: f32, nx: f32, ny: f32, nz: f32, color: u32) CubeVert {
+    return .{
+        .x = x,
+        .y = y,
+        .z = z,
+
+        .u = u,
+        .v = v,
+
+        .nx = nx,
+        .ny = ny,
+        .nz = nz,
+
+        .color = color,
+    };
+}
+
 pub const Cubes = struct {
     const Self = @This();
-    vertices: std.ArrayList(GL.VertexTextured),
+    vertices: std.ArrayList(CubeVert),
     indicies: std.ArrayList(u32),
 
     shader: glID,
@@ -1281,29 +1313,36 @@ pub const Cubes = struct {
 
     pub fn setData(self: *Self) void {
         c.glBindVertexArray(self.vao);
-        GL.bufferData(c.GL_ARRAY_BUFFER, self.vbo, GL.VertexTextured, self.vertices.items);
+        GL.bufferData(c.GL_ARRAY_BUFFER, self.vbo, CubeVert, self.vertices.items);
         GL.bufferData(c.GL_ELEMENT_ARRAY_BUFFER, self.ebo, u32, self.indicies.items);
     }
 
-    pub fn draw(b: *Self, screen_dim: Vec2i, view: za.Mat4, model: za.Mat4) void {
-        //const view = za.orthographic(0, @intToFloat(f32, screenw), @intToFloat(f32, screenh), 0, -100000, 1).translate(za.Vec3.new(0, 0, 0));
+    pub fn draw(b: *Self, view: za.Mat4, model: za.Mat4, camera_pos: za.Vec3, shadow_map: c_uint, lightspace: ?za.Mat4) void {
+        const diffuse_loc = c.glGetUniformLocation(b.shader, "diffuse_texture");
+        const shadow_map_loc = c.glGetUniformLocation(b.shader, "shadow_map");
 
-        c.glViewport(0, 0, screen_dim.x, screen_dim.y);
-        //const model = za.Mat4.identity();
         c.glUseProgram(b.shader);
-        c.glBindVertexArray(b.vao);
-
+        c.glUniform1i(diffuse_loc, 0);
+        c.glActiveTexture(c.GL_TEXTURE0 + 0);
         c.glBindTexture(c.GL_TEXTURE_2D, b.texture.id);
+
+        c.glUniform1i(shadow_map_loc, 1);
+        c.glActiveTexture(c.GL_TEXTURE1);
+        c.glBindTexture(c.GL_TEXTURE_2D, shadow_map);
 
         GL.passUniform(b.shader, "view", view);
         GL.passUniform(b.shader, "model", model);
+        GL.passUniform(b.shader, "view_pos", camera_pos);
+        GL.passUniform(b.shader, "lightspace", lightspace orelse za.Mat4.identity());
 
+        c.glBindVertexArray(b.vao);
         c.glDrawElements(c.GL_TRIANGLES, @as(c_int, @intCast(b.indicies.items.len)), c.GL_UNSIGNED_INT, null);
+        c.glActiveTexture(c.GL_TEXTURE0);
     }
 
     pub fn init(alloc: Alloc, texture: Texture, shader: glID) @This() {
         var ret = Self{
-            .vertices = std.ArrayList(GL.VertexTextured).init(alloc),
+            .vertices = std.ArrayList(CubeVert).init(alloc),
             .indicies = std.ArrayList(u32).init(alloc),
             .texture = texture,
             .shader = shader,
@@ -1313,12 +1352,13 @@ pub const Cubes = struct {
         c.glGenBuffers(1, &ret.vbo);
         c.glGenBuffers(1, &ret.ebo);
 
-        GL.floatVertexAttrib(ret.vao, ret.vbo, 0, 3, GL.VertexTextured, "x"); //XYZ
-        GL.floatVertexAttrib(ret.vao, ret.vbo, 1, 4, GL.VertexTextured, "r"); //RGBA
-        GL.floatVertexAttrib(ret.vao, ret.vbo, 2, 2, GL.VertexTextured, "u"); //RGBA
+        GL.floatVertexAttrib(ret.vao, ret.vbo, 0, 3, CubeVert, "x"); //XYZ
+        GL.floatVertexAttrib(ret.vao, ret.vbo, 1, 2, CubeVert, "u"); //RGBA
+        GL.floatVertexAttrib(ret.vao, ret.vbo, 2, 3, CubeVert, "nx"); //RGBA
+        GL.intVertexAttrib(ret.vao, ret.vbo, 3, 1, CubeVert, "color", c.GL_UNSIGNED_INT);
 
         c.glBindVertexArray(ret.vao);
-        GL.bufferData(c.GL_ARRAY_BUFFER, ret.vbo, GL.VertexTextured, ret.vertices.items);
+        GL.bufferData(c.GL_ARRAY_BUFFER, ret.vbo, CubeVert, ret.vertices.items);
         GL.bufferData(c.GL_ELEMENT_ARRAY_BUFFER, ret.ebo, u32, ret.indicies.items);
         return ret;
     }
@@ -1347,52 +1387,46 @@ pub const Cubes = struct {
     }
 
     pub fn cube(self: *Self, px: f32, py: f32, pz: f32, sx: f32, sy: f32, sz: f32, tr: Rect, colorsopt: ?[]const CharColor) !void {
+        _ = colorsopt;
         const tx_w = self.texture.w;
         const tx_h = self.texture.h;
-        const colors = if (colorsopt) |cc| cc else &[6]CharColor{
-            itc(0x888888ff), //Front
-            itc(0x888888ff), //Back
-            itc(0x666666ff), //Bottom
-            itc(0xffffffff), //Top
-            itc(0xaaaaaaff),
-            itc(0xaaaaaaff),
-        };
+        const color = 0xffffffff;
         const un = GL.normalizeTexRect(tr, @as(i32, @intCast(tx_w)), @as(i32, @intCast(tx_h)));
         try self.indicies.appendSlice(&GL.genCubeIndicies(@as(u32, @intCast(self.vertices.items.len))));
         // zig fmt: off
     try self.vertices.appendSlice(&.{
         // front
-        GL.vertexTextured(px + sx, py + sy, pz, un.x + un.w, un.y + un.h, colors[0].toFloat()), //0
-        GL.vertexTextured(px + sx, py     , pz, un.x + un.w, un.y       , colors[0].toFloat()), //1
-        GL.vertexTextured(px     , py     , pz, un.x       , un.y       , colors[0].toFloat()), //2
-        GL.vertexTextured(px     , py + sy, pz, un.x       , un.y + un.h, colors[0].toFloat()), //3
+        cubeVert(px + sx, py + sy, pz, un.x + un.w, un.y + un.h, 0,0,-1, color), //0
+        cubeVert(px + sx, py     , pz, un.x + un.w, un.y       , 0,0,-1, color), //1
+        cubeVert(px     , py     , pz, un.x       , un.y       , 0,0,-1, color), //2
+        cubeVert(px     , py + sy, pz, un.x       , un.y + un.h, 0,0,-1, color), //3
 
         // back
-        GL.vertexTextured(px     , py + sy, pz + sz, un.x       , un.y + un.h, colors[1].toFloat()), //3
-        GL.vertexTextured(px     , py     , pz + sz, un.x       , un.y       , colors[1].toFloat()), //2
-        GL.vertexTextured(px + sx, py     , pz + sz, un.x + un.w, un.y       , colors[1].toFloat()), //1
-        GL.vertexTextured(px + sx, py + sy, pz + sz, un.x + un.w, un.y + un.h, colors[1].toFloat()), //0
+        cubeVert(px     , py + sy, pz + sz, un.x       , un.y + un.h, 0,0,1, color), //3
+        cubeVert(px     , py     , pz + sz, un.x       , un.y       , 0,0,1, color), //2
+        cubeVert(px + sx, py     , pz + sz, un.x + un.w, un.y       , 0,0,1, color), //1
+        cubeVert(px + sx, py + sy, pz + sz, un.x + un.w, un.y + un.h, 0,0,1, color), //0
 
 
-        GL.vertexTextured(px + sx, py, pz,      un.x+un.w,un.y + un.h, colors[2].toFloat()),
-        GL.vertexTextured(px + sx, py, pz + sz, un.x+un.w,un.y, colors[2].toFloat()),
-        GL.vertexTextured(px     , py, pz + sz, un.x,un.y, colors[2].toFloat()),
-        GL.vertexTextured(px     , py, pz     , un.x,un.y + un.h, colors[2].toFloat()),
+        cubeVert(px + sx, py, pz,      un.x+un.w,un.y + un.h, 0,-1,0,      color),
+        cubeVert(px + sx, py, pz + sz, un.x+un.w,un.y,        0,-1,0,      color),
+        cubeVert(px     , py, pz + sz, un.x,un.y,             0,-1,0,      color),
+        cubeVert(px     , py, pz     , un.x,un.y + un.h,      0,-1,0,      color),
 
-        GL.vertexTextured(px     , py + sy, pz     , un.x,un.y + un.h, colors[3].toFloat()),
-        GL.vertexTextured(px     , py + sy, pz + sz, un.x,un.y, colors[3].toFloat()),
-        GL.vertexTextured(px + sx, py + sy, pz + sz, un.x + un.w,un.y, colors[3].toFloat()),
-        GL.vertexTextured(px + sx, py + sy, pz, un.x + un.w,   un.y + un.h , colors[3].toFloat()),
+        cubeVert(px     , py + sy, pz     , un.x,un.y + un.h,        0,1,0,   color),
+        cubeVert(px     , py + sy, pz + sz, un.x,un.y,               0,1,0,   color),
+        cubeVert(px + sx, py + sy, pz + sz, un.x + un.w,un.y,        0,1,0,   color),
+        cubeVert(px + sx, py + sy, pz, un.x + un.w,   un.y + un.h ,  0,1,0,   color),
 
-        GL.vertexTextured(px, py + sy, pz, un.x + un.w,un.y + un.h,colors[4].toFloat()),
-        GL.vertexTextured(px, py , pz, un.x + un.w,un.y,colors[4].toFloat()),
-        GL.vertexTextured(px, py , pz + sz, un.x,un.y,colors[4].toFloat()),
-        GL.vertexTextured(px, py + sy , pz + sz, un.x,un.y + un.h,colors[4].toFloat()),
+        cubeVert(px, py + sy, pz, un.x + un.w,un.y + un.h,   0,0,-1,   color),
+        cubeVert(px, py , pz, un.x + un.w,un.y,              0,0,-1,   color),
+        cubeVert(px, py , pz + sz, un.x,un.y,                0,0,-1,   color),
+        cubeVert(px, py + sy , pz + sz, un.x,un.y + un.h,    0,0,-1,   color),
 
-        GL.vertexTextured(px + sx, py + sy , pz + sz, un.x,un.y + un.h,colors[5].toFloat()),
-        GL.vertexTextured(px + sx, py , pz + sz, un.x,un.y,colors[5].toFloat()),
-        GL.vertexTextured(px + sx, py , pz, un.x + un.w,un.y,colors[5].toFloat()),
-        GL.vertexTextured(px + sx, py + sy, pz, un.x + un.w,un.y + un.h,colors[5].toFloat()),
+        cubeVert(px + sx, py + sy , pz + sz, un.x,un.y + un.h,     0,0,1, color),
+        cubeVert(px + sx, py , pz + sz, un.x,un.y,                 0,0,1, color),
+        cubeVert(px + sx, py , pz, un.x + un.w,un.y,               0,0,1, color),
+        cubeVert(px + sx, py + sy, pz, un.x + un.w,un.y + un.h,    0,0,1, color),
 
 
     });
