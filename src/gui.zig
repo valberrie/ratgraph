@@ -2170,7 +2170,7 @@ pub const GuiDrawContext = struct {
                 if (scissor) //Clear a remaning scissor
                     try self.drawCommand(.{ .scissor = .{ .area = null } }, draw);
             }
-            try draw.flush(w.area);
+            try draw.flush(w.area, null);
             //draw.screen_dimensions = .{ .x = @as(f32, @floatFromInt(win_w)), .y = @as(f32, @floatFromInt(win_h)) };
             //graph.c.glBindFramebuffer(graph.c.GL_FRAMEBUFFER, 0);
             //graph.c.glViewport(0, 0, win_w, win_h);
@@ -2290,7 +2290,7 @@ pub const GuiDrawContext = struct {
                 draw.line(r.botL(), r.topL(), cc(rl.color));
             },
             .set_camera => |sc| {
-                try draw.flush(self.camera_bounds); //Flush old camera
+                try draw.flush(self.camera_bounds, null); //Flush old camera
                 if (sc) |ca| {
                     if (self.old_cam_bounds == null)
                         self.old_cam_bounds = self.camera_bounds;
@@ -2316,7 +2316,7 @@ pub const GuiDrawContext = struct {
             },
             .scissor => |s| {
                 const c = graph.c;
-                try draw.flush(self.camera_bounds);
+                try draw.flush(self.camera_bounds, null);
                 if (s.area) |ar| {
                     c.glEnable(c.GL_SCISSOR_TEST);
                     c.glScissor(

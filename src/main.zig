@@ -283,6 +283,9 @@ fn loadObj(alloc: std.mem.Allocator, dir: std.fs.Dir, filename: []const u8, scal
     var verts = std.ArrayList(graph.Vec3f).init(alloc);
     defer verts.deinit();
 
+    var norms = std.ArrayList(graph.Vec3f).init(alloc);
+    defer norms.deinit();
+
     var cubes = graph.Cubes.init(alloc, tex, shader);
 
     const obj = try dir.openFile(filename, .{});
@@ -303,6 +306,11 @@ fn loadObj(alloc: std.mem.Allocator, dir: std.fs.Dir, filename: []const u8, scal
             const u = try std.fmt.parseFloat(f32, tok.next().?);
             const v = try std.fmt.parseFloat(f32, tok.next().?);
             try uvs.append(.{ .x = u, .y = v });
+        } else if (eql(u8, com, "vn")) {
+            const x = try std.fmt.parseFloat(f32, tok.next().?);
+            const y = try std.fmt.parseFloat(f32, tok.next().?);
+            const z = try std.fmt.parseFloat(f32, tok.next().?);
+            try norms.append(.{ .x = x, .y = y, .z = z });
         } else if (eql(u8, com, "f")) {
             var count: usize = 0;
             const vi: u32 = @intCast(cubes.vertices.items.len);
@@ -320,15 +328,24 @@ fn loadObj(alloc: std.mem.Allocator, dir: std.fs.Dir, filename: []const u8, scal
                     break :blk graph.Vec2f{ .x = 0, .y = 0 };
                 };
                 const ver = verts.items[@intCast(ind - 1)];
+                const norm = blk: {
+                    if (sp.next()) |n| {
+                        if (n.len > 0) {
+                            const nind = try std.fmt.parseInt(usize, n, 10);
+                            break :blk norms.items[nind - 1];
+                        }
+                    }
+                    break :blk graph.Vec3f{ .x = 0, .y = 1, .z = 0 };
+                };
                 try cubes.vertices.append(.{
                     .x = scale * ver.x,
                     .y = scale * ver.y,
                     .z = scale * ver.z,
                     .u = uv.x,
                     .v = 1 - uv.y,
-                    .nx = 0,
-                    .ny = 0,
-                    .nz = 0,
+                    .nx = -norm.x,
+                    .ny = -norm.y,
+                    .nz = -norm.z,
                     .color = 0xffffffff,
                 });
                 //try cubes.indicies.append(@intCast(cubes.vertices.items.len - 1));
@@ -336,21 +353,6 @@ fn loadObj(alloc: std.mem.Allocator, dir: std.fs.Dir, filename: []const u8, scal
             switch (count) {
                 0...2 => unreachable,
                 3 => {
-                    const a = &cubes.vertices.items[vi];
-                    const b = &cubes.vertices.items[vi + 1];
-                    const c = &cubes.vertices.items[vi + 2];
-                    const p1 = V3f.new(a.x - b.x, a.y - b.y, a.z - b.z);
-                    const p2 = V3f.new(c.x - b.x, c.y - b.y, c.z - b.z);
-                    const norm = p1.cross(p2);
-                    a.nx = norm.x();
-                    b.nx = norm.x();
-                    c.nx = norm.x();
-                    a.ny = norm.y();
-                    b.ny = norm.y();
-                    c.ny = norm.y();
-                    a.nz = norm.z();
-                    b.nz = norm.z();
-                    c.nz = norm.z();
                     try cubes.indicies.appendSlice(&.{
                         vi, vi + 1, vi + 2,
                     });
@@ -369,12 +371,123 @@ fn loadObj(alloc: std.mem.Allocator, dir: std.fs.Dir, filename: []const u8, scal
                     std.debug.print("weird {d}\n", .{count});
                 },
             }
-        } else if (eql(u8, com, "s")) {} else if (eql(u8, com, "vn")) {} else {
+        } else if (eql(u8, com, "s")) {} else {
             std.debug.print("{s}\n", .{line});
         }
     }
     cubes.setData();
     return cubes;
+}
+
+fn getFrustrumCornersWorldSpace(camera_proj: graph.za.Mat4, view: graph.za.Mat4, light_dir: graph.za.Vec3) struct {
+    min: graph.za.Vec3,
+    max: graph.za.Vec3,
+    center: graph.za.Vec3,
+} {
+    var minX: f32 = std.math.maxFloat;
+    var maxX: f32 = std.math.minFloat;
+    var minY: f32 = std.math.maxFloat;
+    var maxY: f32 = std.math.minFloat;
+    var minZ: f32 = std.math.maxFloat;
+    var maxZ: f32 = std.math.minFloat;
+
+    const inv = camera_proj.mul(view).inv();
+    var corners: [27]graph.za.Vec4 = undefined;
+    var center = graph.za.Vec3.zero();
+    var i: usize = 0;
+    for (0..2) |x| {
+        for (0..2) |y| {
+            for (0..2) |z| {
+                const pt = inv.mulByVec4(graph.za.Vec4.new(
+                    2 * @as(f32, @floatFromInt(x)) - 1,
+                    2 * @as(f32, @floatFromInt(y)) - 1,
+                    2 * @as(f32, @floatFromInt(z)) - 1,
+                    1.0,
+                ));
+                corners[i] = pt;
+                const pp = pt.scale(1 / pt.w());
+                center.add(pp);
+
+                i += 1;
+            }
+        }
+    }
+
+    const lightview = graph.za.Mat4.lookAt(center.add(light_dir), center, graph.za.Vec3.new(0, 1, 0));
+
+    for (corners) |corner| {
+        const trf = lightview.mulByVec4(corner);
+        minX = @min(minX, trf.x);
+        maxX = @max(maxX, trf.x);
+        minY = @min(minY, trf.y);
+        maxY = @max(maxY, trf.y);
+        minZ = @min(minZ, trf.z);
+        maxZ = @max(maxZ, trf.z);
+    }
+
+    center = center.scale(1.0 / 27.0);
+    return .{
+        .center = center,
+        .min = graph.za.Vec3.new(minX, minY, minZ),
+        .max = graph.za.Vec3.new(maxX, maxY, maxZ),
+    };
+}
+
+fn calculateLightProj(zmult: f32, min: graph.za.Vec3, max: graph.za.Vec3) graph.za.Mat4 {
+    return graph.za.orthographic(
+        min.x(),
+        max.x(),
+        min.y(),
+        max.y(),
+        min.z().scale(if (min.z() < 0) zmult else 1 / zmult),
+        max.z().scale(if (max.z() < 0) 1 / zmult else zmult),
+    );
+}
+
+fn create3DDepthMap(resolution: i32, cascade_count: i32) struct {
+    fbo: c_uint,
+    textures: c_uint,
+} {
+    const c = graph.c;
+    var fbo: c_uint = 0;
+    var textures: c_uint = 0;
+    c.glGenFramebuffers(1, &fbo);
+    c.glGenTextures(1, &textures);
+    c.glBindTexture(c.GL_TEXTURE_2D_ARRAY, textures);
+    c.glTexImage3D(
+        c.GL_TEXTURE_2D_ARRAY,
+        0,
+        c.GL_DEPTH_COMPONENT32F,
+        resolution,
+        resolution,
+        cascade_count,
+        0,
+        c.GL_DEPTH_COMPONENT,
+        c.GL_FLOAT,
+        null,
+    );
+    c.glTexParameteri(c.GL_TEXTURE_2D_ARRAY, c.GL_TEXTURE_MIN_FILTER, c.GL_NEAREST);
+    c.glTexParameteri(c.GL_TEXTURE_2D_ARRAY, c.GL_TEXTURE_MAG_FILTER, c.GL_NEAREST);
+    c.glTexParameteri(c.GL_TEXTURE_2D_ARRAY, c.GL_TEXTURE_WRAP_S, c.GL_CLAMP_TO_BORDER);
+    c.glTexParameteri(c.GL_TEXTURE_2D_ARRAY, c.GL_TEXTURE_WRAP_T, c.GL_CLAMP_TO_BORDER);
+
+    const border_color = [_]f32{1} ** 4;
+    c.glTexParameterfv(c.GL_TEXTURE_2D_ARRAY, c.GL_TEXTURE_BORDER_COLOR, border_color);
+
+    c.glBindFramebuffer(c.GL_FRAMEBUFFER, fbo);
+    c.glFramebufferTexture(c.GL_FRAMEBUFFER, c.GL_DEPTH_ATTACHMENT, textures, 0);
+    c.glDrawBuffer(c.GL_NONE);
+    c.glReadBuffer(c.GL_NONE);
+
+    const status = c.glCheckFramebufferStatus(c.GL_FRAMEBUFFER);
+    if (status != c.GL_FRAMEBUFFER_COMPLETE)
+        std.debug.print("Framebuffer fucked\n", .{});
+
+    c.glBindFramebuffer(c.GL_FRAMEBUFFER, 0);
+    return .{
+        .fbo = fbo,
+        .textures = textures,
+    };
 }
 
 pub fn main() !void {
@@ -415,7 +528,11 @@ pub fn main() !void {
         .mag_filter = graph.c.GL_NEAREST,
     });
     const light_shader = graph.Shader.simpleShader(@embedFile("graphics/shader/light.vert"), @embedFile("graphics/shader/light.frag"));
-    const shadow_shader = graph.Shader.simpleShader(@embedFile("graphics/shader/shadow_map.vert"), @embedFile("graphics/shader/shadow_map.frag"));
+    const shadow_shader = graph.Shader.advancedShader(&.{
+        .{ .src = @embedFile("graphics/shader/shadow_map.vert"), .t = .vert },
+        .{ .src = @embedFile("graphics/shader/shadow_map.frag"), .t = .frag },
+        .{ .src = @embedFile("graphics/shader/shadow_map.geom"), .t = .geom },
+    });
 
     var depth_fbo: c_uint = 0;
     var depth_map: c_uint = 0;
@@ -895,7 +1012,7 @@ pub fn main() !void {
             draw.line3D(p, p.add(V3f.new(0, l, 0)), 0x0000ffff);
             draw.line3D(p, p.add(V3f.new(0, 0, l)), 0x00ff00ff);
         }
-        draw.textFmt(.{ .x = 0, .y = 400 }, "pos [{d:.2}, {d:.2}, {d:.2}]\nyaw: {d}\npitch: {d}\ngrounded {any}\ntool: {s}", .{
+        draw.textFmt(.{ .x = 0, .y = 0 }, "pos [{d:.2}, {d:.2}, {d:.2}]\nyaw: {d}\npitch: {d}\ngrounded {any}\ntool: {s}", .{
             cam_bb.pos.x(),
             cam_bb.pos.y(),
             cam_bb.pos.z(),
@@ -904,7 +1021,6 @@ pub fn main() !void {
             grounded,
             @tagName(tool),
         }, &font, 12, 0xffffffff);
-        //draw.rectTex(graph.Rec(0, 0, 1024, 1024), graph.Rec(0, 0, s_w, s_h), .{ .w = s_w, .h = s_h, .id = depth_map });
         try draw.end(camera);
         win.swap();
     }

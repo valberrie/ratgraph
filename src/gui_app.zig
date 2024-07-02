@@ -3241,7 +3241,7 @@ pub fn main() anyerror!void {
         try os9gui.endFrame(&draw);
         graph.c.glDisable(graph.c.GL_STENCIL_TEST);
 
-        try draw.end();
+        try draw.end(null);
         win.swap();
     }
 }

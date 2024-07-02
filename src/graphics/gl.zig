@@ -332,6 +332,14 @@ pub fn vertexTextured(x: f32, y: f32, z: f32, u: f32, v: f32, col: Color) Vertex
 }
 
 pub const Shader = struct {
+    const Type = enum(@TypeOf(c.GL_COMPUTE_SHADER)) {
+        comp = c.GL_COMPUTE_SHADER,
+        vert = c.GL_VERTEX_SHADER,
+        tesc = c.GL_TESS_CONTROL_SHADER,
+        tese = c.GL_TESS_EVALUATION_SHADER,
+        geom = c.GL_GEOMETRY_SHADER,
+        frag = c.GL_FRAGMENT_SHADER,
+    };
     fn checkShaderErr(shader: glID, comporlink: c_uint) void {
         var success: c_int = undefined;
         var infoLog: [512]u8 = undefined;
@@ -364,6 +372,25 @@ pub const Shader = struct {
         c.glLinkProgram(shader);
         checkShaderErr(shader, c.GL_LINK_STATUS);
 
+        return shader;
+    }
+
+    pub fn advancedShader(stages: []const struct { src: [*c]const u8, t: Type }) glID {
+        const shader = c.glCreateProgram();
+        var stage_del: [@typeInfo(Type).Enum.fields.len]c_uint = undefined;
+        var i: usize = 0;
+        for (stages) |stage| {
+            const st = compShader(stage.src, @as(c_uint, @intCast(@intFromEnum(stage.t))));
+            stage_del[i] = st;
+            i += 1;
+            c.glAttachShader(shader, st);
+        }
+
+        c.glLinkProgram(shader);
+        checkShaderErr(shader, c.GL_LINK_STATUS);
+        for (0..i) |ii| {
+            c.glDeleteShader(stage_del[ii]);
+        }
         return shader;
     }
 

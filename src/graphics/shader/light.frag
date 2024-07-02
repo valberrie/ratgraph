@@ -26,7 +26,7 @@ float shadowCalculation(vec4 fp_ls){
 
     float closest_depth = texture(shadow_map, proj_coord.xy).r;
     float current_depth = proj_coord.z;
-    float shadow = current_depth - bias > closest_depth ? 1.0: 0.0;
+    float shadow = current_depth - bias > closest_depth ? 0.9: 0.0;
     return shadow;
 }
 
