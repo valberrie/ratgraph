@@ -3,6 +3,7 @@ const graph = @import("graphics.zig");
 const gui = @import("gui.zig");
 const V2f = graph.Vec2f;
 const V3f = graph.za.Vec3;
+const Mat4 = graph.za.Mat4;
 const Rec = graph.Rec;
 const Col3d = @import("col3d.zig");
 
@@ -14,6 +15,7 @@ const radians = std.math.degreesToRadians;
 
 const gui_app = @import("gui_app.zig");
 const itm = 0.0254;
+const c = graph.c;
 
 threadlocal var lua_draw: *LuaDraw = undefined;
 const LuaDraw = struct {
@@ -379,17 +381,26 @@ fn loadObj(alloc: std.mem.Allocator, dir: std.fs.Dir, filename: []const u8, scal
     return cubes;
 }
 
+fn getLightSpaceMatrix(near: f32, far: f32, camera_fov: f32, camera_aspect: f32, camera_view: graph.za.Mat4, light_dir: graph.za.Vec3) graph.za.Mat4 {
+    const cproj = graph.za.perspective(camera_fov, camera_aspect, near, far);
+    const fsr = getFrustrumCornersWorldSpace(cproj, camera_view, light_dir);
+
+    return calculateLightProj(10, fsr.min, fsr.max);
+}
+
 fn getFrustrumCornersWorldSpace(camera_proj: graph.za.Mat4, view: graph.za.Mat4, light_dir: graph.za.Vec3) struct {
     min: graph.za.Vec3,
     max: graph.za.Vec3,
     center: graph.za.Vec3,
 } {
-    var minX: f32 = std.math.maxFloat;
-    var maxX: f32 = std.math.minFloat;
-    var minY: f32 = std.math.maxFloat;
-    var maxY: f32 = std.math.minFloat;
-    var minZ: f32 = std.math.maxFloat;
-    var maxZ: f32 = std.math.minFloat;
+    const mx = std.math.floatMax(f32);
+    const mn = std.math.floatMin(f32);
+    var minX: f32 = mx;
+    var maxX: f32 = mn;
+    var minY: f32 = mx;
+    var maxY: f32 = mn;
+    var minZ: f32 = mx;
+    var maxZ: f32 = mn;
 
     const inv = camera_proj.mul(view).inv();
     var corners: [27]graph.za.Vec4 = undefined;
@@ -406,7 +417,7 @@ fn getFrustrumCornersWorldSpace(camera_proj: graph.za.Mat4, view: graph.za.Mat4,
                 ));
                 corners[i] = pt;
                 const pp = pt.scale(1 / pt.w());
-                center.add(pp);
+                center = center.add(pp.toVec3());
 
                 i += 1;
             }
@@ -417,15 +428,15 @@ fn getFrustrumCornersWorldSpace(camera_proj: graph.za.Mat4, view: graph.za.Mat4,
 
     for (corners) |corner| {
         const trf = lightview.mulByVec4(corner);
-        minX = @min(minX, trf.x);
-        maxX = @max(maxX, trf.x);
-        minY = @min(minY, trf.y);
-        maxY = @max(maxY, trf.y);
-        minZ = @min(minZ, trf.z);
-        maxZ = @max(maxZ, trf.z);
+        minX = @min(minX, trf.x());
+        maxX = @max(maxX, trf.x());
+        minY = @min(minY, trf.y());
+        maxY = @max(maxY, trf.y());
+        minZ = @min(minZ, trf.z());
+        maxZ = @max(maxZ, trf.z());
     }
 
-    center = center.scale(1.0 / 27.0);
+    center = center.scale(1.0 / 8.0);
     return .{
         .center = center,
         .min = graph.za.Vec3.new(minX, minY, minZ),
@@ -439,16 +450,18 @@ fn calculateLightProj(zmult: f32, min: graph.za.Vec3, max: graph.za.Vec3) graph.
         max.x(),
         min.y(),
         max.y(),
-        min.z().scale(if (min.z() < 0) zmult else 1 / zmult),
-        max.z().scale(if (max.z() < 0) 1 / zmult else zmult),
+        min.z() * (if (min.z() < 0) zmult else 1 / zmult),
+        max.z() * (if (max.z() < 0) 1 / zmult else zmult),
     );
 }
+const CASCADE_COUNT = 4;
 
-fn create3DDepthMap(resolution: i32, cascade_count: i32) struct {
-    fbo: c_uint,
-    textures: c_uint,
-} {
-    const c = graph.c;
+fn getCascadeLevels(camera_far_plane: f32) [CASCADE_COUNT]f32 {
+    const cf = camera_far_plane;
+    return [4]f32{ cf / 50, cf / 25, cf / 10, cf / 2 };
+}
+
+fn create3DDepthMap(resolution: i32, cascade_count: i32) struct { fbo: c_uint, textures: c_uint } {
     var fbo: c_uint = 0;
     var textures: c_uint = 0;
     c.glGenFramebuffers(1, &fbo);
@@ -472,7 +485,7 @@ fn create3DDepthMap(resolution: i32, cascade_count: i32) struct {
     c.glTexParameteri(c.GL_TEXTURE_2D_ARRAY, c.GL_TEXTURE_WRAP_T, c.GL_CLAMP_TO_BORDER);
 
     const border_color = [_]f32{1} ** 4;
-    c.glTexParameterfv(c.GL_TEXTURE_2D_ARRAY, c.GL_TEXTURE_BORDER_COLOR, border_color);
+    c.glTexParameterfv(c.GL_TEXTURE_2D_ARRAY, c.GL_TEXTURE_BORDER_COLOR, &border_color);
 
     c.glBindFramebuffer(c.GL_FRAMEBUFFER, fbo);
     c.glFramebufferTexture(c.GL_FRAMEBUFFER, c.GL_DEPTH_ATTACHMENT, textures, 0);
@@ -488,6 +501,30 @@ fn create3DDepthMap(resolution: i32, cascade_count: i32) struct {
         .fbo = fbo,
         .textures = textures,
     };
+}
+
+fn getFrustumCornersWorldSpace(frustum: Mat4) [8]graph.za.Vec4 {
+    const inv = frustum.inv();
+    var corners: [8]graph.za.Vec4 = undefined;
+    var i: usize = 0;
+    for (0..2) |x| {
+        for (0..2) |y| {
+            for (0..2) |z| {
+                const pt = inv.mulByVec4(graph.za.Vec4.new(
+                    2 * @as(f32, @floatFromInt(x)) - 1,
+                    2 * @as(f32, @floatFromInt(y)) - 1,
+                    2 * @as(f32, @floatFromInt(z)) - 1,
+                    1.0,
+                ));
+                corners[i] = pt.scale(1 / pt.w());
+                i += 1;
+            }
+        }
+    }
+    if (i != 8)
+        unreachable;
+
+    return corners;
 }
 
 pub fn main() !void {
@@ -531,15 +568,27 @@ pub fn main() !void {
     const shadow_shader = graph.Shader.advancedShader(&.{
         .{ .src = @embedFile("graphics/shader/shadow_map.vert"), .t = .vert },
         .{ .src = @embedFile("graphics/shader/shadow_map.frag"), .t = .frag },
-        .{ .src = @embedFile("graphics/shader/shadow_map.geom"), .t = .geom },
+        //.{ .src = @embedFile("graphics/shader/shadow_map.geom"), .t = .geom },
     });
+
+    //const sm = create3DDepthMap(1024, CASCADE_COUNT);
+    //const light_dir = V3f.new(cos(radians(70)), sin(radians(70)), sin(radians(148))).norm();
+    const light_dir = V3f.new(-20, 50, -20).norm();
+
+    var light_mat_ubo: c_uint = 0;
+    {
+        c.glGenBuffers(1, &light_mat_ubo);
+        c.glBindBuffer(c.GL_UNIFORM_BUFFER, light_mat_ubo);
+        c.glBufferData(c.GL_UNIFORM_BUFFER, @sizeOf([4][4]f32) * 16, null, c.GL_STATIC_DRAW);
+        c.glBindBufferBase(c.GL_UNIFORM_BUFFER, 0, light_mat_ubo);
+        c.glBindBuffer(c.GL_UNIFORM_BUFFER, 0);
+    }
 
     var depth_fbo: c_uint = 0;
     var depth_map: c_uint = 0;
     const s_w = 4096;
     const s_h = 4096;
     {
-        const c = graph.c;
         c.glGenFramebuffers(1, &depth_fbo);
         c.glGenTextures(1, &depth_map);
         c.glBindTexture(c.GL_TEXTURE_2D, depth_map);
@@ -774,7 +823,34 @@ pub fn main() !void {
         }
         var third_cam = camera;
         //third_cam.pos = third_cam.pos.sub(third_cam.front.scale(3));
-        const cmatrix = third_cam.getMatrix(draw.screen_dimensions.x / draw.screen_dimensions.y, 85, 0.1, 100000);
+        const screen_aspect = draw.screen_dimensions.x / draw.screen_dimensions.y;
+        const fov = 85;
+        const cam_near = 0.1;
+        const cam_far = 400;
+        const cmatrix = third_cam.getMatrix(screen_aspect, fov, cam_near, cam_far);
+
+        //CSM
+        //getlightspacemats
+
+        const lvls = getCascadeLevels(cam_far);
+        var lmats: [CASCADE_COUNT + 1]graph.za.Mat4 = undefined;
+        const cview = third_cam.getViewMatrix();
+        //todo what is light view, normalized dir vector probably. currently it is angles
+        for (0..lvls.len + 1) |i| {
+            if (i == 0) {
+                lmats[i] = getLightSpaceMatrix(cam_near, lvls[i], fov, screen_aspect, cview, light_dir);
+            } else if (i < lvls.len) {
+                lmats[i] = getLightSpaceMatrix(lvls[i - 1], lvls[i], fov, screen_aspect, cview, light_dir);
+            } else {
+                lmats[i] = getLightSpaceMatrix(lvls[i - 1], cam_far, fov, screen_aspect, cview, light_dir);
+            }
+        }
+        c.glBindBuffer(c.GL_UNIFORM_BUFFER, light_mat_ubo);
+        for (lmats, 0..) |mat, i| {
+            c.glBufferSubData(c.GL_UNIFORM_BUFFER, @as(c_long, @intCast(i)) * @sizeOf([4][4]f32), @sizeOf([4][4]f32), &mat.data);
+        }
+        c.glBindBuffer(c.GL_UNIFORM_BUFFER, 0);
+        //CSM END
 
         var point = V3f.zero();
         if (false) {
@@ -899,25 +975,65 @@ pub fn main() !void {
 
         cubes.setData();
         { //shadow map
-            const c = graph.c;
-            c.glViewport(0, 0, s_w, s_h);
+            //const ldir = V3f.new(1, -2, 0).norm();
+            const cam_persp = graph.za.perspective(85, 16.0 / 9.0, 0.1, 5);
+            const cam_view = camera.getViewMatrix();
+            const corners = getFrustumCornersWorldSpace(cam_persp.mul(cam_view));
+            var center = V3f.zero();
+            for (corners) |corner| {
+                center = center.add(corner.toVec3());
+            }
+            center = center.scale(1.0 / @as(f32, @floatFromInt(corners.len)));
+            const lview = graph.za.lookAt(
+                center.add(light_dir),
+                center,
+                V3f.new(0, 1, 0),
+            );
+            var min_x = std.math.floatMax(f32);
+            var min_y = std.math.floatMax(f32);
+            var min_z = std.math.floatMax(f32);
+
+            var max_x = std.math.floatMin(f32);
+            var max_y = std.math.floatMin(f32);
+            var max_z = std.math.floatMin(f32);
+            for (corners) |corner| {
+                const trf = lview.mulByVec4(corner);
+                min_x = @min(min_x, trf.x());
+                min_y = @min(min_y, trf.y());
+                min_z = @min(min_z, trf.z());
+
+                max_x = @max(max_x, trf.x());
+                max_y = @max(max_y, trf.y());
+                max_z = @max(max_z, trf.z());
+            }
+
+            const tw = 10;
+            min_z = if (min_z < 0) min_z * tw else min_z / tw;
+            max_z = if (max_z < 0) max_z / tw else max_z * tw;
+
+            //const ortho = graph.za.orthographic(-20, 20, -20, 20, 0.1, 300).mul(lview);
+            const ortho = graph.za.orthographic(min_x, max_x, min_y, max_y, min_z, max_z).mul(lview);
             c.glBindFramebuffer(c.GL_FRAMEBUFFER, depth_fbo);
+            c.glViewport(0, 0, s_w, s_w);
+            //c.glFramebufferTexture(c.GL_FRAMEBUFFER, c.GL_TEXTURE_2D_ARRAY, depth_map, 0);
             c.glClear(c.GL_DEPTH_BUFFER_BIT);
 
-            //const light_dir = V3f.new(cos(radians(70)), sin(radians(70)), sin(radians(148))).norm();
-            const light_proj = graph.za.orthographic(-20, 20, -20, 20, 1, 10);
-            const light_view = graph.za.lookAt(
-                //light_dir.scale(-10),
-                V3f.new(-2, 4, -1),
-                V3f.new(0, 0, 0),
-                V3f.new(0, 1, 1),
-            );
+            //const light_proj = graph.za.orthographic(-20, 20, -20, 20, 1, 10);
+            //const light_view = graph.za.lookAt(
+            //    //light_dir.scale(-10),
+            //    V3f.new(-2, 4, -1),
+            //    V3f.new(0, 0, 0),
+            //    V3f.new(0, 1, 1),
+            //);
 
-            const view = light_proj.mul(light_view);
+            //const view = light_proj.mul(light_view);
+            const view = ortho;
             cubes.shader = shadow_shader;
             couch.shader = shadow_shader;
-            cubes.draw(view, graph.za.Mat4.identity(), camera.pos, depth_map, view);
-            couch.draw(view, couch_m, camera.pos, depth_map, view);
+            const mod = graph.za.Mat4.identity().scale(V3f.new(sc, sc, sc));
+            //cubes.drawSimple(view, view, shadow_shader);
+            cubes.draw(view, mod, camera.pos, depth_map, view);
+            //couch.draw(view, couch_m, camera.pos, depth_map, view);
             cubes.shader = light_shader;
             couch.shader = light_shader;
 
@@ -927,7 +1043,9 @@ pub fn main() !void {
             c.glViewport(0, 0, win.screen_dimensions.x, win.screen_dimensions.y);
             c.glClear(c.GL_COLOR_BUFFER_BIT | c.GL_DEPTH_BUFFER_BIT);
 
-            cubes.draw(cmatrix, graph.za.Mat4.identity().scale(graph.za.Vec3.new(sc, sc, sc)), camera.pos, depth_map, view);
+            cubes.draw(cmatrix, mod, camera.pos, depth_map, view);
+            //cubes.draw(ortho, graph.za.Mat4.identity().scale(graph.za.Vec3.new(sc, sc, sc)), camera.pos, depth_map, view);
+            //couch.draw(ortho, couch_m, camera.pos, depth_map, view);
             couch.draw(cmatrix, couch_m, camera.pos, depth_map, view);
         }
 

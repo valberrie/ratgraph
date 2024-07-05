@@ -20,7 +20,9 @@ uniform vec3 view_pos;
     vec3 light_dir = normalize(vec3(cos(pitch), sin(pitch), sin(yaw)));
 
 float shadowCalculation(vec4 fp_ls){
+    //float bias = 0;
     float bias = max(0.05 * (1.0 - dot(normal, light_dir)), 0.005);
+    bias *=  1 / (5  * 0.5);
     vec3 proj_coord = fp_ls.xyz / fp_ls.w;
     proj_coord = proj_coord * 0.5 + 0.5;
 

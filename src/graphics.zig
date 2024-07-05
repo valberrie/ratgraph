@@ -1317,6 +1317,15 @@ pub const Cubes = struct {
         GL.bufferData(c.GL_ELEMENT_ARRAY_BUFFER, self.ebo, u32, self.indicies.items);
     }
 
+    pub fn drawSimple(b: *Self, view: za.Mat4, model: za.Mat4, shader: glID) void {
+        c.glUseProgram(shader);
+        GL.passUniform(b.shader, "view", view);
+        GL.passUniform(b.shader, "model", model);
+
+        c.glBindVertexArray(b.vao);
+        c.glDrawElements(c.GL_TRIANGLES, @as(c_int, @intCast(b.indicies.items.len)), c.GL_UNSIGNED_INT, null);
+    }
+
     pub fn draw(b: *Self, view: za.Mat4, model: za.Mat4, camera_pos: za.Vec3, shadow_map: c_uint, lightspace: ?za.Mat4) void {
         const diffuse_loc = c.glGetUniformLocation(b.shader, "diffuse_texture");
         const shadow_map_loc = c.glGetUniformLocation(b.shader, "shadow_map");

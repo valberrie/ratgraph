@@ -389,8 +389,13 @@ pub const Camera3D = struct {
         self.front = dir.norm();
     }
 
-    pub fn getMatrix(self: Self, aspect_ratio: f32, fov: f32, near: f32, far: f32) za.Mat4 {
+    pub fn getViewMatrix(self: Self) za.Mat4 {
         const la = za.lookAt(self.pos, self.pos.add(self.front), za.Vec3.new(0, 1, 0));
+        return la;
+    }
+
+    pub fn getMatrix(self: Self, aspect_ratio: f32, fov: f32, near: f32, far: f32) za.Mat4 {
+        const la = self.getViewMatrix();
         const perp = za.perspective(fov, aspect_ratio, near, far);
         return perp.mul(la);
     }
