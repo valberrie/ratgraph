@@ -410,6 +410,17 @@ pub const Shader = struct {
         }
     }
 
+    fn checkLinkErr(shader: glID) void {
+        var params: c_int = undefined;
+        var infoLog: [512]u8 = undefined;
+        c.glGetProgramiv(shader, c.GL_LINK_STATUS, &params);
+        if (params == c.GL_FALSE) {
+            var len: c_int = 0;
+            c.glGetProgramInfoLog(shader, 512, &len, &infoLog);
+            std.debug.panic("ERROR::SHADER_PROGRAM::\n{s}\n", .{infoLog[0..@as(usize, @intCast(len))]});
+        }
+    }
+
     fn compShader(src: [*c]const u8, s_type: c_uint) glID {
         const vert = c.glCreateShader(s_type);
         c.glShaderSource(vert, 1, &src, null);
@@ -451,7 +462,7 @@ pub const Shader = struct {
         c.glAttachShader(shader, vert);
         c.glAttachShader(shader, frag);
         c.glLinkProgram(shader);
-        checkShaderErr(shader, c.GL_LINK_STATUS);
+        checkLinkErr(shader);
 
         return shader;
     }
@@ -468,7 +479,7 @@ pub const Shader = struct {
         }
 
         c.glLinkProgram(shader);
-        checkShaderErr(shader, c.GL_LINK_STATUS);
+        checkLinkErr(shader);
         for (0..i) |ii| {
             c.glDeleteShader(stage_del[ii]);
         }

@@ -601,7 +601,6 @@ pub fn main() !void {
     }
 
     graph.c.glEnable(graph.c.GL_CULL_FACE);
-    graph.c.glEnable(graph.c.GL_POINT_SMOOTH);
     graph.c.glCullFace(graph.c.GL_BACK);
 
     var cubes_grnd = graph.Cubes.init(alloc, ggrid, draw.textured_tri_3d_shader);
