@@ -105,6 +105,7 @@ pub fn passUniform(shader: c_uint, uniform_name: [*c]const u8, data: anytype) vo
         za.Mat4 => c.glUniformMatrix4fv(uniform_location, 1, c.GL_FALSE, &data.data[0][0]),
         za.Vec3 => c.glUniform3f(uniform_location, data.data[0], data.data[1], data.data[2]),
         f32 => c.glUniform1f(uniform_location, data),
+        Color => c.glUniform3f(uniform_location, data[0], data[1], data[2]),
         else => @compileError("GL.passUniform type not implemented: " ++ @typeName(@TypeOf(data))),
     }
 }

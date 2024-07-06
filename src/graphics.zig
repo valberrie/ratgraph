@@ -705,6 +705,25 @@ pub const ImmediateDrawingContext = struct {
         });
     }
 
+    /// The colors are wound ccw starting at top left corner
+    pub fn rectVertexColors(self: *Self, r: Rect, vert_colors: []const u32) void {
+        drawErr(e: {
+            const b = &(self.getBatch(.{ .batch_kind = .color_tri, .params = .{
+                .shader = self.colored_tri_shader,
+                .draw_priority = 0xff,
+            } }) catch |err| break :e err).color_tri;
+            const z = self.zindex;
+            self.zindex += 1;
+            b.indicies.appendSlice(&genQuadIndices(@as(u32, @intCast(b.vertices.items.len)))) catch |err| break :e err;
+            b.vertices.appendSlice(&.{
+                .{ .z = z, .color = vert_colors[2], .pos = .{ .x = r.x + r.w, .y = r.y + r.h } },
+                .{ .z = z, .color = vert_colors[3], .pos = .{ .x = r.x + r.w, .y = r.y } },
+                .{ .z = z, .color = vert_colors[0], .pos = .{ .x = r.x, .y = r.y } },
+                .{ .z = z, .color = vert_colors[1], .pos = .{ .x = r.x, .y = r.y + r.h } },
+            }) catch |err| break :e err;
+        });
+    }
+
     pub fn nineSlice(self: *Self, r: Rect, tr: Rect, texture: Texture, scale: f32) void {
         const un = GL.normalizeTexRect(tr, texture.w, texture.h);
         const tbw = un.w / 3;

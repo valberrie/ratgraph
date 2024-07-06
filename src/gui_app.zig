@@ -2115,6 +2115,107 @@ pub const Os9Gui = struct {
         return selected.*;
     }
 
+    pub fn colorPicker(self: *Self, color: *graph.Hsva) !void {
+        if (self.gui.getArea()) |area| {
+            _ = try self.gui.beginLayout(Gui.SubRectLayout, .{ .rect = area }, .{});
+            defer self.gui.endLayout();
+            const scr = try self.gui.storeLayoutData(bool, false, "popped_");
+            self.gui.drawRectFilled(area, color.toCharColor());
+            const d = self.gui.buttonGeneric();
+            if (d.state == .click)
+                scr.* = true;
+            if (scr.*) {
+                const r = Rec(d.area.x, d.area.y, 300 * self.scale, 300 * self.scale);
+                if (!(d.state == .click) and self.gui.input_state.mouse_left_clicked and !self.gui.isCursorInRect(r) and self.gui.window_index_grabbed_mouse == self.gui.window_index.?)
+                    scr.* = false;
+                if (try self.beginTlWindow(r)) {
+                    defer self.endTlWindow();
+                    const ar = self.gui.getArea() orelse return;
+                    const pad = self.scale * 5;
+                    const slider_w = 40 * self.scale;
+                    const sv_area = Rec(ar.x, ar.y, ar.w - (slider_w + pad) * 1, ar.h);
+                    const hs = 15;
+                    var sv_handle = Rect.new(sv_area.x + color.s * sv_area.w - hs / 2, sv_area.y + (1.0 - color.v) * sv_area.h - hs / 2, hs, hs);
+                    const clicked = self.gui.clickWidgetEx(sv_handle, .{ .teleport_area = sv_area }).click;
+                    const mpos = self.gui.input_state.mouse_pos;
+                    switch (clicked) {
+                        .click, .held => {
+                            const mdel = self.gui.input_state.mouse_delta;
+
+                            color.s += mdel.x / sv_area.w;
+                            color.v += -mdel.y / sv_area.h;
+
+                            color.s = std.math.clamp(color.s, 0, 1);
+                            color.v = std.math.clamp(color.v, 0, 1);
+
+                            if (mpos.x > sv_area.x + sv_area.w)
+                                color.s = 1.0;
+                            if (mpos.x < sv_area.x)
+                                color.s = 0.0;
+
+                            if (mpos.y > sv_area.y + sv_area.h)
+                                color.v = 0.0;
+                            if (mpos.y < sv_area.y)
+                                color.v = 1.0;
+                        },
+                        .click_teleport => {
+                            color.s = (mpos.x - sv_area.x) / sv_area.w;
+                            color.v = (1.0 - (mpos.y - sv_area.y) / sv_area.h);
+                            color.s = std.math.clamp(color.s, 0, 1);
+                            color.v = std.math.clamp(color.v, 0, 1);
+                        },
+
+                        else => {},
+                    }
+                    sv_handle = Rect.new(sv_area.x + color.s * sv_area.w - hs / 2, sv_area.y + (1.0 - color.v) * sv_area.h - hs / 2, hs, hs);
+                    const h_area = Rec(sv_area.x + sv_area.w + pad, ar.y, slider_w, ar.h);
+                    const hue_handle_height = 15;
+                    var hue_handle = Rect.new(h_area.x, h_area.y + h_area.h * color.h / 360.0 - hue_handle_height / 2, h_area.w, hue_handle_height);
+                    const hue_clicked = self.gui.clickWidgetEx(hue_handle, .{ .teleport_area = h_area }).click;
+                    switch (hue_clicked) {
+                        .click, .held => {
+                            const mdel = self.gui.input_state.mouse_delta;
+                            color.h += 360 * mdel.y / h_area.h;
+                            color.h = std.math.clamp(color.h, 0, 360);
+
+                            if (self.gui.input_state.mouse_pos.y > h_area.y + h_area.h)
+                                color.h = 360.0;
+                            if (self.gui.input_state.mouse_pos.y < h_area.y)
+                                color.h = 0.0;
+                        },
+                        .click_teleport => {
+                            color.h = (mpos.y - h_area.y) / h_area.h * 360.0;
+                        },
+                        else => {},
+                    }
+                    hue_handle = Rect.new(h_area.x, h_area.y + h_area.h * color.h / 360.0 - hue_handle_height / 2, h_area.w, hue_handle_height);
+                    //Ported from Nuklear
+                    { //Hue slider
+                        const Col = graph.CharColor.new;
+                        const hue_colors: [7]Color = .{ Col(255, 0, 0, 255), Col(255, 255, 0, 255), Col(0, 255, 0, 255), Col(0, 255, 255, 255), Col(0, 0, 255, 255), Col(255, 0, 255, 255), Col(255, 0, 0, 255) };
+                        var i: u32 = 0;
+                        while (i < 6) : (i += 1) {
+                            const fi = @as(f32, @floatFromInt(i));
+                            self.gui.drawRectMultiColor(Rect.new(h_area.x, h_area.y + fi * h_area.h / 6.0, h_area.w, h_area.h / 6.0), .{
+                                hue_colors[i], // 1
+                                hue_colors[i + 1], //3
+                                hue_colors[i + 1], //4
+                                hue_colors[i], //2
+                            });
+                        }
+                    }
+                    const temp = (graph.Hsva{ .h = color.h, .s = 1, .v = 1, .a = 1 }).toCharColor();
+                    const black_trans = Color{ .r = 0, .g = 0, .b = 0, .a = 0 };
+                    self.gui.drawRectMultiColor(sv_area, .{ Color.Black, Color.Black, Color.Black, Color.Black });
+                    self.gui.drawRectMultiColor(sv_area, .{ Color.White, Color.White, temp, temp });
+                    self.gui.drawRectMultiColor(sv_area, .{ black_trans, Color.Black, Color.Black, black_trans });
+                    self.gui.drawRectFilled(sv_handle, Color.Black);
+                    self.gui.drawRectFilled(hue_handle, Color.Black);
+                }
+            }
+        }
+    }
+
     pub fn propertyTable(self: *Self, to_edit: anytype) !void {
         const err_prefix = @typeName(@This()) ++ ".propertyTable: ";
         const invalid = err_prefix ++ "Argument \'to_edit\' expects a mutable pointer to a struct. Recieved: " ++ @typeName(@TypeOf(to_edit));
@@ -2340,6 +2441,14 @@ pub const Os9Gui = struct {
             .handle_h = os9shuttle.h * self.scale,
         })) |d| {
             gui.draw9Slice(d.area, os9slider, self.texture, self.scale);
+            const diff: usize = @intFromFloat(max - min);
+            if (diff <= 10) {
+                const h = d.area.h - os9slider.h / 3 * 2;
+                const dist: usize = @divTrunc(@as(usize, @intFromFloat(d.area.w - os9shuttle.w * self.scale)), diff);
+                for (1..diff) |i| {
+                    gui.drawRectFilled(Rec(@as(f32, @floatFromInt(dist * i)) + d.area.x + os9shuttle.w * self.scale / 2, d.area.y + os9slider.h / 3, self.scale * 3, h), Color.Black);
+                }
+            }
             gui.draw9Slice(d.handle, os9shuttle, self.texture, self.scale);
         }
     }

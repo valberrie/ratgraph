@@ -34,7 +34,6 @@ pub fn linkLibrary(mod: *std.Build.Module) void {
     mod.link_libc = true;
     mod.linkSystemLibrary("sdl2", .{});
     mod.linkSystemLibrary("openal", .{});
-    mod.linkSystemLibrary("sdl2_mixer", .{});
     mod.linkSystemLibrary("epoxy", .{});
     mod.linkSystemLibrary("freetype2", .{});
     mod.linkSystemLibrary("zlib", .{});

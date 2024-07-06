@@ -22,6 +22,8 @@ uniform mat4 lightspace;
 uniform mat4 view;
 uniform vec3 light_dir;
 
+uniform vec3 light_color;
+
 int CASCADE_COUNT = 4;
 
 float shadowCalculation(vec3 fp){
@@ -72,7 +74,7 @@ float shadowCalculation(vec3 fp){
 
 void main() {
     float ambient_strength = 0.3;
-    vec3 light_color = vec3(240/255.0, 187/255.0, 117/255.0  );
+    //vec3 light_color = vec3(240/255.0, 187/255.0, 117/255.0  );
     vec3 ambient_color = vec3(135 / 255.0, 172 / 255.0, 180 / 255.0 );
     float specular_strength = 0.5;
 

@@ -644,7 +644,7 @@ pub fn main() !void {
     var os9gui = try Os9Gui.init(alloc, std.fs.cwd(), 2);
     defer os9gui.deinit();
     var show_gui = false;
-    var tab: enum { main, graphics, info } = .main;
+    var tab: enum { main, graphics, keyboard, info, sound } = .main;
     var draw_wireframe = false;
     var draw_thirdperson = false;
     var shadow_map_select: enum { camera, sun, depth } = .camera;
@@ -671,10 +671,10 @@ pub fn main() !void {
     var planes = [_]f32{ 3, 8, 25 };
 
     var sm = create3DDepthMap(2048, CASCADE_COUNT);
-    //const light_dir = V3f.new(cos(radians(70)), sin(radians(70)), sin(radians(148))).norm();
     var sun_yaw: f32 = 225;
     var sun_pitch: f32 = 61;
     var light_dir = V3f.new(-20, 50, -20).norm();
+    var sun_color = graph.Hsva.fromInt(graph.ptypes.charColorToInt(graph.CharColor.new(240, 187, 117, 255)));
 
     var light_mat_ubo: c_uint = 0;
     {
@@ -1120,6 +1120,7 @@ pub fn main() !void {
                 graph.GL.passUniform(light_shader, "model", mod);
                 graph.GL.passUniform(light_shader, "view_pos", third_cam.pos);
                 graph.GL.passUniform(light_shader, "light_dir", light_dir);
+                graph.GL.passUniform(light_shader, "light_color", sun_color.toCharColor().toFloat());
 
                 c.glBindVertexArray(cubes.vao);
                 c.glDrawElements(c.GL_TRIANGLES, @as(c_int, @intCast(cubes.indicies.items.len)), c.GL_UNSIGNED_INT, null);
@@ -1260,6 +1261,7 @@ pub fn main() !void {
                                 const cc = cos(radians(sun_pitch));
                                 light_dir = V3f.new(cos(radians(sun_yaw)) * cc, sin(radians(sun_pitch)), sin(radians(sun_yaw)) * cc).norm();
                             }
+                            try os9gui.colorPicker(&sun_color);
                         },
                         .graphics => {
                             _ = try os9gui.beginV();
@@ -1293,6 +1295,7 @@ pub fn main() !void {
                                 os9gui.gui.drawTextFmt("This is the game", .{}, area, 20 * os9gui.scale, graph.CharColor.Black, .{ .justify = .left }, &os9gui.font);
                             }
                         },
+                        else => {},
                     }
                     os9gui.endTabs();
                 }
@@ -1302,7 +1305,6 @@ pub fn main() !void {
             if (draw_wireframe)
                 graph.c.glPolygonMode(graph.c.GL_FRONT_AND_BACK, graph.c.GL_LINE);
         }
-        //graph.c.glDisable(graph.c.GL_STENCIL_TEST);
         try draw.end(camera);
         win.swap();
     }

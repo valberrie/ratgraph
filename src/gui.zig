@@ -1602,31 +1602,6 @@ pub const Context = struct {
         self.drawText(sl, Vec2f.new(x, area.y), size, color, font);
     }
 
-    pub fn colorInline(self: *Self, color: *Hsva) !void {
-        const rec = self.getArea() orelse return;
-        const id = self.getId();
-
-        const click = self.clickWidget(rec);
-        const wstate = self.getWidgetState(.{ .c = click, .r = rec, .cc = color.* });
-
-        if (self.isActivePopup(id)) {
-            const lrq = self.layout.last_requested_bounds orelse graph.Rec(0, 0, 0, 0);
-            const pr = graph.Rec(lrq.x, lrq.y, 700, 700);
-            try self.beginPopup(pr);
-            //_ = try self.beginLayout(SubRectLayout, .{ .rect = pr });
-            //defer self.endLayout();
-            defer self.endPopup();
-            self.colorPicker(color);
-        } else {
-            if (click == .click) {
-                self.popup_id = id;
-                self.last_frame_had_popup = true;
-            }
-        }
-        if (wstate != .no_change)
-            self.drawRectFilled(rec, graph.hsvaToColor(color.*));
-    }
-
     pub fn beginScroll(self: *Self, offset: *Vec2f, opts: struct {
         horiz_scroll: bool = false,
         vertical_scroll: bool = false,
@@ -2018,105 +1993,6 @@ pub const Context = struct {
         }
         return .{ .area = rec, .popup_active = false };
     }
-
-    //TODO make generic
-    pub fn colorPicker(self: *Self, color: *Hsva) void {
-        const hue_slider_w = 70;
-        //const sv_size = 500;
-        const rec = self.getArea() orelse return;
-        const sv_area = Rect.new(rec.x, rec.y, rec.w - hue_slider_w, rec.h);
-        const h_area = Rect.new(rec.x + rec.w - hue_slider_w, rec.y, hue_slider_w, rec.h);
-        const wstate = self.getWidgetState(.{ .t = WidgetTypes.color_picker, .r = rec.toIntRect(i16, SRect) });
-
-        var hsva = color.*;
-        const hs = 15;
-        var sv_handle = Rect.new(sv_area.x + hsva.s * sv_area.w - hs / 2, sv_area.y + (1.0 - hsva.v) * sv_area.h - hs / 2, hs, hs);
-
-        const hue_handle_height = 15;
-        var hue_handle = Rect.new(h_area.x, h_area.y + h_area.h * hsva.h / 360.0 - hue_handle_height / 2, h_area.w, hue_handle_height);
-
-        const clicked = self.clickWidgetEx(sv_handle, .{ .teleport_area = sv_area }).click;
-        const mpos = self.input_state.mouse_pos;
-        switch (clicked) {
-            .click, .held => {
-                const mdel = self.input_state.mouse_delta;
-
-                hsva.s += mdel.x / sv_area.w;
-                hsva.v += -mdel.y / sv_area.h;
-
-                hsva.s = std.math.clamp(hsva.s, 0, 1);
-                hsva.v = std.math.clamp(hsva.v, 0, 1);
-
-                if (mpos.x > sv_area.x + sv_area.w)
-                    hsva.s = 1.0;
-                if (mpos.x < sv_area.x)
-                    hsva.s = 0.0;
-
-                if (mpos.y > sv_area.y + sv_area.h)
-                    hsva.v = 0.0;
-                if (mpos.y < sv_area.y)
-                    hsva.v = 1.0;
-            },
-            .click_teleport => {
-                hsva.s = (mpos.x - sv_area.x) / sv_area.w;
-                hsva.v = (1.0 - (mpos.y - sv_area.y) / sv_area.h);
-                hsva.s = std.math.clamp(hsva.s, 0, 1);
-                hsva.v = std.math.clamp(hsva.v, 0, 1);
-            },
-
-            else => {},
-        }
-
-        sv_handle = Rect.new(sv_area.x + hsva.s * sv_area.w - hs / 2, sv_area.y + (1.0 - hsva.v) * sv_area.h - hs / 2, hs, hs);
-
-        const hue_clicked = self.clickWidgetEx(hue_handle, .{ .teleport_area = h_area }).click;
-        switch (hue_clicked) {
-            .click, .held => {
-                const mdel = self.input_state.mouse_delta;
-                hsva.h += 360 * mdel.y / h_area.h;
-                hsva.h = std.math.clamp(hsva.h, 0, 360);
-
-                if (self.input_state.mouse_pos.y > h_area.y + h_area.h)
-                    hsva.h = 360.0;
-                if (self.input_state.mouse_pos.y < h_area.y)
-                    hsva.h = 0.0;
-            },
-            .click_teleport => {
-                hsva.h = (mpos.y - h_area.y) / h_area.h * 360.0;
-            },
-            else => {},
-        }
-        hue_handle = Rect.new(h_area.x, h_area.y + h_area.h * hsva.h / 360.0 - hue_handle_height / 2, h_area.w, hue_handle_height);
-
-        color.* = hsva;
-
-        if (graph.rectContainsPoint(rec, self.input_state.mouse_pos) or wstate != .no_change or clicked != .none or hue_clicked != .none) {
-            const Col = graph.CharColorNew;
-            self.drawRectFilled(rec, Color.Gray);
-            //Ported from Nuklear
-            {
-                const hue_colors: [7]Color = .{ Col(255, 0, 0, 255), Col(255, 255, 0, 255), Col(0, 255, 0, 255), Col(0, 255, 255, 255), Col(0, 0, 255, 255), Col(255, 0, 255, 255), Col(255, 0, 0, 255) };
-                const hr = h_area;
-                var i: u32 = 0;
-                while (i < 6) : (i += 1) {
-                    const fi = @as(f32, @floatFromInt(i));
-                    self.drawRectMultiColor(Rect.new(hr.x, hr.y + fi * hr.h / 6.0, hr.w, hr.h / 6.0), .{
-                        hue_colors[i], // 1
-                        hue_colors[i + 1], //3
-                        hue_colors[i + 1], //4
-                        hue_colors[i], //2
-                    });
-                }
-            }
-            const temp = graph.hsvaToColor(.{ .h = hsva.h, .s = 1, .v = 1, .a = 1 });
-            const black_trans = Color{ .r = 0, .g = 0, .b = 0, .a = 0 };
-            self.drawRectMultiColor(sv_area, .{ Color.White, Color.White, temp, temp });
-            self.drawRectMultiColor(sv_area, .{ black_trans, Color.Black, Color.Black, black_trans });
-
-            self.drawRectFilled(sv_handle, Color.Black);
-            self.drawRectFilled(hue_handle, Color.Black);
-        }
-    }
 };
 
 pub const GuiDrawContext = struct {
@@ -2339,9 +2215,12 @@ pub const GuiDrawContext = struct {
                 }
             },
             .rect_filled_multi_color => |rf| {
-                draw.rect(rf.r, 0xffffffff);
-                //TODO  reimplement
                 //ctx.drawRectCol(rf.r, rf.colors);
+                var cols: [4]u32 = undefined;
+                for (rf.colors, 0..) |col, i| {
+                    cols[i] = graph.ptypes.charColorToInt(col);
+                }
+                draw.rectVertexColors(rf.r, &cols);
             },
             .rect_9slice => |s| {
                 draw.nineSlice(s.r, s.uv, s.texture, s.scale);

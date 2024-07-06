@@ -592,6 +592,40 @@ pub const Hsva = struct {
     s: f32,
     v: f32,
     a: f32,
+
+    pub fn fromInt(int: u32) @This() {
+        return colorToHsva(intToColor(int));
+    }
+
+    pub fn toCharColor(hsva: Hsva) CharColor {
+        //HSV
+        //S is the x axis
+        //V is the y axis
+        const H = hsva.h;
+        const S = hsva.s;
+        const V = hsva.v;
+
+        const C = V * S;
+        const hp = (@mod(H, 360)) / 60.0;
+        const X = C * (1 - @abs(@mod(hp, 2) - 1));
+        const rgb1 = switch (@as(u32, @intFromFloat(hp))) {
+            0 => za.Vec3.new(C, X, 0),
+            1 => za.Vec3.new(X, C, 0),
+            2 => za.Vec3.new(0, C, X),
+            3 => za.Vec3.new(0, X, C),
+            4 => za.Vec3.new(X, 0, C),
+            5 => za.Vec3.new(C, 0, X),
+            else => unreachable,
+        };
+        const M = V - C;
+
+        return CharColor.new(
+            @as(u8, @intFromFloat((M + rgb1.data[0]) * 255)),
+            @as(u8, @intFromFloat((M + rgb1.data[1]) * 255)),
+            @as(u8, @intFromFloat((M + rgb1.data[2]) * 255)),
+            @as(u8, @intFromFloat(hsva.a * 255)),
+        );
+    }
 };
 
 pub fn contrastColor(color: CharColor) CharColor {
