@@ -16,6 +16,8 @@ const radians = std.math.degreesToRadians;
 const gui_app = @import("gui_app.zig");
 const itm = 0.0254;
 const c = graph.c;
+//TODO
+//load shaders at runtime rather than embedding at compile time. Allows for faster shader prototyping
 
 threadlocal var lua_draw: *LuaDraw = undefined;
 const LuaDraw = struct {
@@ -312,7 +314,7 @@ fn loadObj(alloc: std.mem.Allocator, dir: std.fs.Dir, filename: []const u8, scal
             const x = try std.fmt.parseFloat(f32, tok.next().?);
             const y = try std.fmt.parseFloat(f32, tok.next().?);
             const z = try std.fmt.parseFloat(f32, tok.next().?);
-            try norms.append(.{ .x = x, .y = y, .z = z });
+            try norms.append(.{ .x = -x, .y = -y, .z = -z });
         } else if (eql(u8, com, "f")) {
             var count: usize = 0;
             const vi: u32 = @intCast(cubes.vertices.items.len);
@@ -381,79 +383,6 @@ fn loadObj(alloc: std.mem.Allocator, dir: std.fs.Dir, filename: []const u8, scal
     return cubes;
 }
 
-fn getLightSpaceMatrix(near: f32, far: f32, camera_fov: f32, camera_aspect: f32, camera_view: graph.za.Mat4, light_dir: graph.za.Vec3) graph.za.Mat4 {
-    const cproj = graph.za.perspective(camera_fov, camera_aspect, near, far);
-    const fsr = getFrustrumCornersWorldSpace(cproj, camera_view, light_dir);
-
-    return calculateLightProj(10, fsr.min, fsr.max);
-}
-
-fn getFrustrumCornersWorldSpace(camera_proj: graph.za.Mat4, view: graph.za.Mat4, light_dir: graph.za.Vec3) struct {
-    min: graph.za.Vec3,
-    max: graph.za.Vec3,
-    center: graph.za.Vec3,
-} {
-    const mx = std.math.floatMax(f32);
-    const mn = std.math.floatMin(f32);
-    var minX: f32 = mx;
-    var maxX: f32 = mn;
-    var minY: f32 = mx;
-    var maxY: f32 = mn;
-    var minZ: f32 = mx;
-    var maxZ: f32 = mn;
-
-    const inv = camera_proj.mul(view).inv();
-    var corners: [27]graph.za.Vec4 = undefined;
-    var center = graph.za.Vec3.zero();
-    var i: usize = 0;
-    for (0..2) |x| {
-        for (0..2) |y| {
-            for (0..2) |z| {
-                const pt = inv.mulByVec4(graph.za.Vec4.new(
-                    2 * @as(f32, @floatFromInt(x)) - 1,
-                    2 * @as(f32, @floatFromInt(y)) - 1,
-                    2 * @as(f32, @floatFromInt(z)) - 1,
-                    1.0,
-                ));
-                corners[i] = pt;
-                const pp = pt.scale(1 / pt.w());
-                center = center.add(pp.toVec3());
-
-                i += 1;
-            }
-        }
-    }
-
-    const lightview = graph.za.Mat4.lookAt(center.add(light_dir), center, graph.za.Vec3.new(0, 1, 0));
-
-    for (corners) |corner| {
-        const trf = lightview.mulByVec4(corner);
-        minX = @min(minX, trf.x());
-        maxX = @max(maxX, trf.x());
-        minY = @min(minY, trf.y());
-        maxY = @max(maxY, trf.y());
-        minZ = @min(minZ, trf.z());
-        maxZ = @max(maxZ, trf.z());
-    }
-
-    center = center.scale(1.0 / 8.0);
-    return .{
-        .center = center,
-        .min = graph.za.Vec3.new(minX, minY, minZ),
-        .max = graph.za.Vec3.new(maxX, maxY, maxZ),
-    };
-}
-
-fn calculateLightProj(zmult: f32, min: graph.za.Vec3, max: graph.za.Vec3) graph.za.Mat4 {
-    return graph.za.orthographic(
-        min.x(),
-        max.x(),
-        min.y(),
-        max.y(),
-        min.z() * (if (min.z() < 0) zmult else 1 / zmult),
-        max.z() * (if (max.z() < 0) 1 / zmult else zmult),
-    );
-}
 const CASCADE_COUNT = 4;
 
 fn getCascadeLevels(camera_far_plane: f32) [CASCADE_COUNT]f32 {
@@ -461,7 +390,22 @@ fn getCascadeLevels(camera_far_plane: f32) [CASCADE_COUNT]f32 {
     return [4]f32{ cf / 50, cf / 25, cf / 10, cf / 2 };
 }
 
-fn create3DDepthMap(resolution: i32, cascade_count: i32) struct { fbo: c_uint, textures: c_uint } {
+fn getLightMatrices(fov: f32, aspect: f32, near: f32, far: f32, cam_view: Mat4, light_dir: V3f, planes: [CASCADE_COUNT - 1]f32) [CASCADE_COUNT]Mat4 {
+    var ret: [CASCADE_COUNT]Mat4 = undefined;
+    //fov, aspect, near, far, cam_view, light_Dir
+    for (0..CASCADE_COUNT) |i| {
+        if (i == 0) {
+            ret[i] = getLightMatrix(fov, aspect, near, planes[i], cam_view, light_dir);
+        } else if (i < CASCADE_COUNT - 1) {
+            ret[i] = getLightMatrix(fov, aspect, planes[i - 1], planes[i], cam_view, light_dir);
+        } else {
+            ret[i] = getLightMatrix(fov, aspect, planes[i - 1], far, cam_view, light_dir);
+        }
+    }
+    return ret;
+}
+
+fn create3DDepthMap(resolution: i32, cascade_count: i32) struct { fbo: c_uint, textures: c_uint, res: i32 } {
     var fbo: c_uint = 0;
     var textures: c_uint = 0;
     c.glGenFramebuffers(1, &fbo);
@@ -500,6 +444,7 @@ fn create3DDepthMap(resolution: i32, cascade_count: i32) struct { fbo: c_uint, t
     return .{
         .fbo = fbo,
         .textures = textures,
+        .res = resolution,
     };
 }
 
@@ -525,6 +470,46 @@ fn getFrustumCornersWorldSpace(frustum: Mat4) [8]graph.za.Vec4 {
         unreachable;
 
     return corners;
+}
+
+fn getLightMatrix(fov: f32, aspect: f32, near: f32, far: f32, cam_view: Mat4, light_dir: V3f) Mat4 {
+    const cam_persp = graph.za.perspective(fov, aspect, near, far);
+    const corners = getFrustumCornersWorldSpace(cam_persp.mul(cam_view));
+    var center = V3f.zero();
+    for (corners) |corner| {
+        center = center.add(corner.toVec3());
+    }
+    center = center.scale(1.0 / @as(f32, @floatFromInt(corners.len)));
+    const lview = graph.za.lookAt(
+        center.add(light_dir),
+        center,
+        V3f.new(0, 1, 0),
+    );
+    var min_x = std.math.floatMax(f32);
+    var min_y = std.math.floatMax(f32);
+    var min_z = std.math.floatMax(f32);
+
+    var max_x = std.math.floatMin(f32);
+    var max_y = std.math.floatMin(f32);
+    var max_z = std.math.floatMin(f32);
+    for (corners) |corner| {
+        const trf = lview.mulByVec4(corner);
+        min_x = @min(min_x, trf.x());
+        min_y = @min(min_y, trf.y());
+        min_z = @min(min_z, trf.z());
+
+        max_x = @max(max_x, trf.x());
+        max_y = @max(max_y, trf.y());
+        max_z = @max(max_z, trf.z());
+    }
+
+    const tw = 20;
+    min_z = if (min_z < 0) min_z * tw else min_z / tw;
+    max_z = if (max_z < 0) max_z / tw else max_z * tw;
+
+    //const ortho = graph.za.orthographic(-20, 20, -20, 20, 0.1, 300).mul(lview);
+    const ortho = graph.za.orthographic(min_x, max_x, min_y, max_y, min_z, max_z).mul(lview);
+    return ortho;
 }
 
 pub fn main() !void {
@@ -568,10 +553,12 @@ pub fn main() !void {
     const shadow_shader = graph.Shader.advancedShader(&.{
         .{ .src = @embedFile("graphics/shader/shadow_map.vert"), .t = .vert },
         .{ .src = @embedFile("graphics/shader/shadow_map.frag"), .t = .frag },
-        //.{ .src = @embedFile("graphics/shader/shadow_map.geom"), .t = .geom },
+        .{ .src = @embedFile("graphics/shader/shadow_map.geom"), .t = .geom },
     });
 
-    //const sm = create3DDepthMap(1024, CASCADE_COUNT);
+    const planes = [_]f32{ 5, 25, 50 };
+
+    const sm = create3DDepthMap(2048, CASCADE_COUNT);
     //const light_dir = V3f.new(cos(radians(70)), sin(radians(70)), sin(radians(148))).norm();
     const light_dir = V3f.new(-20, 50, -20).norm();
 
@@ -582,6 +569,9 @@ pub fn main() !void {
         c.glBufferData(c.GL_UNIFORM_BUFFER, @sizeOf([4][4]f32) * 16, null, c.GL_STATIC_DRAW);
         c.glBindBufferBase(c.GL_UNIFORM_BUFFER, 0, light_mat_ubo);
         c.glBindBuffer(c.GL_UNIFORM_BUFFER, 0);
+
+        const li = c.glGetUniformBlockIndex(light_shader, "LightSpaceMatrices");
+        c.glUniformBlockBinding(light_shader, li, 0);
     }
 
     var depth_fbo: c_uint = 0;
@@ -830,26 +820,15 @@ pub fn main() !void {
         const cmatrix = third_cam.getMatrix(screen_aspect, fov, cam_near, cam_far);
 
         //CSM
-        //getlightspacemats
 
-        const lvls = getCascadeLevels(cam_far);
-        var lmats: [CASCADE_COUNT + 1]graph.za.Mat4 = undefined;
-        const cview = third_cam.getViewMatrix();
-        //todo what is light view, normalized dir vector probably. currently it is angles
-        for (0..lvls.len + 1) |i| {
-            if (i == 0) {
-                lmats[i] = getLightSpaceMatrix(cam_near, lvls[i], fov, screen_aspect, cview, light_dir);
-            } else if (i < lvls.len) {
-                lmats[i] = getLightSpaceMatrix(lvls[i - 1], lvls[i], fov, screen_aspect, cview, light_dir);
-            } else {
-                lmats[i] = getLightSpaceMatrix(lvls[i - 1], cam_far, fov, screen_aspect, cview, light_dir);
-            }
-        }
+        const mats = getLightMatrices(fov, screen_aspect, cam_near, cam_far, camera.getViewMatrix(), light_dir, planes);
         c.glBindBuffer(c.GL_UNIFORM_BUFFER, light_mat_ubo);
-        for (lmats, 0..) |mat, i| {
-            c.glBufferSubData(c.GL_UNIFORM_BUFFER, @as(c_long, @intCast(i)) * @sizeOf([4][4]f32), @sizeOf([4][4]f32), &mat.data);
+        for (mats, 0..) |mat, i| {
+            const ms = @sizeOf([4][4]f32);
+            c.glBufferSubData(c.GL_UNIFORM_BUFFER, @as(c_long, @intCast(i)) * ms, ms, &mat.data[0][0]);
         }
         c.glBindBuffer(c.GL_UNIFORM_BUFFER, 0);
+
         //CSM END
 
         var point = V3f.zero();
@@ -975,65 +954,19 @@ pub fn main() !void {
 
         cubes.setData();
         { //shadow map
-            //const ldir = V3f.new(1, -2, 0).norm();
-            const cam_persp = graph.za.perspective(85, 16.0 / 9.0, 0.1, 5);
-            const cam_view = camera.getViewMatrix();
-            const corners = getFrustumCornersWorldSpace(cam_persp.mul(cam_view));
-            var center = V3f.zero();
-            for (corners) |corner| {
-                center = center.add(corner.toVec3());
-            }
-            center = center.scale(1.0 / @as(f32, @floatFromInt(corners.len)));
-            const lview = graph.za.lookAt(
-                center.add(light_dir),
-                center,
-                V3f.new(0, 1, 0),
-            );
-            var min_x = std.math.floatMax(f32);
-            var min_y = std.math.floatMax(f32);
-            var min_z = std.math.floatMax(f32);
 
-            var max_x = std.math.floatMin(f32);
-            var max_y = std.math.floatMin(f32);
-            var max_z = std.math.floatMin(f32);
-            for (corners) |corner| {
-                const trf = lview.mulByVec4(corner);
-                min_x = @min(min_x, trf.x());
-                min_y = @min(min_y, trf.y());
-                min_z = @min(min_z, trf.z());
-
-                max_x = @max(max_x, trf.x());
-                max_y = @max(max_y, trf.y());
-                max_z = @max(max_z, trf.z());
-            }
-
-            const tw = 10;
-            min_z = if (min_z < 0) min_z * tw else min_z / tw;
-            max_z = if (max_z < 0) max_z / tw else max_z * tw;
-
-            //const ortho = graph.za.orthographic(-20, 20, -20, 20, 0.1, 300).mul(lview);
-            const ortho = graph.za.orthographic(min_x, max_x, min_y, max_y, min_z, max_z).mul(lview);
-            c.glBindFramebuffer(c.GL_FRAMEBUFFER, depth_fbo);
-            c.glViewport(0, 0, s_w, s_w);
-            //c.glFramebufferTexture(c.GL_FRAMEBUFFER, c.GL_TEXTURE_2D_ARRAY, depth_map, 0);
+            const ortho = getLightMatrix(85, 16.0 / 9.0, 0.1, planes[0], camera.getViewMatrix(), light_dir);
+            c.glBindFramebuffer(c.GL_FRAMEBUFFER, sm.fbo);
+            c.glViewport(0, 0, sm.res, sm.res);
             c.glClear(c.GL_DEPTH_BUFFER_BIT);
 
-            //const light_proj = graph.za.orthographic(-20, 20, -20, 20, 1, 10);
-            //const light_view = graph.za.lookAt(
-            //    //light_dir.scale(-10),
-            //    V3f.new(-2, 4, -1),
-            //    V3f.new(0, 0, 0),
-            //    V3f.new(0, 1, 1),
-            //);
-
             //const view = light_proj.mul(light_view);
-            const view = ortho;
             cubes.shader = shadow_shader;
             couch.shader = shadow_shader;
             const mod = graph.za.Mat4.identity().scale(V3f.new(sc, sc, sc));
-            //cubes.drawSimple(view, view, shadow_shader);
-            cubes.draw(view, mod, camera.pos, depth_map, view);
-            //couch.draw(view, couch_m, camera.pos, depth_map, view);
+            cubes.drawSimple(graph.za.Mat4.identity(), mod, shadow_shader);
+            //cubes.draw(view, mod, camera.pos, depth_map, view);
+            couch.drawSimple(graph.za.Mat4.identity(), couch_m, shadow_shader);
             cubes.shader = light_shader;
             couch.shader = light_shader;
 
@@ -1043,10 +976,46 @@ pub fn main() !void {
             c.glViewport(0, 0, win.screen_dimensions.x, win.screen_dimensions.y);
             c.glClear(c.GL_COLOR_BUFFER_BIT | c.GL_DEPTH_BUFFER_BIT);
 
-            cubes.draw(cmatrix, mod, camera.pos, depth_map, view);
+            {
+                c.glUseProgram(light_shader);
+                const diffuse_loc = c.glGetUniformLocation(light_shader, "diffuse_texture");
+
+                c.glUniform1i(diffuse_loc, 0);
+                c.glActiveTexture(c.GL_TEXTURE0 + 0);
+                c.glBindTexture(c.GL_TEXTURE_2D, cubes.texture.id);
+
+                const shadow_map_loc = c.glGetUniformLocation(light_shader, "shadow_map");
+                c.glUniform1i(shadow_map_loc, 1);
+                c.glActiveTexture(c.GL_TEXTURE1);
+                c.glBindTexture(c.GL_TEXTURE_2D_ARRAY, sm.textures);
+
+                c.glBindBufferBase(c.GL_UNIFORM_BUFFER, 0, light_mat_ubo);
+
+                graph.GL.passUniform(light_shader, "cascadePlaneDistances[0]", @as(f32, planes[0]));
+                graph.GL.passUniform(light_shader, "cascadePlaneDistances[1]", @as(f32, planes[1]));
+                graph.GL.passUniform(light_shader, "cascadePlaneDistances[2]", @as(f32, planes[2]));
+                graph.GL.passUniform(light_shader, "cascadePlaneDistances[3]", @as(f32, 400));
+
+                graph.GL.passUniform(light_shader, "view", cmatrix);
+                graph.GL.passUniform(light_shader, "model", mod);
+                graph.GL.passUniform(light_shader, "view_pos", camera.pos);
+                graph.GL.passUniform(light_shader, "lightspace", ortho);
+                graph.GL.passUniform(light_shader, "light_dir", light_dir);
+
+                c.glBindVertexArray(cubes.vao);
+                c.glDrawElements(c.GL_TRIANGLES, @as(c_int, @intCast(cubes.indicies.items.len)), c.GL_UNSIGNED_INT, null);
+
+                c.glBindVertexArray(couch.vao);
+                c.glUniform1i(diffuse_loc, 0);
+                c.glActiveTexture(c.GL_TEXTURE0 + 0);
+                graph.GL.passUniform(light_shader, "model", couch_m);
+                c.glBindTexture(c.GL_TEXTURE_2D, couch.texture.id);
+                c.glDrawElements(c.GL_TRIANGLES, @as(c_int, @intCast(couch.indicies.items.len)), c.GL_UNSIGNED_INT, null);
+            }
+            //cubes.draw(ortho, mod, camera.pos, depth_map, view);
             //cubes.draw(ortho, graph.za.Mat4.identity().scale(graph.za.Vec3.new(sc, sc, sc)), camera.pos, depth_map, view);
             //couch.draw(ortho, couch_m, camera.pos, depth_map, view);
-            couch.draw(cmatrix, couch_m, camera.pos, depth_map, view);
+            //couch.draw(cmatrix, couch_m, camera.pos, depth_map, view);
         }
 
         cubes_st.draw(cmatrix, graph.za.Mat4.identity().scale(graph.za.Vec3.new(1000, 1000, 1000)), camera.pos, depth_map, null);

@@ -1327,10 +1327,10 @@ pub const Cubes = struct {
     }
 
     pub fn draw(b: *Self, view: za.Mat4, model: za.Mat4, camera_pos: za.Vec3, shadow_map: c_uint, lightspace: ?za.Mat4) void {
+        c.glUseProgram(b.shader);
         const diffuse_loc = c.glGetUniformLocation(b.shader, "diffuse_texture");
         const shadow_map_loc = c.glGetUniformLocation(b.shader, "shadow_map");
 
-        c.glUseProgram(b.shader);
         c.glUniform1i(diffuse_loc, 0);
         c.glActiveTexture(c.GL_TEXTURE0 + 0);
         c.glBindTexture(c.GL_TEXTURE_2D, b.texture.id);
