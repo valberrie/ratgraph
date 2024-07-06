@@ -547,6 +547,73 @@ fn loadOgg(alloc: std.mem.Allocator, filename: [*c]const u8, pos: V3f) !c.ALuint
     c.alSourcei(audio_source, c.AL_BUFFER, @intCast(audio_buf));
     return audio_source;
 }
+const GBuffer = struct {
+    buffer: c_uint = 0,
+    depth: c_uint = 0,
+    pos: c_uint = 0,
+    normal: c_uint = 0,
+    albedo: c_uint = 0,
+
+    scr_w: i32 = 0,
+    scr_h: i32 = 0,
+
+    pub fn updateResolution(self: *@This(), new_w: i32, new_h: i32) void {
+        if (new_w != self.scr_w or new_h != self.scr_h) {
+            c.glDeleteTextures(1, &self.pos);
+            c.glDeleteTextures(1, &self.normal);
+            c.glDeleteTextures(1, &self.albedo);
+            c.glDeleteRenderbuffers(1, &self.depth);
+            c.glDeleteFramebuffers(1, &self.buffer);
+            self.* = create(new_w, new_h);
+        }
+    }
+
+    pub fn create(scrw: i32, scrh: i32) @This() {
+        var ret: GBuffer = .{};
+        ret.scr_w = scrw;
+        ret.scr_h = scrh;
+        c.glGenFramebuffers(1, &ret.buffer);
+        c.glBindFramebuffer(c.GL_FRAMEBUFFER, ret.buffer);
+        const pos_fmt = c.GL_RGBA16F;
+        const norm_fmt = c.GL_RGBA16F;
+
+        c.glGenTextures(1, &ret.pos);
+        c.glBindTexture(c.GL_TEXTURE_2D, ret.pos);
+        c.glTexImage2D(c.GL_TEXTURE_2D, 0, pos_fmt, scrw, scrh, 0, c.GL_RGBA, c.GL_FLOAT, null);
+        c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_MIN_FILTER, c.GL_NEAREST);
+        c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_MAG_FILTER, c.GL_NEAREST);
+        c.glFramebufferTexture2D(c.GL_FRAMEBUFFER, c.GL_COLOR_ATTACHMENT0, c.GL_TEXTURE_2D, ret.pos, 0);
+
+        // - normal color buffer
+        c.glGenTextures(1, &ret.normal);
+        c.glBindTexture(c.GL_TEXTURE_2D, ret.normal);
+        c.glTexImage2D(c.GL_TEXTURE_2D, 0, norm_fmt, scrw, scrh, 0, c.GL_RGBA, c.GL_FLOAT, null);
+        c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_MIN_FILTER, c.GL_NEAREST);
+        c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_MAG_FILTER, c.GL_NEAREST);
+        c.glFramebufferTexture2D(c.GL_FRAMEBUFFER, c.GL_COLOR_ATTACHMENT1, c.GL_TEXTURE_2D, ret.normal, 0);
+
+        // - color + specular color buffer
+        c.glGenTextures(1, &ret.albedo);
+        c.glBindTexture(c.GL_TEXTURE_2D, ret.albedo);
+        c.glTexImage2D(c.GL_TEXTURE_2D, 0, c.GL_RGBA, scrw, scrh, 0, c.GL_RGBA, c.GL_UNSIGNED_BYTE, null);
+        c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_MIN_FILTER, c.GL_NEAREST);
+        c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_MAG_FILTER, c.GL_NEAREST);
+        c.glFramebufferTexture2D(c.GL_FRAMEBUFFER, c.GL_COLOR_ATTACHMENT2, c.GL_TEXTURE_2D, ret.albedo, 0);
+
+        // - tell OpenGL which color attachments we'll use (of this framebuffer) for rendering
+        const attachments = [_]c_int{ c.GL_COLOR_ATTACHMENT0, c.GL_COLOR_ATTACHMENT1, c.GL_COLOR_ATTACHMENT2, 0 };
+        c.glDrawBuffers(3, @ptrCast(&attachments[0]));
+
+        c.glGenRenderbuffers(1, &ret.depth);
+        c.glBindRenderbuffer(c.GL_RENDERBUFFER, ret.depth);
+        c.glRenderbufferStorage(c.GL_RENDERBUFFER, c.GL_DEPTH_COMPONENT, scrw, scrh);
+        c.glFramebufferRenderbuffer(c.GL_FRAMEBUFFER, c.GL_DEPTH_ATTACHMENT, c.GL_RENDERBUFFER, ret.depth);
+        if (c.glCheckFramebufferStatus(c.GL_FRAMEBUFFER) != c.GL_FRAMEBUFFER_COMPLETE)
+            std.debug.print("gbuffer FBO not complete\n", .{});
+        c.glBindFramebuffer(c.GL_FRAMEBUFFER, 0);
+        return ret;
+    }
+};
 
 pub const DemoJson = struct {
     // store any state changes for keys
@@ -668,6 +735,20 @@ pub fn main() !void {
         .{ .path = "src/graphics/shader/shadow_map.geom", .t = .geom },
     });
 
+    const gbuffer_shader = try graph.Shader.loadFromFilesystem(alloc, std.fs.cwd(), &.{
+        .{ .path = "asset/shader/gbuffer.vert", .t = .vert },
+        .{ .path = "asset/shader/gbuffer.frag", .t = .frag },
+    });
+
+    const deferred_light_shader = try graph.Shader.loadFromFilesystem(alloc, std.fs.cwd(), &.{
+        .{ .path = "asset/shader/deferred_light.vert", .t = .vert },
+        .{ .path = "asset/shader/deferred_light.frag", .t = .frag },
+    });
+
+    const LightQuadBatch = graph.NewBatch(packed struct { pos: graph.Vec3f, uv: graph.Vec2f }, .{ .index_buffer = false, .primitive_mode = .triangles });
+    var light_batch = LightQuadBatch.init(alloc);
+    defer light_batch.deinit();
+
     var planes = [_]f32{ 3, 8, 25 };
 
     var sm = create3DDepthMap(2048, CASCADE_COUNT);
@@ -687,6 +768,8 @@ pub fn main() !void {
         const li = c.glGetUniformBlockIndex(light_shader, "LightSpaceMatrices");
         c.glUniformBlockBinding(light_shader, li, 0);
     }
+
+    var gbuffer = GBuffer.create(win.screen_dimensions.x, win.screen_dimensions.y);
 
     graph.c.glEnable(graph.c.GL_CULL_FACE);
     graph.c.glCullFace(graph.c.GL_BACK);
@@ -1094,33 +1177,35 @@ pub fn main() !void {
 
             //render scene from lights perspective
 
-            c.glBindFramebuffer(c.GL_FRAMEBUFFER, 0);
+            gbuffer.updateResolution(win.screen_dimensions.x, win.screen_dimensions.y);
+            c.glBindFramebuffer(c.GL_FRAMEBUFFER, gbuffer.buffer);
             c.glViewport(0, 0, win.screen_dimensions.x, win.screen_dimensions.y);
             c.glClear(c.GL_COLOR_BUFFER_BIT | c.GL_DEPTH_BUFFER_BIT);
 
             {
-                c.glUseProgram(light_shader);
-                const diffuse_loc = c.glGetUniformLocation(light_shader, "diffuse_texture");
+                const sh = gbuffer_shader;
+                c.glUseProgram(sh);
+                const diffuse_loc = c.glGetUniformLocation(sh, "diffuse_texture");
 
                 c.glUniform1i(diffuse_loc, 0);
                 c.glBindTextureUnit(0, cubes.texture.id);
 
-                const shadow_map_loc = c.glGetUniformLocation(light_shader, "shadow_map");
+                const shadow_map_loc = c.glGetUniformLocation(sh, "shadow_map");
                 c.glUniform1i(shadow_map_loc, 1);
                 c.glBindTextureUnit(1, sm.textures);
 
                 c.glBindBufferBase(c.GL_UNIFORM_BUFFER, 0, light_mat_ubo);
 
-                graph.GL.passUniform(light_shader, "cascadePlaneDistances[0]", @as(f32, planes[0]));
-                graph.GL.passUniform(light_shader, "cascadePlaneDistances[1]", @as(f32, planes[1]));
-                graph.GL.passUniform(light_shader, "cascadePlaneDistances[2]", @as(f32, planes[2]));
-                graph.GL.passUniform(light_shader, "cascadePlaneDistances[3]", @as(f32, 400));
+                graph.GL.passUniform(sh, "cascadePlaneDistances[0]", @as(f32, planes[0]));
+                graph.GL.passUniform(sh, "cascadePlaneDistances[1]", @as(f32, planes[1]));
+                graph.GL.passUniform(sh, "cascadePlaneDistances[2]", @as(f32, planes[2]));
+                graph.GL.passUniform(sh, "cascadePlaneDistances[3]", @as(f32, 400));
 
-                graph.GL.passUniform(light_shader, "view", cam_matrix);
-                graph.GL.passUniform(light_shader, "model", mod);
-                graph.GL.passUniform(light_shader, "view_pos", third_cam.pos);
-                graph.GL.passUniform(light_shader, "light_dir", light_dir);
-                graph.GL.passUniform(light_shader, "light_color", sun_color.toCharColor().toFloat());
+                graph.GL.passUniform(sh, "view", cam_matrix);
+                graph.GL.passUniform(sh, "model", mod);
+                graph.GL.passUniform(sh, "view_pos", third_cam.pos);
+                graph.GL.passUniform(sh, "light_dir", light_dir);
+                graph.GL.passUniform(sh, "light_color", sun_color.toCharColor().toFloat());
 
                 c.glBindVertexArray(cubes.vao);
                 c.glDrawElements(c.GL_TRIANGLES, @as(c_int, @intCast(cubes.indicies.items.len)), c.GL_UNSIGNED_INT, null);
@@ -1128,11 +1213,12 @@ pub fn main() !void {
                 c.glBindVertexArray(couch.vao);
                 c.glUniform1i(diffuse_loc, 0);
                 c.glActiveTexture(c.GL_TEXTURE0 + 0);
-                graph.GL.passUniform(light_shader, "model", couch_m);
+                graph.GL.passUniform(sh, "model", couch_m);
                 c.glBindTexture(c.GL_TEXTURE_2D, couch.texture.id);
                 c.glDrawElements(c.GL_TRIANGLES, @as(c_int, @intCast(couch.indicies.items.len)), c.GL_UNSIGNED_INT, null);
             }
         }
+        c.glBindFramebuffer(c.GL_FRAMEBUFFER, 0);
 
         cubes_st.draw(cam_matrix, graph.za.Mat4.identity().scale(graph.za.Vec3.new(1000, 1000, 1000)));
         cubes_grnd.draw(cam_matrix, graph.za.Mat4.identity().scale(graph.za.Vec3.new(1, 1, 1)));
@@ -1205,6 +1291,36 @@ pub fn main() !void {
                     },
                 }
             },
+        }
+        //const rr = graph.Rec(0, 0, win.screen_dimensions.x, win.screen_dimensions.y);
+        //const r2 = graph.Rec(0, 0, win.screen_dimensions.x, -win.screen_dimensions.y);
+        //draw.rectTex(rr, r2, .{ .w = win.screen_dimensions.x, .h = win.screen_dimensions.y, .id = gbuffer.albedo });
+        { //Draw lighting quad
+            try light_batch.clear();
+            try light_batch.vertices.appendSlice(&.{
+                .{ .pos = graph.Vec3f.new(-1, 1, 0), .uv = graph.Vec2f.new(0, 1) },
+                .{ .pos = graph.Vec3f.new(-1, -1, 0), .uv = graph.Vec2f.new(0, 0) },
+                .{ .pos = graph.Vec3f.new(1, 1, 0), .uv = graph.Vec2f.new(1, 1) },
+                .{ .pos = graph.Vec3f.new(1, -1, 0), .uv = graph.Vec2f.new(1, 0) },
+            });
+            light_batch.pushVertexData();
+            c.glUseProgram(deferred_light_shader);
+            c.glBindVertexArray(light_batch.vao);
+            c.glBindTextureUnit(0, gbuffer.pos);
+            c.glBindTextureUnit(1, gbuffer.normal);
+            c.glBindTextureUnit(2, gbuffer.albedo);
+            c.glBindTextureUnit(3, sm.textures);
+            graph.GL.passUniform(deferred_light_shader, "view_pos", third_cam.pos);
+            graph.GL.passUniform(deferred_light_shader, "light_dir", light_dir);
+            graph.GL.passUniform(deferred_light_shader, "light_color", sun_color.toCharColor().toFloat());
+            graph.GL.passUniform(deferred_light_shader, "cascadePlaneDistances[0]", @as(f32, planes[0]));
+            graph.GL.passUniform(deferred_light_shader, "cascadePlaneDistances[1]", @as(f32, planes[1]));
+            graph.GL.passUniform(deferred_light_shader, "cascadePlaneDistances[2]", @as(f32, planes[2]));
+            graph.GL.passUniform(deferred_light_shader, "cascadePlaneDistances[3]", @as(f32, 400));
+
+            graph.GL.passUniform(deferred_light_shader, "view", cam_matrix);
+
+            c.glDrawArrays(c.GL_TRIANGLE_STRIP, 0, @as(c_int, @intCast(light_batch.vertices.items.len)));
         }
         try draw.flush(null, camera);
         graph.c.glClear(graph.c.GL_DEPTH_BUFFER_BIT);
