@@ -1078,6 +1078,13 @@ pub const Context = struct {
         return r.containsPoint(self.input_state.mouse_pos);
     }
 
+    pub fn getLayoutBounds(self: *Self) ?Rect {
+        if (self.layout.isSet()) {
+            return self.layout.bounds;
+        }
+        return null;
+    }
+
     pub fn getArea(self: *Self) ?Rect {
         const w = self.getWindow();
         const new_area = self.layout.getArea();
@@ -2134,8 +2141,9 @@ pub const GuiDrawContext = struct {
     }
 
     pub fn drawGui(self: *Self, draw: *graph.ImmediateDrawingContext, gui: *Context) !void {
+        try draw.flush(null, null);
         graph.c.glEnable(graph.c.GL_DEPTH_TEST);
-        defer graph.c.glDisable(graph.c.GL_DEPTH_TEST);
+        //defer graph.c.glDisable(graph.c.GL_DEPTH_TEST);
         const scr_dim = draw.screen_dimensions;
         const ignore_cache = true;
         for (gui.windows.items[0..gui.this_frame_num_windows], 0..) |w, i| {
@@ -2195,6 +2203,7 @@ pub const GuiDrawContext = struct {
             );
         }
 
+        try draw.flush(null, null);
         if (true)
             return;
         //ctx.screen_bounds = graph.IRect.new(0, 0, @intFromFloat(parea.w), @intFromFloat(parea.h));

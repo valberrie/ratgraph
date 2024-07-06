@@ -1021,7 +1021,7 @@ pub const ImmediateDrawingContext = struct {
     pub fn flush(self: *Self, custom_camera: ?Rect, camera_3d: ?Camera3D) !void {
         const cb = if (custom_camera) |cc| cc else Rec(0, 0, self.screen_dimensions.x, self.screen_dimensions.y);
         const view = za.orthographic(cb.x, cb.x + cb.w, cb.y + cb.h, cb.y, -100000, 1);
-        const view_3d = if (camera_3d) |c3| c3.getMatrix(self.screen_dimensions.x / self.screen_dimensions.y, 85, 0.1, 100000) else view;
+        const view_3d = if (camera_3d) |c3| c3.getMatrix(self.screen_dimensions.x / self.screen_dimensions.y, 0.1, 100000) else view;
         const model = za.Mat4.identity();
 
         const sortctx = MapKeySortCtx{ .items = self.batches.keys() }; // Sort the batches by params.draw_priority
@@ -1112,6 +1112,8 @@ pub fn NewBatch(comptime vertex_type: type, comptime batch_options: BatchOptions
         }
 
         pub fn draw(self: *Self, params: DrawParams, view: za.Mat4, model: za.Mat4) void {
+            if (self.vertices.items.len == 0)
+                return;
             c.glUseProgram(params.shader);
             c.glBindVertexArray(self.vao);
             if (params.texture) |texture| {
@@ -1326,23 +1328,16 @@ pub const Cubes = struct {
         c.glDrawElements(c.GL_TRIANGLES, @as(c_int, @intCast(b.indicies.items.len)), c.GL_UNSIGNED_INT, null);
     }
 
-    pub fn draw(b: *Self, view: za.Mat4, model: za.Mat4, camera_pos: za.Vec3, shadow_map: c_uint, lightspace: ?za.Mat4) void {
+    pub fn draw(b: *Self, view: za.Mat4, model: za.Mat4) void {
         c.glUseProgram(b.shader);
         const diffuse_loc = c.glGetUniformLocation(b.shader, "diffuse_texture");
-        const shadow_map_loc = c.glGetUniformLocation(b.shader, "shadow_map");
 
         c.glUniform1i(diffuse_loc, 0);
         c.glActiveTexture(c.GL_TEXTURE0 + 0);
         c.glBindTexture(c.GL_TEXTURE_2D, b.texture.id);
 
-        c.glUniform1i(shadow_map_loc, 1);
-        c.glActiveTexture(c.GL_TEXTURE1);
-        c.glBindTexture(c.GL_TEXTURE_2D, shadow_map);
-
         GL.passUniform(b.shader, "view", view);
         GL.passUniform(b.shader, "model", model);
-        GL.passUniform(b.shader, "view_pos", camera_pos);
-        GL.passUniform(b.shader, "lightspace", lightspace orelse za.Mat4.identity());
 
         c.glBindVertexArray(b.vao);
         c.glDrawElements(c.GL_TRIANGLES, @as(c_int, @intCast(b.indicies.items.len)), c.GL_UNSIGNED_INT, null);

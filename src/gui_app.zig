@@ -1720,6 +1720,19 @@ pub const AtlasEditor = struct {
 pub const Os9Gui = struct {
     const Self = @This();
 
+    pub fn numberRangeToEnum(comptime numbers: []const i32) !type {
+        var fields: [numbers.len]std.builtin.Type.EnumField = undefined;
+        var buf: [10 * numbers.len]u8 = undefined;
+        var fbs = std.io.FixedBufferStream([]u8){ .buffer = &buf, .pos = 0 };
+        for (numbers, 0..) |num, i| {
+            const start = fbs.pos;
+            try std.fmt.formatIntValue(num, "d", .{}, fbs.writer());
+            try fbs.writer().writeByte(0);
+            fields[i] = .{ .name = @ptrCast(fbs.getWritten()[start..]), .value = num };
+        }
+        return @Type(std.builtin.Type{ .Enum = .{ .tag_type = i32, .fields = &fields, .decls = &.{}, .is_exhaustive = true } });
+    }
+
     const SampleEnum = enum {
         first_one,
         val1,
@@ -1785,11 +1798,16 @@ pub const Os9Gui = struct {
     const os9tabend_active = Rec(72, 24, 11, 21);
     const os9tabmid_active = Rec(66, 24, 6, 21);
 
+    const os9tabactive = Rec(116, 0, 9, 9);
+    const os9tabinactive = Rec(107, 0, 9, 9);
+    const os9tabbord = Rec(89, 9, 2, 2);
+
     const os9tabborder = Rec(42, 24, 9, 9);
     const os9scrollinner = Rec(0, 44, 8, 8);
     const os9scrollhandle = Rec(9, 44, 14, 15);
     const os9scrollw = 16;
     const os9handleoffset = 1;
+    const os9hr = Rec(88, 0, 1, 2);
 
     const win_warning = Rec(0, 60, 32, 32);
 
@@ -1862,12 +1880,12 @@ pub const Os9Gui = struct {
     pub fn beginTlWindow(self: *Self, parea: Rect) !bool {
         try self.gui.beginWindow(parea);
         if (self.gui.getArea()) |win_area| {
-            const border_area = win_area.inset(6 * os9_ctx.scale);
-            const area = border_area.inset(6 * os9_ctx.scale);
-            _ = try self.gui.beginLayout(Gui.SubRectLayout, .{ .rect = area }, .{});
+            const border_area = win_area.inset(6 * self.scale);
+            const area = border_area.inset(6 * self.scale);
             self.gui.drawRectFilled(win_area, itc(0x222222ff));
-            self.gui.draw9Slice(win_area, Os9Gui.os9win, os9_ctx.texture, os9_ctx.scale);
-            self.gui.draw9Slice(border_area, Os9Gui.os9in, os9_ctx.texture, os9_ctx.scale);
+            self.gui.draw9Slice(win_area, Os9Gui.os9win, self.texture, self.scale);
+            self.gui.draw9Slice(border_area, Os9Gui.os9in, self.texture, self.scale);
+            _ = try self.gui.beginLayout(Gui.SubRectLayout, .{ .rect = area }, .{});
             return true;
         }
         self.gui.endWindow();
@@ -1881,6 +1899,11 @@ pub const Os9Gui = struct {
     pub fn beginV(self: *Self) !*Gui.VerticalLayout {
         const VLP = Gui.VerticalLayout{ .item_height = 20 * self.scale, .padding = .{ .bottom = 6 * self.scale } };
         return try self.gui.beginLayout(Gui.VerticalLayout, VLP, .{});
+    }
+
+    pub fn beginH(self: *Self, count: usize) !*Gui.HorizLayout {
+        const HLP = Gui.HorizLayout{ .count = count };
+        return try self.gui.beginLayout(Gui.HorizLayout, HLP, .{});
     }
 
     pub fn endL(self: *Self) void {
@@ -1980,6 +2003,19 @@ pub const Os9Gui = struct {
         }
     }
 
+    pub fn hr(self: *Self) void {
+        if (self.gui.getArea()) |area| {
+            if (area.h >= os9hr.h * self.scale) {
+                self.gui.drawRectTextured(
+                    Rec(area.x, area.y + (area.h - os9hr.h * self.scale) / 2, area.w, os9hr.h * self.scale),
+                    Color.White,
+                    os9hr,
+                    self.texture,
+                );
+            }
+        }
+    }
+
     pub fn tabsBorderCalc(comptime list_type: type, selected: list_type, w: f32) struct { f32, f32 } {
         const info = @typeInfo(list_type);
         const item_w = w / @as(f32, @floatFromInt(info.Enum.fields.len));
@@ -1993,7 +2029,46 @@ pub const Os9Gui = struct {
         unreachable;
     }
 
-    pub fn tabs(self: *Self, comptime list_type: type, selected: *list_type) !list_type {
+    pub fn beginTabs(self: *Self, selected: anytype) !@typeInfo(@TypeOf(selected)).Pointer.child {
+        const ptrinfo = @typeInfo(@TypeOf(selected));
+        const childT = ptrinfo.Pointer.child;
+        const info = @typeInfo(childT);
+        const fields = info.Enum.fields;
+        var v = try self.beginL(Gui.VerticalLayout{ .item_height = 20 * self.scale });
+
+        _ = try self.beginH(fields.len);
+        const bound = self.gui.getLayoutBounds() orelse return selected.*;
+        self.gui.drawRectTextured(bound.replace(
+            null,
+            bound.y + bound.h - self.scale * os9tabbord.h,
+            null,
+            self.scale * os9tabbord.h,
+        ), Color.White, os9tabbord, self.texture);
+
+        inline for (fields) |f| {
+            const d = self.gui.buttonGeneric();
+            if (d.state == .click)
+                selected.* = @enumFromInt(f.value);
+            const _9s = if (f.value == @intFromEnum(selected.*)) os9tabactive else os9tabinactive;
+            self.gui.draw9Slice(d.area, _9s, self.texture, self.scale);
+            const tarea = d.area.inset(self.scale * (_9s.w / 3));
+            self.gui.drawTextFmt("{s}", .{f.name}, tarea, tarea.h, Color.Black, .{ .justify = .center }, &self.font);
+            //self.label("{s}", .{f.name});
+        }
+        self.endL(); // horiz
+        v.pushRemaining();
+        const border_r = self.gui.getArea() orelse Rec(0, 0, 0, 0);
+        _ = try self.beginL(Gui.SubRectLayout{ .rect = border_r.inset(self.scale * 3) });
+
+        return selected.*;
+    }
+
+    pub fn endTabs(self: *Self) void {
+        self.endL();
+        self.endL();
+    }
+
+    pub fn tabs_(self: *Self, comptime list_type: type, selected: *list_type) !list_type {
         const gui = &self.gui;
         const info = @typeInfo(list_type);
         const fields = info.Enum.fields;
@@ -2249,9 +2324,18 @@ pub const Os9Gui = struct {
         }
     }
 
+    pub fn sliderEx(self: *Self, value: anytype, min: anytype, max: anytype, comptime fmt: []const u8, args: anytype) void {
+        _ = self.beginL(Gui.HorizLayout{ .count = 2 }) catch return;
+        self.label(fmt, args);
+        self.slider(value, min, max);
+        self.endL();
+    }
+
     pub fn slider(self: *Self, value: anytype, min: anytype, max: anytype) void {
         const gui = &self.gui;
         if (gui.sliderGeneric(value, min, max, .{
+            .handle_offset_x = 1 * self.scale,
+            .handle_offset_y = 1 * self.scale,
             .handle_w = os9shuttle.w * self.scale,
             .handle_h = os9shuttle.h * self.scale,
         })) |d| {
@@ -2272,10 +2356,48 @@ pub const Os9Gui = struct {
                 os9checkbox,
                 self.texture,
             );
-            gui.drawTextFmt("{s}", .{label_}, area, area.h, Color.Black, .{}, &self.font);
+            const tarea = Rec(br.farX(), area.y, area.w - br.farX(), area.h);
+            gui.drawTextFmt("{s}", .{label_}, tarea, area.h, Color.Black, .{}, &self.font);
             if (checked.*)
                 gui.drawRectTextured(br.addV(2 * self.scale, 0), Color.White, os9check, self.texture);
             return d.changed;
+        }
+        return false;
+    }
+
+    pub fn radio(self: *Self, enum_value: anytype) !void {
+        //TODO Move this whole error section into a function
+        const err_prefix = @typeName(@This()) ++ ".radio: ";
+        const invalid = err_prefix ++ "Argument \'enum_value\' expects a mutable pointer to an enum. Recieved: " ++ @typeName(@TypeOf(enum_value));
+        const e_info = @typeInfo(@TypeOf(enum_value));
+        if (e_info != .Pointer or e_info.Pointer.is_const) @compileError(invalid);
+        const enum_type = e_info.Pointer.child;
+        const enum_info = @typeInfo(enum_type);
+        if (enum_info != .Enum) @compileError(invalid);
+
+        _ = try self.beginH(enum_info.Enum.fields.len);
+        inline for (enum_info.Enum.fields) |f| {
+            const d = self.gui.buttonGeneric();
+            if (d.state == .click)
+                enum_value.* = @enumFromInt(f.value);
+            const tarea = Rec(d.area.x + d.area.h, d.area.y, d.area.w - d.area.h, d.area.h);
+            const rr = d.area.replace(null, null, d.area.h, null);
+            self.gui.drawTextFmt("{s}", .{f.name}, tarea, tarea.h, Color.Black, .{ .justify = .left }, &self.font);
+            self.gui.drawRectFilled(rr, Color.White);
+            if (@intFromEnum(enum_value.*) == f.value)
+                self.gui.drawRectFilled(rr.inset(rr.w / 4), Color.Black);
+        }
+        self.endL();
+    }
+
+    pub fn numberCombo(self: *Self, comptime fmt: []const u8, args: anytype, comptime numbers: []const i32, number: *i32) !bool {
+        const EnumType = try numberRangeToEnum(numbers);
+        var en: EnumType = @enumFromInt(number.*);
+        try self.enumCombo(fmt, args, &en);
+        const ret: i32 = @intFromEnum(en);
+        if (ret != number.*) {
+            number.* = ret;
+            return true;
         }
         return false;
     }

@@ -1,10 +1,10 @@
 
-#version 420 core
+#version 460 core
 layout (location = 0) in vec4 color;
 layout (location = 1) in vec2 texcoord;
 layout (location = 2) in vec3 normal;
 
-in vec3 frag_pos;
+layout (location = 3) in vec3 frag_pos;
 
 layout (location = 0) out vec4 FragColor;
 
@@ -71,7 +71,6 @@ float shadowCalculation(vec3 fp){
 }
 
 void main() {
-    vec3 lightpos = vec3(10,10,10);
     float ambient_strength = 0.3;
     vec3 light_color = vec3(240/255.0, 187/255.0, 117/255.0  );
     vec3 ambient_color = vec3(135 / 255.0, 172 / 255.0, 180 / 255.0 );
@@ -93,6 +92,5 @@ void main() {
     vec3 result = (ambient + (1.0 - shadow) * (diffuse + specular)) * color.rgb * texture(diffuse_texture, texcoord).rgb;
 
 
-    //FragColor = texture(diffuse_texture, texcoord) * color * vec4(ambient,1.0);
     FragColor = vec4(result,1.0);
 };

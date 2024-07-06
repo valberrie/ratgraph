@@ -12,6 +12,7 @@ pub fn linkLibrary(mod: *std.Build.Module) void {
         "/usr/include",
         srcdir ++ "/" ++ cdir ++ "/freetype",
         srcdir ++ "/" ++ cdir ++ "/stb",
+        srcdir ++ "/" ++ cdir,
         srcdir ++ "/" ++ cdir ++ "/libspng/spng",
     };
 
@@ -22,6 +23,7 @@ pub fn linkLibrary(mod: *std.Build.Module) void {
     const c_source_files = [_][]const u8{
         srcdir ++ "/" ++ cdir ++ "/stb_image_write.c",
         srcdir ++ "/" ++ cdir ++ "/stb_image.c",
+        srcdir ++ "/" ++ cdir ++ "/stb/stb_vorbis.c",
         srcdir ++ "/" ++ cdir ++ "/stb_rect_pack.c",
         srcdir ++ "/" ++ cdir ++ "/libspng/spng/spng.c",
     };
@@ -31,6 +33,8 @@ pub fn linkLibrary(mod: *std.Build.Module) void {
     }
     mod.link_libc = true;
     mod.linkSystemLibrary("sdl2", .{});
+    mod.linkSystemLibrary("openal", .{});
+    mod.linkSystemLibrary("sdl2_mixer", .{});
     mod.linkSystemLibrary("epoxy", .{});
     mod.linkSystemLibrary("freetype2", .{});
     mod.linkSystemLibrary("zlib", .{});

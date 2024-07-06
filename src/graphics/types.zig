@@ -167,6 +167,15 @@ pub const Rect = struct {
     pub fn invX(self: Self) Self {
         return Rect.NewAny(self.x + self.w, self.y, -self.w, self.h);
     }
+
+    pub fn replace(self: Self, x: ?f32, y: ?f32, w: ?f32, h: ?f32) Self {
+        return .{
+            .x = x orelse self.x,
+            .y = y orelse self.y,
+            .w = w orelse self.w,
+            .h = h orelse self.h,
+        };
+    }
 };
 
 pub const Vec2i = struct {
@@ -345,6 +354,7 @@ pub const Camera3D = struct {
     yaw: f32 = 0,
     pitch: f32 = 0,
     move_speed: f32 = 0.1,
+    fov: f32 = 85,
 
     pub fn updateDebugMove(self: *Self, state: struct {
         down: bool,
@@ -394,9 +404,9 @@ pub const Camera3D = struct {
         return la;
     }
 
-    pub fn getMatrix(self: Self, aspect_ratio: f32, fov: f32, near: f32, far: f32) za.Mat4 {
+    pub fn getMatrix(self: Self, aspect_ratio: f32, near: f32, far: f32) za.Mat4 {
         const la = self.getViewMatrix();
-        const perp = za.perspective(fov, aspect_ratio, near, far);
+        const perp = za.perspective(self.fov, aspect_ratio, near, far);
         return perp.mul(la);
     }
 };

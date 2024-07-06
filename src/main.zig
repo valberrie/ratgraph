@@ -1,6 +1,7 @@
 const std = @import("std");
 const graph = @import("graphics.zig");
 const gui = @import("gui.zig");
+const Gui = graph.Gui;
 const V2f = graph.Vec2f;
 const V3f = graph.za.Vec3;
 const Mat4 = graph.za.Mat4;
@@ -14,6 +15,7 @@ const sin = std.math.sin;
 const radians = std.math.degreesToRadians;
 
 const gui_app = @import("gui_app.zig");
+const Os9Gui = gui_app.Os9Gui;
 const itm = 0.0254;
 const c = graph.c;
 //TODO
@@ -383,11 +385,6 @@ fn loadObj(alloc: std.mem.Allocator, dir: std.fs.Dir, filename: []const u8, scal
 
 const CASCADE_COUNT = 4;
 
-fn getCascadeLevels(camera_far_plane: f32) [CASCADE_COUNT]f32 {
-    const cf = camera_far_plane;
-    return [4]f32{ cf / 50, cf / 25, cf / 10, cf / 2 };
-}
-
 fn getLightMatrices(fov: f32, aspect: f32, near: f32, far: f32, cam_view: Mat4, light_dir: V3f, planes: [CASCADE_COUNT - 1]f32) [CASCADE_COUNT]Mat4 {
     var ret: [CASCADE_COUNT]Mat4 = undefined;
     //fov, aspect, near, far, cam_view, light_Dir
@@ -514,10 +511,69 @@ fn getLightMatrix(fov: f32, aspect: f32, near: f32, far: f32, cam_view: Mat4, li
     return ortho;
 }
 
+pub fn checkAl() void {
+    const err = c.alGetError();
+    const msg = switch (err) {
+        c.AL_INVALID_NAME => "name",
+        c.AL_INVALID_ENUM => "enum",
+        c.AL_INVALID_VALUE => "val",
+        c.AL_INVALID_OPERATION => "op",
+        c.AL_OUT_OF_MEMORY => "OOM",
+
+        else => return,
+    };
+    std.debug.print("OPEN AL ERR: {s}\n", .{msg});
+}
+
+fn loadOgg(alloc: std.mem.Allocator, filename: [*c]const u8, pos: V3f) !c.ALuint {
+    var audio_source: c.ALuint = 0;
+    c.alGenSources(1, &audio_source);
+    c.alSourcef(audio_source, c.AL_PITCH, 1);
+    c.alSourcef(audio_source, c.AL_GAIN, 1);
+    c.alSource3f(audio_source, c.AL_POSITION, pos.x(), pos.y(), pos.z());
+    c.alSource3f(audio_source, c.AL_VELOCITY, 0, 0, 0);
+    c.alSourcei(audio_source, c.AL_LOOPING, c.AL_FALSE);
+    c.alSourcei(audio_source, c.AL_SOURCE_RELATIVE, c.AL_TRUE);
+    var audio_buf: c.ALuint = 0;
+    c.alGenBuffers(1, &audio_buf);
+
+    var channels: c_int = 0;
+    var sample_rate: c_int = 0;
+    const output = try alloc.create(?*c_short);
+    const ogg = c.stb_vorbis_decode_filename(filename, &channels, &sample_rate, output);
+    std.debug.print("ogg len {d} {d}\n", .{ ogg, sample_rate });
+
+    c.alBufferData(audio_buf, c.AL_FORMAT_MONO16, output.*, @intCast(ogg - @mod(ogg, 4)), sample_rate);
+    c.alSourcei(audio_source, c.AL_BUFFER, @intCast(audio_buf));
+    return audio_source;
+}
+
+pub const DemoJson = struct {
+    // store any state changes for keys
+    pub const StateChange = struct {
+        new: graph.SDL.ButtonState,
+        scancode: usize,
+    };
+
+    pub const Frame = struct {
+        state_changes: []const StateChange,
+        mouse_button_state: []const StateChange,
+        m_pos: graph.Vec2f,
+        m_delta: graph.Vec2f,
+        wheel_delta: graph.Vec2f,
+    };
+
+    frames: []const Frame,
+};
+
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.detectLeaks();
     const alloc = gpa.allocator();
+
+    var lifetime_arena = std.heap.ArenaAllocator.init(alloc);
+    defer lifetime_arena.deinit();
+    const lifetime_alloc = lifetime_arena.allocator();
 
     var arena_alloc = std.heap.ArenaAllocator.init(alloc);
     defer arena_alloc.deinit();
@@ -537,6 +593,47 @@ pub fn main() !void {
     var win = try graph.SDL.Window.createWindow("zig-game-engine", .{});
     defer win.destroyWindow();
 
+    const device = c.alcOpenDevice(null);
+    if (device == null) {
+        std.debug.print("shoot\n", .{});
+    }
+
+    const al_ctx = c.alcCreateContext(device, null);
+    if (c.alcMakeContextCurrent(al_ctx) == 0) {
+        std.debug.print("no current\n", .{});
+    }
+    c.alListener3f(c.AL_POSITION, 0, 0, 0);
+    c.alListener3f(c.AL_VELOCITY, 0, 0, 0);
+    c.alListenerfv(c.AL_ORIENTATION, &[_]f32{ 0, 0, 1, 0, 1, 0 });
+
+    c.alDistanceModel(c.AL_INVERSE_DISTANCE);
+    c.alDopplerFactor(0);
+    checkAl();
+
+    var audio_source: c.ALuint = 0;
+    c.alGenSources(1, &audio_source);
+    c.alSourcef(audio_source, c.AL_PITCH, 1);
+    c.alSourcef(audio_source, c.AL_GAIN, 3);
+    c.alSource3f(audio_source, c.AL_POSITION, 5, 1, -32);
+    c.alSource3f(audio_source, c.AL_VELOCITY, 0, 0, 0);
+    c.alSourcei(audio_source, c.AL_LOOPING, c.AL_TRUE);
+
+    var audio_buf: c.ALuint = 0;
+    c.alGenBuffers(1, &audio_buf);
+    var channels: c_int = 0;
+    var sample_rate: c_int = 0;
+    var output: ?*c_short = null;
+    const ogg = c.stb_vorbis_decode_filename("mono.ogg", &channels, &sample_rate, &output);
+
+    c.alBufferData(audio_buf, c.AL_FORMAT_MONO16, output, @intCast(ogg), sample_rate);
+    c.alSourcei(audio_source, c.AL_BUFFER, @intCast(audio_buf));
+
+    var footstep_timer = try std.time.Timer.start();
+    //checkAl();
+    const ls = try loadOgg(lifetime_alloc, "stop.ogg", V3f.zero());
+    checkAl();
+    //c.alSourcePlay(audio_source);
+
     const init_size = 72;
     var font = try graph.Font.init(alloc, std.fs.cwd(), "fonts/roboto.ttf", init_size, win.getDpi(), .{});
     defer font.deinit();
@@ -544,8 +641,18 @@ pub fn main() !void {
     var draw = graph.ImmediateDrawingContext.init(alloc, win.getDpi());
     defer draw.deinit();
 
+    var os9gui = try Os9Gui.init(alloc, std.fs.cwd(), 2);
+    defer os9gui.deinit();
+    var show_gui = false;
+    var tab: enum { main, graphics, info } = .main;
+    var draw_wireframe = false;
+    var draw_thirdperson = false;
+    var shadow_map_select: enum { camera, sun, depth } = .camera;
+    var sun_perspective_index: usize = 0;
+
     var camera = graph.Camera3D{};
-    camera.pos = V3f.new(1, 3, 1);
+    const camera_spawn = V3f.new(1, 3, 1);
+    camera.pos = camera_spawn;
     const tex = try graph.Texture.initFromImgFile(alloc, std.fs.cwd(), args.texture orelse "two4.png", .{});
     const ggrid = try graph.Texture.initFromImgFile(alloc, std.fs.cwd(), args.texture orelse "graygrid.png", .{});
     const sky_tex = try graph.Texture.initFromImgFile(alloc, std.fs.cwd(), args.texture orelse "sky06.png", .{
@@ -561,11 +668,13 @@ pub fn main() !void {
         .{ .path = "src/graphics/shader/shadow_map.geom", .t = .geom },
     });
 
-    const planes = [_]f32{ 3, 8, 25 };
+    var planes = [_]f32{ 3, 8, 25 };
 
-    const sm = create3DDepthMap(2048, CASCADE_COUNT);
+    var sm = create3DDepthMap(2048, CASCADE_COUNT);
     //const light_dir = V3f.new(cos(radians(70)), sin(radians(70)), sin(radians(148))).norm();
-    const light_dir = V3f.new(-20, 50, -20).norm();
+    var sun_yaw: f32 = 225;
+    var sun_pitch: f32 = 61;
+    var light_dir = V3f.new(-20, 50, -20).norm();
 
     var light_mat_ubo: c_uint = 0;
     {
@@ -577,27 +686,6 @@ pub fn main() !void {
 
         const li = c.glGetUniformBlockIndex(light_shader, "LightSpaceMatrices");
         c.glUniformBlockBinding(light_shader, li, 0);
-    }
-
-    var depth_fbo: c_uint = 0;
-    var depth_map: c_uint = 0;
-    const s_w = 4096;
-    const s_h = 4096;
-    {
-        c.glGenFramebuffers(1, &depth_fbo);
-        c.glGenTextures(1, &depth_map);
-        c.glBindTexture(c.GL_TEXTURE_2D, depth_map);
-        c.glTexImage2D(c.GL_TEXTURE_2D, 0, c.GL_DEPTH_COMPONENT, s_w, s_h, 0, c.GL_DEPTH_COMPONENT, c.GL_FLOAT, null);
-        c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_MIN_FILTER, c.GL_NEAREST);
-        c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_MAG_FILTER, c.GL_NEAREST);
-        c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_WRAP_S, c.GL_REPEAT);
-        c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_WRAP_T, c.GL_REPEAT);
-
-        c.glBindFramebuffer(c.GL_FRAMEBUFFER, depth_fbo);
-        c.glFramebufferTexture2D(c.GL_FRAMEBUFFER, c.GL_DEPTH_ATTACHMENT, c.GL_TEXTURE_2D, depth_map, 0);
-        c.glDrawBuffer(c.GL_NONE);
-        c.glReadBuffer(c.GL_NONE);
-        c.glBindFramebuffer(c.GL_FRAMEBUFFER, 0);
     }
 
     graph.c.glEnable(graph.c.GL_CULL_FACE);
@@ -692,6 +780,19 @@ pub fn main() !void {
         }
         win.pumpEvents();
 
+        const is: Gui.InputState = .{
+            .mouse_pos = win.mouse.pos,
+            .mouse_delta = win.mouse.delta,
+            .mouse_left_held = win.mouse.left == .high,
+            .mouse_left_clicked = win.mouse.left == .rising,
+            .mouse_wheel_delta = win.mouse.wheel_delta.y,
+            .mouse_wheel_down = win.mouse.middle == .high,
+            .key_state = &win.key_state,
+            .keys = win.keys.slice(),
+            .mod_state = win.mod,
+        };
+        try os9gui.beginFrame(is, &win);
+
         if (win.keydown(.H))
             camera.pos = V3f.new(1, 3, 1);
 
@@ -726,6 +827,13 @@ pub fn main() !void {
                 p_velocity.xMut().* = xz_vel.x();
                 p_velocity.zMut().* = xz_vel.z();
 
+                if (xz_vel.length() > 0 and grounded) {
+                    if (footstep_timer.read() > std.time.ns_per_ms * 600) {
+                        footstep_timer.reset();
+                        //c.alSourcePlay(wood1);
+                    }
+                }
+
                 if (grounded and win.keydown(.SPACE))
                     p_velocity.yMut().* = 5;
 
@@ -734,18 +842,24 @@ pub fn main() !void {
 
                 camera.pos = camera.pos.add(p_velocity.scale(dt));
 
-                camera.updateDebugMove(.{
-                    .down = false,
-                    .up = false,
-                    .left = false,
-                    .right = false,
-                    .fwd = false,
-                    .bwd = false,
-                    .mouse_delta = win.mouse.delta,
-                    .scroll_delta = win.mouse.wheel_delta.y,
-                });
+                if (!show_gui)
+                    camera.updateDebugMove(.{
+                        .down = false,
+                        .up = false,
+                        .left = false,
+                        .right = false,
+                        .fwd = false,
+                        .bwd = false,
+                        .mouse_delta = win.mouse.delta,
+                        .scroll_delta = win.mouse.wheel_delta.y,
+                    });
             },
             .manipulate => {},
+        }
+
+        if (win.keyPressed(.TAB)) {
+            show_gui = !show_gui;
+            win.grabMouse(!show_gui);
         }
 
         if (win.keyPressed(._1))
@@ -816,16 +930,18 @@ pub fn main() !void {
             //
         }
         var third_cam = camera;
-        //third_cam.pos = third_cam.pos.sub(third_cam.front.scale(3));
+        if (draw_thirdperson)
+            third_cam.pos = third_cam.pos.sub(third_cam.front.scale(3));
         const screen_aspect = draw.screen_dimensions.x / draw.screen_dimensions.y;
-        const fov = 85;
         const cam_near = 0.1;
         const cam_far = 1000;
-        const cmatrix = third_cam.getMatrix(screen_aspect, fov, cam_near, cam_far);
+        const cmatrix = third_cam.getMatrix(screen_aspect, cam_near, cam_far);
 
+        c.alListener3f(c.AL_POSITION, camera.pos.x(), camera.pos.y(), camera.pos.z());
+        c.alListenerfv(c.AL_ORIENTATION, &[_]f32{ camera.front.x(), camera.front.y(), camera.front.z(), 0, 1, 0 });
         //CSM
 
-        const mats = getLightMatrices(fov, screen_aspect, cam_near, cam_far, camera.getViewMatrix(), light_dir, planes);
+        const mats = getLightMatrices(camera.fov, screen_aspect, cam_near, cam_far, third_cam.getViewMatrix(), light_dir, planes);
         c.glBindBuffer(c.GL_UNIFORM_BUFFER, light_mat_ubo);
         for (mats, 0..) |mat, i| {
             const ms = @sizeOf([4][4]f32);
@@ -956,10 +1072,13 @@ pub fn main() !void {
             try cubes.cube(cam_bb.pos.x(), cam_bb.pos.y(), cam_bb.pos.z(), cam_bb.ext.x(), cam_bb.ext.y(), cam_bb.ext.z(), Rec(0, 0, 1, 1), null);
         }
 
+        const cam_matrix = switch (shadow_map_select) {
+            .camera => cmatrix,
+            else => mats[sun_perspective_index],
+        };
         cubes.setData();
         { //shadow map
 
-            const ortho = getLightMatrix(85, 16.0 / 9.0, 0.1, planes[0], camera.getViewMatrix(), light_dir);
             c.glBindFramebuffer(c.GL_FRAMEBUFFER, sm.fbo);
             c.glViewport(0, 0, sm.res, sm.res);
             c.glClear(c.GL_DEPTH_BUFFER_BIT);
@@ -969,7 +1088,6 @@ pub fn main() !void {
             couch.shader = shadow_shader;
             const mod = graph.za.Mat4.identity().scale(V3f.new(sc, sc, sc));
             cubes.drawSimple(graph.za.Mat4.identity(), mod, shadow_shader);
-            //cubes.draw(view, mod, camera.pos, depth_map, view);
             couch.drawSimple(graph.za.Mat4.identity(), couch_m, shadow_shader);
             cubes.shader = light_shader;
             couch.shader = light_shader;
@@ -998,10 +1116,9 @@ pub fn main() !void {
                 graph.GL.passUniform(light_shader, "cascadePlaneDistances[2]", @as(f32, planes[2]));
                 graph.GL.passUniform(light_shader, "cascadePlaneDistances[3]", @as(f32, 400));
 
-                graph.GL.passUniform(light_shader, "view", cmatrix);
+                graph.GL.passUniform(light_shader, "view", cam_matrix);
                 graph.GL.passUniform(light_shader, "model", mod);
-                graph.GL.passUniform(light_shader, "view_pos", camera.pos);
-                graph.GL.passUniform(light_shader, "lightspace", ortho);
+                graph.GL.passUniform(light_shader, "view_pos", third_cam.pos);
                 graph.GL.passUniform(light_shader, "light_dir", light_dir);
 
                 c.glBindVertexArray(cubes.vao);
@@ -1014,14 +1131,10 @@ pub fn main() !void {
                 c.glBindTexture(c.GL_TEXTURE_2D, couch.texture.id);
                 c.glDrawElements(c.GL_TRIANGLES, @as(c_int, @intCast(couch.indicies.items.len)), c.GL_UNSIGNED_INT, null);
             }
-            //cubes.draw(ortho, mod, camera.pos, depth_map, view);
-            //cubes.draw(ortho, graph.za.Mat4.identity().scale(graph.za.Vec3.new(sc, sc, sc)), camera.pos, depth_map, view);
-            //couch.draw(ortho, couch_m, camera.pos, depth_map, view);
-            //couch.draw(cmatrix, couch_m, camera.pos, depth_map, view);
         }
 
-        cubes_st.draw(cmatrix, graph.za.Mat4.identity().scale(graph.za.Vec3.new(1000, 1000, 1000)), camera.pos, depth_map, null);
-        cubes_grnd.draw(cmatrix, graph.za.Mat4.identity().scale(graph.za.Vec3.new(1, 1, 1)), camera.pos, depth_map, null);
+        cubes_st.draw(cam_matrix, graph.za.Mat4.identity().scale(graph.za.Vec3.new(1000, 1000, 1000)));
+        cubes_grnd.draw(cam_matrix, graph.za.Mat4.identity().scale(graph.za.Vec3.new(1, 1, 1)));
         switch (tool) {
             .none => {},
             .pencil => {
@@ -1110,6 +1223,86 @@ pub fn main() !void {
             grounded,
             @tagName(tool),
         }, &font, 12, 0xffffffff);
+
+        if (show_gui) {
+            if (draw_wireframe)
+                graph.c.glPolygonMode(graph.c.GL_FRONT_AND_BACK, graph.c.GL_FILL);
+            const win_rect = graph.Rec(0, 0, win.screen_dimensions.x, win.screen_dimensions.y).inset(@floatFromInt(@divTrunc(win.screen_dimensions.y, 3)));
+            if (try os9gui.beginTlWindow(win_rect)) {
+                defer os9gui.endTlWindow();
+                {
+                    switch (try os9gui.beginTabs(&tab)) {
+                        .main => {
+                            _ = try os9gui.beginV();
+                            defer os9gui.endL();
+                            if (os9gui.button("quit game"))
+                                win.should_exit = true;
+                            if (os9gui.button("go home"))
+                                camera.pos = camera_spawn;
+                            if (os9gui.button("music"))
+                                c.alSourcePlay(audio_source);
+
+                            os9gui.sliderEx(&camera.fov, 30, 120, "fov {d:.0}", .{camera.fov});
+                            if (os9gui.checkbox("wireframe", &draw_wireframe)) {
+                                graph.c.glPolygonMode(graph.c.GL_FRONT_AND_BACK, if (draw_wireframe) graph.c.GL_LINE else graph.c.GL_FILL);
+                                c.alSourcePlay(ls);
+                            }
+                            if (os9gui.checkbox("thirdperson", &draw_thirdperson))
+                                c.alSourcePlay(ls);
+                            os9gui.hr();
+
+                            try os9gui.enumCombo("current tool", .{}, &tool);
+                            {
+                                _ = try os9gui.beginH(2);
+                                defer os9gui.endL();
+                                os9gui.sliderEx(&sun_yaw, 0, 360, "sun yaw :{d:.0}", .{sun_yaw});
+                                os9gui.sliderEx(&sun_pitch, 0, 180, "sun pitch :{d:.0}", .{sun_pitch});
+                                const cc = cos(radians(sun_pitch));
+                                light_dir = V3f.new(cos(radians(sun_yaw)) * cc, sin(radians(sun_pitch)), sin(radians(sun_yaw)) * cc).norm();
+                            }
+                        },
+                        .graphics => {
+                            _ = try os9gui.beginV();
+                            defer os9gui.endL();
+                            {
+                                _ = try os9gui.beginH(2);
+                                //_ = try os9gui.beginL(Gui.HorizLayout{ .count = 2 });
+                                defer os9gui.endL();
+                                try os9gui.radio(&shadow_map_select);
+                                os9gui.sliderEx(&sun_perspective_index, 0, CASCADE_COUNT - 1, "cascade level: {d}", .{sun_perspective_index});
+                            }
+                            os9gui.hr();
+                            if (try os9gui.numberCombo("shadow resolution: {d}", .{sm.res}, &.{ 256, 512, 1024, 2048, 4096 }, &sm.res)) {
+                                c.glDeleteFramebuffers(1, &sm.fbo);
+                                c.glDeleteTextures(1, &sm.textures);
+                                sm = create3DDepthMap(sm.res, CASCADE_COUNT);
+                            }
+                            {
+                                _ = try os9gui.beginL(Gui.HorizLayout{ .count = 2 });
+                                defer os9gui.endL();
+                                os9gui.label("Shadow camera planes: ", .{});
+                                _ = try os9gui.beginL(Gui.HorizLayout{ .count = planes.len });
+                                defer os9gui.endL();
+                                for (&planes) |*plane| {
+                                    try os9gui.textboxNumber(plane);
+                                }
+                            }
+                        },
+                        .info => {
+                            if (os9gui.gui.getArea()) |area| {
+                                os9gui.gui.drawTextFmt("This is the game", .{}, area, 20 * os9gui.scale, graph.CharColor.Black, .{ .justify = .left }, &os9gui.font);
+                            }
+                        },
+                    }
+                    os9gui.endTabs();
+                }
+            }
+
+            try os9gui.endFrame(&draw);
+            if (draw_wireframe)
+                graph.c.glPolygonMode(graph.c.GL_FRONT_AND_BACK, graph.c.GL_LINE);
+        }
+        //graph.c.glDisable(graph.c.GL_STENCIL_TEST);
         try draw.end(camera);
         win.swap();
     }

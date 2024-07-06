@@ -115,7 +115,7 @@ pub const Window = struct {
         _ = self;
         _ = c.SDL_SetRelativeMouseMode(if (should) c.SDL_TRUE else c.SDL_FALSE);
         //c.SDL_SetWindowMouseGrab(self.win, if (should) 1 else 0);
-        //_ = c.SDL_ShowCursor(if (!should) 1 else 0);
+        _ = c.SDL_ShowCursor(if (!should) 1 else 0);
     }
 
     //pub fn screenshotGL(self: *const Self,alloc: Alloc,  )void{
