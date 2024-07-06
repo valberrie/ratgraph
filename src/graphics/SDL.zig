@@ -5,6 +5,7 @@ const Vec2i = ptypes.Vec2i;
 const c = @import("c.zig");
 pub const glID = c.GLuint;
 pub const keycodes = @import("keycodes.zig");
+const GL = @import("gl.zig");
 
 fn reduceU32Mask(items: []const u32) u32 {
     var result: u32 = 0;
@@ -209,6 +210,9 @@ pub const Window = struct {
         c.glEnable(c.GL_DEPTH_TEST);
         //c.glEnable(c.GL_STENCIL_TEST);
         c.glEnable(c.GL_DEBUG_OUTPUT);
+        c.glEnable(c.GL_DEBUG_OUTPUT_SYNCHRONOUS);
+        c.glDebugMessageControl(c.GL_DONT_CARE, c.GL_DONT_CARE, c.GL_DEBUG_SEVERITY_NOTIFICATION, 0, null, c.GL_FALSE);
+        c.glDebugMessageCallback(GL.messageCallback, null);
 
         var ret = Self{
             .win = win,

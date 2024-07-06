@@ -47,6 +47,58 @@ pub fn checkError() void {
     }
 }
 
+pub const DebugSource = enum(u32) {
+    api = c.GL_DEBUG_SOURCE_API,
+    window_system = c.GL_DEBUG_SOURCE_WINDOW_SYSTEM,
+    shader_compiler = c.GL_DEBUG_SOURCE_SHADER_COMPILER,
+    third_party = c.GL_DEBUG_SOURCE_THIRD_PARTY,
+    application = c.GL_DEBUG_SOURCE_APPLICATION,
+    other = c.GL_DEBUG_SOURCE_OTHER,
+    dont_care = c.GL_DONT_CARE,
+};
+
+pub const DebugType = enum(u32) {
+    Error = c.GL_DEBUG_TYPE_ERROR,
+    deprecated_behavior = c.GL_DEBUG_TYPE_DEPRECATED_BEHAVIOR,
+    undefined_behavior = c.GL_DEBUG_TYPE_UNDEFINED_BEHAVIOR,
+    portablity = c.GL_DEBUG_TYPE_PORTABILITY,
+    performance = c.GL_DEBUG_TYPE_PERFORMANCE,
+    marker = c.GL_DEBUG_TYPE_MARKER,
+    push_group = c.GL_DEBUG_TYPE_PUSH_GROUP,
+    pop_group = c.GL_DEBUG_TYPE_POP_GROUP,
+    other = c.GL_DEBUG_TYPE_OTHER,
+    dont_care = c.GL_DONT_CARE,
+};
+
+pub const DebugSeverity = enum(u32) {
+    low = c.GL_DEBUG_SEVERITY_LOW,
+    medium = c.GL_DEBUG_SEVERITY_MEDIUM,
+    high = c.GL_DEBUG_SEVERITY_HIGH,
+    notification = c.GL_DEBUG_SEVERITY_NOTIFICATION,
+    dont_care = c.GL_DONT_CARE,
+};
+
+//'*const fn (c_uint, c_uint, c_uint, c_uint, c_int, [*c]const u8, ?*const anyopaque) callconv(.C) void', found '*const fn (c_uint, c_uint, c_uint, c_uint, c_int, *u8, *anyopaque) callconv(.C) void'
+
+pub export fn messageCallback(src: c.GLenum, Type: c.GLenum, id: c.GLuint, severity: c.GLenum, length: c.GLsizei, msg: [*c]const u8, user_params: ?*const anyopaque) void {
+    _ = user_params;
+    const fmt = "{s}, {s}, {s}, {d}: {s}";
+    const args = .{
+        @tagName(@as(DebugSource, @enumFromInt(src))),
+        @tagName(@as(DebugSeverity, @enumFromInt(severity))),
+        @tagName(@as(DebugType, @enumFromInt(Type))),
+        id,
+        msg[0..@intCast(length)],
+    };
+    switch (@as(DebugSeverity, @enumFromInt(severity))) {
+        .low => log.info(fmt, args),
+        .medium => log.warn(fmt, args),
+        .high => log.warn(fmt, args),
+        .notification => log.debug(fmt, args),
+        .dont_care => log.debug(fmt, args),
+    }
+}
+
 pub fn passUniform(shader: c_uint, uniform_name: [*c]const u8, data: anytype) void {
     const uniform_location = c.glGetUniformLocation(shader, uniform_name);
     switch (@TypeOf(data)) {
@@ -333,7 +385,7 @@ pub fn vertexTextured(x: f32, y: f32, z: f32, u: f32, v: f32, col: Color) Vertex
 }
 
 pub const Shader = struct {
-    const Type = enum(@TypeOf(c.GL_COMPUTE_SHADER)) {
+    pub const Type = enum(@TypeOf(c.GL_COMPUTE_SHADER)) {
         comp = c.GL_COMPUTE_SHADER,
         vert = c.GL_VERTEX_SHADER,
         tesc = c.GL_TESS_CONTROL_SHADER,
@@ -341,6 +393,12 @@ pub const Shader = struct {
         geom = c.GL_GEOMETRY_SHADER,
         frag = c.GL_FRAGMENT_SHADER,
     };
+
+    pub const Stage = struct {
+        src: [*c]const u8,
+        t: Type,
+    };
+
     fn checkShaderErr(shader: glID, comporlink: c_uint) void {
         var success: c_int = undefined;
         var infoLog: [512]u8 = undefined;
@@ -360,6 +418,28 @@ pub const Shader = struct {
         return vert;
     }
 
+    pub fn loadFromFilesystem(alloc: std.mem.Allocator, dir: std.fs.Dir, stages: []const struct { path: []const u8, t: Type }) !glID {
+        var array_lists = try alloc.alloc(std.ArrayList(u8), stages.len);
+        var sources = try alloc.alloc(Stage, stages.len);
+        defer alloc.free(sources);
+        defer {
+            for (array_lists) |ar| {
+                ar.deinit();
+            }
+            alloc.free(array_lists);
+        }
+        for (stages, 0..) |stage, i| {
+            var file = try dir.openFile(stage.path, .{});
+            defer file.close();
+            array_lists[i] = std.ArrayList(u8).init(alloc);
+            try file.reader().readAllArrayList(&array_lists[i], std.math.maxInt(usize));
+            try array_lists[i].append(0);
+            sources[i] = .{ .src = &array_lists[i].items[0], .t = stage.t };
+        }
+
+        return advancedShader(sources);
+    }
+
     pub fn simpleShader(vert_src: [*c]const u8, frag_src: [*c]const u8) glID {
         const vert = compShader(vert_src, c.GL_VERTEX_SHADER);
         defer c.glDeleteShader(vert);
@@ -376,7 +456,7 @@ pub const Shader = struct {
         return shader;
     }
 
-    pub fn advancedShader(stages: []const struct { src: [*c]const u8, t: Type }) glID {
+    pub fn advancedShader(stages: []const Stage) glID {
         const shader = c.glCreateProgram();
         var stage_del: [@typeInfo(Type).Enum.fields.len]c_uint = undefined;
         var i: usize = 0;

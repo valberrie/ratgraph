@@ -1115,7 +1115,7 @@ pub fn NewBatch(comptime vertex_type: type, comptime batch_options: BatchOptions
             c.glUseProgram(params.shader);
             c.glBindVertexArray(self.vao);
             if (params.texture) |texture| {
-                c.glBindTexture(c.GL_TEXTURE_2D, texture);
+                c.glBindTextureUnit(0, texture);
             }
             GL.passUniform(params.shader, "view", view);
             GL.passUniform(params.shader, "model", model);

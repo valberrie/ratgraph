@@ -314,7 +314,7 @@ fn loadObj(alloc: std.mem.Allocator, dir: std.fs.Dir, filename: []const u8, scal
             const x = try std.fmt.parseFloat(f32, tok.next().?);
             const y = try std.fmt.parseFloat(f32, tok.next().?);
             const z = try std.fmt.parseFloat(f32, tok.next().?);
-            try norms.append(.{ .x = -x, .y = -y, .z = -z });
+            try norms.append(.{ .x = x, .y = y, .z = z });
         } else if (eql(u8, com, "f")) {
             var count: usize = 0;
             const vi: u32 = @intCast(cubes.vertices.items.len);
@@ -347,9 +347,9 @@ fn loadObj(alloc: std.mem.Allocator, dir: std.fs.Dir, filename: []const u8, scal
                     .z = scale * ver.z,
                     .u = uv.x,
                     .v = 1 - uv.y,
-                    .nx = -norm.x,
-                    .ny = -norm.y,
-                    .nz = -norm.z,
+                    .nx = norm.x,
+                    .ny = norm.y,
+                    .nz = norm.z,
                     .color = 0xffffffff,
                 });
                 //try cubes.indicies.append(@intCast(cubes.vertices.items.len - 1));
@@ -375,9 +375,7 @@ fn loadObj(alloc: std.mem.Allocator, dir: std.fs.Dir, filename: []const u8, scal
                     std.debug.print("weird {d}\n", .{count});
                 },
             }
-        } else if (eql(u8, com, "s")) {} else {
-            std.debug.print("{s}\n", .{line});
-        }
+        } else if (eql(u8, com, "s")) {} else {}
     }
     cubes.setData();
     return cubes;
@@ -503,9 +501,13 @@ fn getLightMatrix(fov: f32, aspect: f32, near: f32, far: f32, cam_view: Mat4, li
         max_z = @max(max_z, trf.z());
     }
 
-    const tw = 20;
-    min_z = if (min_z < 0) min_z * tw else min_z / tw;
-    max_z = if (max_z < 0) max_z / tw else max_z * tw;
+    min_z -= 15;
+    max_z += 15;
+    //min_z -= far / 2;
+
+    //const tw = 20;
+    //min_z = if (min_z < 0) min_z * tw else min_z / tw;
+    //max_z = if (max_z < 0) max_z / tw else max_z * tw;
 
     //const ortho = graph.za.orthographic(-20, 20, -20, 20, 0.1, 300).mul(lview);
     const ortho = graph.za.orthographic(min_x, max_x, min_y, max_y, min_z, max_z).mul(lview);
@@ -549,14 +551,17 @@ pub fn main() !void {
     const sky_tex = try graph.Texture.initFromImgFile(alloc, std.fs.cwd(), args.texture orelse "sky06.png", .{
         .mag_filter = graph.c.GL_NEAREST,
     });
-    const light_shader = graph.Shader.simpleShader(@embedFile("graphics/shader/light.vert"), @embedFile("graphics/shader/light.frag"));
-    const shadow_shader = graph.Shader.advancedShader(&.{
-        .{ .src = @embedFile("graphics/shader/shadow_map.vert"), .t = .vert },
-        .{ .src = @embedFile("graphics/shader/shadow_map.frag"), .t = .frag },
-        .{ .src = @embedFile("graphics/shader/shadow_map.geom"), .t = .geom },
+    const light_shader = try graph.Shader.loadFromFilesystem(alloc, std.fs.cwd(), &.{
+        .{ .path = "src/graphics/shader/light.vert", .t = .vert },
+        .{ .path = "src/graphics/shader/light.frag", .t = .frag },
+    });
+    const shadow_shader = try graph.Shader.loadFromFilesystem(alloc, std.fs.cwd(), &.{
+        .{ .path = "src/graphics/shader/shadow_map.vert", .t = .vert },
+        .{ .path = "src/graphics/shader/shadow_map.frag", .t = .frag },
+        .{ .path = "src/graphics/shader/shadow_map.geom", .t = .geom },
     });
 
-    const planes = [_]f32{ 5, 25, 50 };
+    const planes = [_]f32{ 3, 8, 25 };
 
     const sm = create3DDepthMap(2048, CASCADE_COUNT);
     //const light_dir = V3f.new(cos(radians(70)), sin(radians(70)), sin(radians(148))).norm();
@@ -816,7 +821,7 @@ pub fn main() !void {
         const screen_aspect = draw.screen_dimensions.x / draw.screen_dimensions.y;
         const fov = 85;
         const cam_near = 0.1;
-        const cam_far = 400;
+        const cam_far = 1000;
         const cmatrix = third_cam.getMatrix(screen_aspect, fov, cam_near, cam_far);
 
         //CSM
@@ -981,13 +986,11 @@ pub fn main() !void {
                 const diffuse_loc = c.glGetUniformLocation(light_shader, "diffuse_texture");
 
                 c.glUniform1i(diffuse_loc, 0);
-                c.glActiveTexture(c.GL_TEXTURE0 + 0);
-                c.glBindTexture(c.GL_TEXTURE_2D, cubes.texture.id);
+                c.glBindTextureUnit(0, cubes.texture.id);
 
                 const shadow_map_loc = c.glGetUniformLocation(light_shader, "shadow_map");
                 c.glUniform1i(shadow_map_loc, 1);
-                c.glActiveTexture(c.GL_TEXTURE1);
-                c.glBindTexture(c.GL_TEXTURE_2D_ARRAY, sm.textures);
+                c.glBindTextureUnit(1, sm.textures);
 
                 c.glBindBufferBase(c.GL_UNIFORM_BUFFER, 0, light_mat_ubo);
 
