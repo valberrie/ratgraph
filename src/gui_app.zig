@@ -2442,7 +2442,7 @@ pub const Os9Gui = struct {
         })) |d| {
             gui.draw9Slice(d.area, os9slider, self.texture, self.scale);
             const diff: usize = @intFromFloat(max - min);
-            if (diff <= 10) {
+            if (diff <= 10 and @typeInfo(@typeInfo(@TypeOf(value)).Pointer.child) == .Int) {
                 const h = d.area.h - os9slider.h / 3 * 2;
                 const dist: usize = @divTrunc(@as(usize, @intFromFloat(d.area.w - os9shuttle.w * self.scale)), diff);
                 for (1..diff) |i| {

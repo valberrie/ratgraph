@@ -1441,15 +1441,15 @@ pub const Cubes = struct {
         cubeVert(px + sx, py + sy, pz + sz, un.x + un.w,un.y,        0,1,0,   color),
         cubeVert(px + sx, py + sy, pz, un.x + un.w,   un.y + un.h ,  0,1,0,   color),
 
-        cubeVert(px, py + sy, pz, un.x + un.w,un.y + un.h,   0,0,-1,   color),
-        cubeVert(px, py , pz, un.x + un.w,un.y,              0,0,-1,   color),
-        cubeVert(px, py , pz + sz, un.x,un.y,                0,0,-1,   color),
-        cubeVert(px, py + sy , pz + sz, un.x,un.y + un.h,    0,0,-1,   color),
+        cubeVert(px, py + sy, pz, un.x + un.w,un.y + un.h,   -1,0,0,   color),
+        cubeVert(px, py , pz, un.x + un.w,un.y,              -1,0,0,   color),
+        cubeVert(px, py , pz + sz, un.x,un.y,                -1,0,0,   color),
+        cubeVert(px, py + sy , pz + sz, un.x,un.y + un.h,    -1,0,0,   color),
 
-        cubeVert(px + sx, py + sy , pz + sz, un.x,un.y + un.h,     0,0,1, color),
-        cubeVert(px + sx, py , pz + sz, un.x,un.y,                 0,0,1, color),
-        cubeVert(px + sx, py , pz, un.x + un.w,un.y,               0,0,1, color),
-        cubeVert(px + sx, py + sy, pz, un.x + un.w,un.y + un.h,    0,0,1, color),
+        cubeVert(px + sx, py + sy , pz + sz, un.x,un.y + un.h,     1,0,0, color),
+        cubeVert(px + sx, py , pz + sz, un.x,un.y,                 1,0,0, color),
+        cubeVert(px + sx, py , pz, un.x + un.w,un.y,               1,0,0, color),
+        cubeVert(px + sx, py + sy, pz, un.x + un.w,un.y + un.h,    1,0,0, color),
 
 
     });

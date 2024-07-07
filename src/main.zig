@@ -7,6 +7,7 @@ const V3f = graph.za.Vec3;
 const Mat4 = graph.za.Mat4;
 const Rec = graph.Rec;
 const Col3d = @import("col3d.zig");
+const ColType = Col3d.CollisionType(graph.Rect, graph.za.Vec3);
 
 const pow = std.math.pow;
 const sqrt = std.math.sqrt;
@@ -595,7 +596,7 @@ const GBuffer = struct {
         // - color + specular color buffer
         c.glGenTextures(1, &ret.albedo);
         c.glBindTexture(c.GL_TEXTURE_2D, ret.albedo);
-        c.glTexImage2D(c.GL_TEXTURE_2D, 0, c.GL_RGBA, scrw, scrh, 0, c.GL_RGBA, c.GL_UNSIGNED_BYTE, null);
+        c.glTexImage2D(c.GL_TEXTURE_2D, 0, c.GL_RGBA16F, scrw, scrh, 0, c.GL_RGBA, c.GL_UNSIGNED_BYTE, null);
         c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_MIN_FILTER, c.GL_NEAREST);
         c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_MAG_FILTER, c.GL_NEAREST);
         c.glFramebufferTexture2D(c.GL_FRAMEBUFFER, c.GL_COLOR_ATTACHMENT2, c.GL_TEXTURE_2D, ret.albedo, 0);
@@ -633,6 +634,10 @@ pub const DemoJson = struct {
     frames: []const Frame,
 };
 
+pub const WorldCube = struct {
+    cube: ColType.Cube,
+};
+
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.detectLeaks();
@@ -648,7 +653,6 @@ pub fn main() !void {
 
     var arg_it = try std.process.argsWithAllocator(alloc);
     defer arg_it.deinit();
-    const ColType = Col3d.CollisionType(graph.Rect, graph.za.Vec3);
 
     const Arg = graph.ArgGen.Arg;
     const args = try graph.ArgGen.parseArgs(&.{
@@ -656,6 +660,7 @@ pub fn main() !void {
         Arg("texture", .string, "texture to load"),
         Arg("scale", .number, "scale the model"),
     }, &arg_it);
+    _ = args;
 
     var win = try graph.SDL.Window.createWindow("zig-game-engine", .{});
     defer win.destroyWindow();
@@ -720,9 +725,11 @@ pub fn main() !void {
     var camera = graph.Camera3D{};
     const camera_spawn = V3f.new(1, 3, 1);
     camera.pos = camera_spawn;
-    const tex = try graph.Texture.initFromImgFile(alloc, std.fs.cwd(), args.texture orelse "two4.png", .{});
-    const ggrid = try graph.Texture.initFromImgFile(alloc, std.fs.cwd(), args.texture orelse "graygrid.png", .{});
-    const sky_tex = try graph.Texture.initFromImgFile(alloc, std.fs.cwd(), args.texture orelse "sky06.png", .{
+    const woodtex = try graph.Texture.initFromImgFile(alloc, std.fs.cwd(), "asset/woodout/color.png", .{});
+    const woodnormal = try graph.Texture.initFromImgFile(alloc, std.fs.cwd(), "asset/woodout/normal.png", .{});
+    const tex = try graph.Texture.initFromImgFile(alloc, std.fs.cwd(), "two4.png", .{});
+    const ggrid = try graph.Texture.initFromImgFile(alloc, std.fs.cwd(), "graygrid.png", .{});
+    const sky_tex = try graph.Texture.initFromImgFile(alloc, std.fs.cwd(), "sky06.png", .{
         .mag_filter = graph.c.GL_NEAREST,
     });
     const light_shader = try graph.Shader.loadFromFilesystem(alloc, std.fs.cwd(), &.{
@@ -756,6 +763,8 @@ pub fn main() !void {
     var sun_pitch: f32 = 61;
     var light_dir = V3f.new(-20, 50, -20).norm();
     var sun_color = graph.Hsva.fromInt(graph.ptypes.charColorToInt(graph.CharColor.new(240, 187, 117, 255)));
+    var exposure: f32 = 1.0;
+    var gamma: f32 = 2.2;
 
     var light_mat_ubo: c_uint = 0;
     {
@@ -778,7 +787,7 @@ pub fn main() !void {
     defer cubes_grnd.deinit();
     cubes_grnd.setData();
 
-    var cubes = graph.Cubes.init(alloc, tex, light_shader);
+    var cubes = graph.Cubes.init(alloc, woodtex, light_shader);
     defer cubes.deinit();
 
     var lumber = std.ArrayList(ColType.Cube).init(alloc);
@@ -822,6 +831,7 @@ pub fn main() !void {
     defer cubes_st.deinit();
 
     const couch_tex = try graph.Texture.initFromImgFile(alloc, std.fs.cwd(), "drum.png", .{});
+    const couch_normal = try graph.Texture.initFromImgFile(alloc, std.fs.cwd(), "asset/oil_drum_normal.png", .{});
     const couch_m = graph.za.Mat4.identity().translate(V3f.new(3, 0, 4));
     var couch = try loadObj(alloc, std.fs.cwd(), "barrel.obj", 0.03, couch_tex, draw.textured_tri_3d_shader);
     defer couch.deinit();
@@ -1179,7 +1189,7 @@ pub fn main() !void {
 
             gbuffer.updateResolution(win.screen_dimensions.x, win.screen_dimensions.y);
             c.glBindFramebuffer(c.GL_FRAMEBUFFER, gbuffer.buffer);
-            c.glViewport(0, 0, win.screen_dimensions.x, win.screen_dimensions.y);
+            c.glViewport(0, 0, gbuffer.scr_w, gbuffer.scr_h);
             c.glClear(c.GL_COLOR_BUFFER_BIT | c.GL_DEPTH_BUFFER_BIT);
 
             {
@@ -1190,9 +1200,10 @@ pub fn main() !void {
                 c.glUniform1i(diffuse_loc, 0);
                 c.glBindTextureUnit(0, cubes.texture.id);
 
-                const shadow_map_loc = c.glGetUniformLocation(sh, "shadow_map");
-                c.glUniform1i(shadow_map_loc, 1);
-                c.glBindTextureUnit(1, sm.textures);
+                //const shadow_map_loc = c.glGetUniformLocation(sh, "shadow_map");
+                //c.glUniform1i(shadow_map_loc, 1);
+                //c.glBindTextureUnit(1, sm.textures);
+                c.glBindTextureUnit(1, woodnormal.id);
 
                 c.glBindBufferBase(c.GL_UNIFORM_BUFFER, 0, light_mat_ubo);
 
@@ -1211,6 +1222,7 @@ pub fn main() !void {
                 c.glDrawElements(c.GL_TRIANGLES, @as(c_int, @intCast(cubes.indicies.items.len)), c.GL_UNSIGNED_INT, null);
 
                 c.glBindVertexArray(couch.vao);
+                c.glBindTextureUnit(1, couch_normal.id);
                 c.glUniform1i(diffuse_loc, 0);
                 c.glActiveTexture(c.GL_TEXTURE0 + 0);
                 graph.GL.passUniform(sh, "model", couch_m);
@@ -1220,8 +1232,6 @@ pub fn main() !void {
         }
         c.glBindFramebuffer(c.GL_FRAMEBUFFER, 0);
 
-        cubes_st.draw(cam_matrix, graph.za.Mat4.identity().scale(graph.za.Vec3.new(1000, 1000, 1000)));
-        cubes_grnd.draw(cam_matrix, graph.za.Mat4.identity().scale(graph.za.Vec3.new(1, 1, 1)));
         switch (tool) {
             .none => {},
             .pencil => {
@@ -1311,6 +1321,8 @@ pub fn main() !void {
             c.glBindTextureUnit(2, gbuffer.albedo);
             c.glBindTextureUnit(3, sm.textures);
             graph.GL.passUniform(deferred_light_shader, "view_pos", third_cam.pos);
+            graph.GL.passUniform(deferred_light_shader, "exposure", exposure);
+            graph.GL.passUniform(deferred_light_shader, "gamma", gamma);
             graph.GL.passUniform(deferred_light_shader, "light_dir", light_dir);
             graph.GL.passUniform(deferred_light_shader, "light_color", sun_color.toCharColor().toFloat());
             graph.GL.passUniform(deferred_light_shader, "cascadePlaneDistances[0]", @as(f32, planes[0]));
@@ -1322,6 +1334,15 @@ pub fn main() !void {
 
             c.glDrawArrays(c.GL_TRIANGLE_STRIP, 0, @as(c_int, @intCast(light_batch.vertices.items.len)));
         }
+        { //copy depth buffer
+            c.glBindFramebuffer(c.GL_READ_FRAMEBUFFER, gbuffer.buffer);
+            c.glBindFramebuffer(c.GL_DRAW_FRAMEBUFFER, 0);
+            c.glBlitFramebuffer(0, 0, gbuffer.scr_w, gbuffer.scr_h, 0, 0, gbuffer.scr_w, gbuffer.scr_h, c.GL_DEPTH_BUFFER_BIT, c.GL_NEAREST);
+            c.glBindFramebuffer(c.GL_FRAMEBUFFER, 0);
+        }
+
+        cubes_st.draw(cam_matrix, graph.za.Mat4.identity().scale(graph.za.Vec3.new(1000, 1000, 1000)));
+        cubes_grnd.draw(cam_matrix, graph.za.Mat4.identity().scale(graph.za.Vec3.new(1, 1, 1)));
         try draw.flush(null, camera);
         graph.c.glClear(graph.c.GL_DEPTH_BUFFER_BIT);
         { //draw a gizmo at crosshair
@@ -1378,6 +1399,8 @@ pub fn main() !void {
                                 light_dir = V3f.new(cos(radians(sun_yaw)) * cc, sin(radians(sun_pitch)), sin(radians(sun_yaw)) * cc).norm();
                             }
                             try os9gui.colorPicker(&sun_color);
+                            os9gui.sliderEx(&exposure, 0, 1, "exposure {d:.2}", .{exposure});
+                            os9gui.sliderEx(&gamma, 0.1, 4, "gamma {d:.2}", .{gamma});
                         },
                         .graphics => {
                             _ = try os9gui.beginV();
