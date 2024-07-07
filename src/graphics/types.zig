@@ -597,6 +597,10 @@ pub const Hsva = struct {
         return colorToHsva(intToColor(int));
     }
 
+    pub fn toInt(self: Hsva) u32 {
+        return charColorToInt(self.toCharColor());
+    }
+
     pub fn toCharColor(hsva: Hsva) CharColor {
         //HSV
         //S is the x axis
@@ -638,7 +642,7 @@ pub fn contrastColor(color: CharColor) CharColor {
 pub fn colorToHsva(color: CharColor) Hsva {
     const fl = color.toFloat();
     const max = @max(fl[0], fl[1], fl[2]);
-    const min = @max(fl[0], fl[1], fl[2]);
+    const min = @min(fl[0], fl[1], fl[2]);
     const C = max - min;
 
     const r = fl[0];

@@ -19,8 +19,6 @@ const gui_app = @import("gui_app.zig");
 const Os9Gui = gui_app.Os9Gui;
 const itm = 0.0254;
 const c = graph.c;
-//TODO
-//load shaders at runtime rather than embedding at compile time. Allows for faster shader prototyping
 
 threadlocal var lua_draw: *LuaDraw = undefined;
 const LuaDraw = struct {
@@ -704,7 +702,7 @@ pub fn main() !void {
     //checkAl();
     const ls = try loadOgg(lifetime_alloc, "stop.ogg", V3f.zero());
     checkAl();
-    //c.alSourcePlay(audio_source);
+    c.alSourcePlay(audio_source);
 
     const init_size = 72;
     var font = try graph.Font.init(alloc, std.fs.cwd(), "fonts/roboto.ttf", init_size, win.getDpi(), .{});
@@ -726,6 +724,48 @@ pub fn main() !void {
     const camera_spawn = V3f.new(1, 3, 1);
     camera.pos = camera_spawn;
     const woodtex = try graph.Texture.initFromImgFile(alloc, std.fs.cwd(), "asset/woodout/color.png", .{});
+
+    const hmap = try graph.Bitmap.initFromPngFile(alloc, std.fs.cwd(), "asset/hmap2.png");
+    defer hmap.deinit();
+    var disp_cubes = graph.Cubes.init(alloc, woodtex, draw.textured_tri_3d_shader);
+    defer disp_cubes.deinit();
+    for (0..(hmap.w * hmap.h)) |i| {
+        const w: f32 = @floatFromInt(hmap.w);
+        //const h:f32 = @floatFromInt(hmap.h);
+        const fi: f32 = @floatFromInt(i);
+        const height = hmap.data.items[i * 4];
+        try disp_cubes.vertices.append(
+            graph.cubeVert(@mod(fi, w) / 64, @as(f32, @floatFromInt(height)) / 256.0 + 1, fi / w / 64, 0, 0, 0, 0, 0, 0xffffffff),
+        );
+    }
+    for (0..(hmap.w - 1) * (hmap.h - 1)) |ii| {
+        const w = hmap.w;
+        const i: u32 = @intCast(ii);
+        try disp_cubes.indicies.appendSlice(&.{
+            i + 0,
+            i + w,
+            i + 1,
+            i + 1,
+            i + w,
+            i + w + 1,
+        });
+        const v = disp_cubes.vertices.items;
+        const v1 = V3f.new(v[i].x, v[i].y, v[i].z);
+        const v2 = V3f.new(v[i + w].x, v[i + w].y, v[i + w].z);
+        const v3 = V3f.new(v[i + 1].x, v[i + 1].y, v[i + 1].z);
+        const norm = v1.sub(v2).cross(v3.sub(v2));
+        v[i].nx += -norm.x();
+        v[i].ny += -norm.y();
+        v[i].nz += -norm.z();
+        v[i + w].nx += -norm.x();
+        v[i + w].ny += -norm.y();
+        v[i + w].nz += -norm.z();
+        v[i + 1].nx += -norm.x();
+        v[i + 1].ny += -norm.y();
+        v[i + 1].nz += -norm.z();
+    }
+    disp_cubes.setData();
+
     const woodnormal = try graph.Texture.initFromImgFile(alloc, std.fs.cwd(), "asset/woodout/normal.png", .{});
     const tex = try graph.Texture.initFromImgFile(alloc, std.fs.cwd(), "two4.png", .{});
     const ggrid = try graph.Texture.initFromImgFile(alloc, std.fs.cwd(), "graygrid.png", .{});
@@ -762,7 +802,7 @@ pub fn main() !void {
     var sun_yaw: f32 = 225;
     var sun_pitch: f32 = 61;
     var light_dir = V3f.new(-20, 50, -20).norm();
-    var sun_color = graph.Hsva.fromInt(graph.ptypes.charColorToInt(graph.CharColor.new(240, 187, 117, 255)));
+    var sun_color = graph.Hsva.fromInt(0xef8825ff);
     var exposure: f32 = 1.0;
     var gamma: f32 = 2.2;
 
@@ -1228,6 +1268,16 @@ pub fn main() !void {
                 graph.GL.passUniform(sh, "model", couch_m);
                 c.glBindTexture(c.GL_TEXTURE_2D, couch.texture.id);
                 c.glDrawElements(c.GL_TRIANGLES, @as(c_int, @intCast(couch.indicies.items.len)), c.GL_UNSIGNED_INT, null);
+
+                { //draw the heightmap
+                    c.glBindVertexArray(disp_cubes.vao);
+                    graph.GL.passUniform(
+                        sh,
+                        "model",
+                        graph.za.Mat4.identity().translate(V3f.new(2, 0, 2)),
+                    );
+                    c.glDrawElements(c.GL_TRIANGLES, @as(c_int, @intCast(disp_cubes.indicies.items.len)), c.GL_UNSIGNED_INT, null);
+                }
             }
         }
         c.glBindFramebuffer(c.GL_FRAMEBUFFER, 0);
@@ -1365,7 +1415,36 @@ pub fn main() !void {
         if (show_gui) {
             if (draw_wireframe)
                 graph.c.glPolygonMode(graph.c.GL_FRONT_AND_BACK, graph.c.GL_FILL);
-            const win_rect = graph.Rec(0, 0, win.screen_dimensions.x, win.screen_dimensions.y).inset(@floatFromInt(@divTrunc(win.screen_dimensions.y, 3)));
+            const gw = 1000; //Gui units
+            const gh = 500;
+            const sw: f32 = @floatFromInt(win.screen_dimensions.x);
+            const sh: f32 = @floatFromInt(win.screen_dimensions.y);
+            const win_rect = blk: {
+                while ((gw * os9gui.scale) / sw < 0.7 and (gh * os9gui.scale) / sh < 0.9) {
+                    if (os9gui.scale < 1) {
+                        os9gui.scale = 1;
+                    } else {
+                        os9gui.scale += 1;
+                    }
+                }
+                while (gw * os9gui.scale > sw or gh * os9gui.scale > sh) {
+                    if (os9gui.scale > 2) {
+                        os9gui.scale -= 1;
+                    } else {
+                        os9gui.scale -= 0.1;
+                    }
+                }
+                const ww = gw * os9gui.scale;
+                const wh = gh * os9gui.scale;
+                break :blk graph.Rec(
+                    (sw - ww) / 2,
+                    (sh - wh) / 2,
+                    ww,
+                    wh,
+                );
+            };
+
+            //const win_rect = graph.Rec(0, 0, win.screen_dimensions.x, win.screen_dimensions.y).inset(@floatFromInt(@divTrunc(win.screen_dimensions.y, 3)));
             if (try os9gui.beginTlWindow(win_rect)) {
                 defer os9gui.endTlWindow();
                 {
@@ -1399,7 +1478,8 @@ pub fn main() !void {
                                 light_dir = V3f.new(cos(radians(sun_yaw)) * cc, sin(radians(sun_pitch)), sin(radians(sun_yaw)) * cc).norm();
                             }
                             try os9gui.colorPicker(&sun_color);
-                            os9gui.sliderEx(&exposure, 0, 1, "exposure {d:.2}", .{exposure});
+                            os9gui.label("{x}", .{sun_color.toInt()});
+                            os9gui.sliderEx(&exposure, 0, 4, "exposure {d:.2}", .{exposure});
                             os9gui.sliderEx(&gamma, 0.1, 4, "gamma {d:.2}", .{gamma});
                         },
                         .graphics => {

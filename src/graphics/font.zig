@@ -574,16 +574,12 @@ pub const RectPack = struct {
 
 pub const Bitmap = struct {
     const Self = @This();
-    pub const ImageFormat = enum {
-        rgba_8,
-        rgb_8,
-        g_8, //grayscale, 8 bit
+    pub const ImageFormat = enum(usize) {
+        rgba_8 = c.SPNG_FMT_RGBA8,
+        rgb_8 = c.SPNG_FMT_RGB8,
+        g_8 = c.SPNG_FMT_G8, //grayscale, 8 bit
+        ga_8 = c.SPNG_FMT_GA8,
     };
-    pub const FormatCompCount = std.enums.directEnumArray(ImageFormat, usize, 0, .{
-        .rgba_8 = 4,
-        .g_8 = 1,
-        .rgb_8 = 3,
-    });
 
     format: ImageFormat = .rgba_8,
     data: std.ArrayList(u8),
@@ -598,7 +594,12 @@ pub const Bitmap = struct {
         const h = lcast(u32, height);
         const w = lcast(u32, width);
         var ret = Self{ .format = format, .data = std.ArrayList(u8).init(alloc), .w = lcast(u32, width), .h = lcast(u32, height) };
-        const num_comp = FormatCompCount[@intFromEnum(format)];
+        const num_comp: u32 = switch (format) {
+            .rgba_8 => 4,
+            .g_8 => 1,
+            .rgb_8 => 3,
+            .ga_8 => 2,
+        };
         try ret.data.appendNTimes(0, num_comp * w * h);
         return ret;
     }
@@ -615,18 +616,25 @@ pub const Bitmap = struct {
 
         var ihdr: c.spng_ihdr = undefined;
         _ = c.spng_get_ihdr(pngctx, &ihdr);
+        //ihdr.bit_depth;
+        //ihdr.color_type;
+        const fmt: ImageFormat = switch (ihdr.color_type) {
+            c.SPNG_COLOR_TYPE_GRAYSCALE => .rgba_8,
+            c.SPNG_COLOR_TYPE_GRAYSCALE_ALPHA => .rgba_8,
+            c.SPNG_COLOR_TYPE_TRUECOLOR => .rgba_8,
+            c.SPNG_COLOR_TYPE_TRUECOLOR_ALPHA => .rgba_8,
+            c.SPNG_COLOR_TYPE_INDEXED => .rgba_8,
+            else => return error.unsupportedColorFormat,
+        };
 
         var out_size: usize = 0;
-        _ = c.spng_decoded_image_size(pngctx, c.SPNG_FMT_RGBA8, &out_size);
-        //TODO use the SPNG_FMT provided by ihdr
-        // if (ihdr.color_type != c.SPNG_FMT_RGBA8)
-        //     return error.unsupportedColorFormat;
+        _ = c.spng_decoded_image_size(pngctx, @intCast(@intFromEnum(fmt)), &out_size);
 
         const decoded_data = try alloc.alloc(u8, out_size);
 
-        _ = c.spng_decode_image(pngctx, &decoded_data[0], out_size, c.SPNG_FMT_RGBA8, 0);
+        _ = c.spng_decode_image(pngctx, &decoded_data[0], out_size, @intCast(@intFromEnum(fmt)), 0);
 
-        return Bitmap{ .w = ihdr.width, .h = ihdr.height, .data = std.ArrayList(u8).fromOwnedSlice(alloc, decoded_data) };
+        return Bitmap{ .format = fmt, .w = ihdr.width, .h = ihdr.height, .data = std.ArrayList(u8).fromOwnedSlice(alloc, decoded_data) };
     }
 
     pub fn initFromPngFile(alloc: Alloc, dir: Dir, sub_path: []const u8) !Bitmap {
@@ -707,6 +715,7 @@ pub const Bitmap = struct {
                 .rgb_8 => c.SPNG_COLOR_TYPE_TRUECOLOR,
                 .rgba_8 => c.SPNG_COLOR_TYPE_TRUECOLOR_ALPHA,
                 .g_8 => c.SPNG_COLOR_TYPE_GRAYSCALE,
+                .ga_8 => c.SPNG_COLOR_TYPE_GRAYSCALE_ALPHA,
             },
             .compression_method = 0,
             .filter_method = 0,
