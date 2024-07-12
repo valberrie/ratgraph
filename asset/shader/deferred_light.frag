@@ -77,6 +77,59 @@ vec2 crtCurve(vec2 uv, float warp){
     return uv;
 }
 
+float ambient_strength = 0.3;
+vec3 ambient_color = vec3(135 / 255.0, 172 / 255.0, 180 / 255.0 );
+float specular_strength = 0.5;
+
+struct LightPoint {
+    vec3 pos;
+
+    vec3 ambient;
+    vec3 diffuse;
+    vec3 specular;
+
+    float constant;
+    float linear;
+    float quadratic;
+};
+
+vec3 tungsten = vec3(254.0 / 255.0, 216.0 / 255.0, 146.0 / 255.0);
+vec3 flur = vec3(1.0 ,245.0/255.0, 145.0/255.0);
+vec3 stupid = vec3(1,0,0);
+LightPoint lp = LightPoint( vec3(-9.0, 1.0,5.0),vec3(1,0,0), stupid,  vec3(1,1,1), 1, 0.22, 0.20);
+LightPoint lp1 = LightPoint( vec3(-9.0, 1.0,9),vec3(1,0,0), tungsten,  vec3(1,1,1), 1, 0.22, 0.20);
+
+vec3 calculatePointLight(vec3 normal,LightPoint light, vec3 view_dir, vec3 frag_pos){
+    vec3  ldir = normalize(light.pos - frag_pos);
+    float diff = max(dot(normal, ldir), 0.0);
+    vec3 diffuse1 = diff * light.diffuse;
+
+    vec3 reflect_dir = reflect(-ldir, normal);
+    float spec = pow(max(dot(view_dir, reflect_dir), 0.0), 32);
+    vec3 specular = specular_strength * spec * light.specular;
+
+    float dist    = length(light.pos - frag_pos);
+    float attenuation = 1.0 / (light.constant + light.linear * dist + light.quadratic * (dist * dist));
+
+    diffuse1 *= attenuation;
+    specular *= attenuation;
+
+    //vec3 ambient = ambient_strength * ambient_color;
+    return (diffuse1 + specular);
+}
+
+vec3 calculateDirLight(vec3 normal, vec3 ldir, vec3 lcolor, vec3 view_dir, float shadow){
+    float diff = max(dot(normal, ldir), 0.0);
+    vec3 diffuse1 = diff * lcolor;
+
+    vec3 reflect_dir = reflect(-ldir, normal);
+    float spec = pow(max(dot(view_dir, reflect_dir), 0.0), 32);
+    vec3 specular = specular_strength * spec * lcolor;
+
+    vec3 ambient = ambient_strength * ambient_color;
+    return ambient + (diffuse1 + specular) * (1.0 - shadow);
+}
+
 void main(){
     vec2 uv = TexCoords;
 
@@ -84,23 +137,16 @@ void main(){
     vec3 normal = texture(g_norm, uv).rgb;
     vec3 diffuse = texture(g_albedo, uv).rgb;
 
-    float ambient_strength = 0.3;
-    vec3 ambient_color = vec3(135 / 255.0, 172 / 255.0, 180 / 255.0 );
-    float specular_strength = 0.5;
-
-    float diff = max(dot(normal, light_dir), 0.0);
-    vec3 diffuse1 = diff * light_color;
 
     vec3 view_dir = normalize(view_pos - frag_pos);
-    vec3 reflect_dir = reflect(-light_dir, normal);
-    float spec = pow(max(dot(view_dir, reflect_dir), 0.0), 32);
-    vec3 specular = specular_strength * spec * light_color;
 
     float shadow = shadowCalculation(frag_pos, normal);
 
-
-    vec3 ambient = ambient_strength * ambient_color;
-    vec3 result = (ambient + (1.0 - shadow) * (diffuse1 + specular)) * diffuse;
+    vec3 lights = calculateDirLight(normal, light_dir, light_color, view_dir, shadow)  + 
+        calculatePointLight(normal, lp, view_dir, frag_pos) + 
+        calculatePointLight(normal, lp1, view_dir, frag_pos);
+    //vec3 result = (ambient + (1.0 - shadow) * lights) * diffuse;
+    vec3 result =  lights * diffuse;
 
 
     //vec3 mapped = result / (result + vec3(1.0));

@@ -202,6 +202,53 @@ pub const Icons = enum(u21) {
     }
 };
 
+pub const GameMenu = struct {
+    view: enum { main, connect, serve } = .main,
+    exit_app: bool = false,
+
+    ip_box: std.ArrayList(u8),
+    port_box: std.ArrayList(u8),
+    username_box: std.ArrayList(u8),
+
+    pub fn update(self: *GameMenu, os9gui: *Os9Gui) !void {
+        _ = try os9gui.beginV();
+        defer os9gui.endL();
+        switch (self.view) {
+            .main => {
+                if (os9gui.button("Connect to server"))
+                    self.view = .connect;
+                if (os9gui.button("Host server"))
+                    self.view = .serve;
+                if (os9gui.button("quit game"))
+                    self.exit_app = true;
+            },
+            .connect => {
+                if (os9gui.button("back"))
+                    self.view = .main;
+                try os9gui.textboxEx(&self.ip_box, .{});
+            },
+            .serve => {
+                if (os9gui.button("back"))
+                    self.view = .main;
+            },
+        }
+    }
+
+    pub fn init(alloc: std.mem.Allocator) GameMenu {
+        return .{
+            .ip_box = std.ArrayList(u8).init(alloc),
+            .port_box = std.ArrayList(u8).init(alloc),
+            .username_box = std.ArrayList(u8).init(alloc),
+        };
+    }
+
+    pub fn deinit(self: *@This()) void {
+        self.ip_box.deinit();
+        self.port_box.deinit();
+        self.username_box.deinit();
+    }
+};
+
 pub const FileBrowser = struct {
     //TODO
     //Fix the layouting issues.
@@ -3232,7 +3279,7 @@ pub fn main() anyerror!void {
     defer _ = gpa.detectLeaks();
     const alloc = gpa.allocator();
 
-    var current_app: enum { keyboard_display, filebrowser, atlas_edit, gtest, lua_test, crass } = .gtest;
+    var current_app: enum { keyboard_display, filebrowser, atlas_edit, gtest, lua_test, crass, game_menu } = .filebrowser;
     var arg_it = try std.process.ArgIterator.initWithAllocator(alloc);
     defer arg_it.deinit();
     const Arg = ArgUtil.Arg;
@@ -3312,6 +3359,9 @@ pub fn main() anyerror!void {
 
     var os9gui = try Os9Gui.init(alloc, std.fs.cwd(), scale);
     defer os9gui.deinit();
+
+    var gamemenu = GameMenu.init(alloc);
+    defer gamemenu.deinit();
 
     //NEEDS TO BE SET BEFORE LUA RUNS
     os9_ctx = os9gui;
@@ -3427,6 +3477,7 @@ pub fn main() anyerror!void {
                         //try os9gui.propertyTable(&gui);
                     }
                 },
+                .game_menu => try gamemenu.update(&os9gui),
             }
             //if(false){
             //try gui.beginWindow(graph.Rec(0, 0, 1000, 1000));

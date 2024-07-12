@@ -736,6 +736,9 @@ pub fn main() !void {
     c.alBufferData(audio_buf, c.AL_FORMAT_MONO16, output, @intCast(ogg), sample_rate);
     c.alSourcei(audio_source, c.AL_BUFFER, @intCast(audio_buf));
 
+    var day_timer = try std.time.Timer.start();
+    const day_length = std.time.ns_per_s * 60;
+
     var footstep_timer = try std.time.Timer.start();
     //checkAl();
     const ls = try loadOgg(lifetime_alloc, "stop.ogg", V3f.zero());
@@ -751,23 +754,31 @@ pub fn main() !void {
 
     var os9gui = try Os9Gui.init(alloc, cwd, 2);
     defer os9gui.deinit();
+    var gcfg: struct {
+        tab: enum { main, graphics, keyboard, info, sound } = .main,
+        draw_wireframe: bool = false,
+        draw_thirdperson: bool = false,
+        shadow_map_select: enum { camera, sun, depth } = .camera,
+        draw_gbuffer: enum { shaded, pos, normal, albedo } = .shaded,
+        sun_perspective_index: usize = 0,
+    } = .{};
     var show_gui = false;
-    var tab: enum { main, graphics, keyboard, info, sound } = .main;
-    var draw_wireframe = false;
-    var draw_thirdperson = false;
-    var shadow_map_select: enum { camera, sun, depth } = .camera;
-    var draw_gbuffer: enum { shaded, pos, normal, albedo } = .shaded;
-    var sun_perspective_index: usize = 0;
+    //var tab: enum { main, graphics, keyboard, info, sound } = .main;
+    //var draw_wireframe = false;
+    //var draw_thirdperson = false;
+    //var shadow_map_select: enum { camera, sun, depth } = .camera;
+    //var draw_gbuffer: enum { shaded, pos, normal, albedo } = .shaded;
+    //var sun_perspective_index: usize = 0;
 
     var camera = graph.Camera3D{};
     const camera_spawn = V3f.new(1, 3, 1);
     camera.pos = camera_spawn;
-    const woodtex = try graph.Texture.initFromImgFile(alloc, cwd, "asset/woodout/color.png", .{});
+    const woodtex = try graph.Texture.initFromImgFile(alloc, cwd, "asset/concretefloor019a.png", .{});
 
     var disp_cubes = graph.Cubes.init(alloc, woodtex, draw.textured_tri_3d_shader);
     defer disp_cubes.deinit();
 
-    const woodnormal = try graph.Texture.initFromImgFile(alloc, cwd, "asset/norm.png", .{});
+    const woodnormal = try graph.Texture.initFromImgFile(alloc, cwd, "asset/concretefloor019a_normal.png", .{});
     const tex = try graph.Texture.initFromImgFile(alloc, cwd, "two4.png", .{});
     const ggrid = try graph.Texture.initFromImgFile(alloc, cwd, "graygrid.png", .{});
     const sky_tex = try graph.Texture.initFromImgFile(alloc, cwd, "sky06.png", .{
@@ -873,7 +884,7 @@ pub fn main() !void {
 
     const couch_tex = try graph.Texture.initFromImgFile(alloc, cwd, "drum.png", .{});
     const couch_normal = try graph.Texture.initFromImgFile(alloc, cwd, "asset/oil_drum_normal.png", .{});
-    const couch_m = graph.za.Mat4.identity().translate(V3f.new(3, 0, 4));
+    const couch_m = graph.za.Mat4.identity().translate(V3f.new(-9, 0, 6));
     var couch = try loadObj(alloc, cwd, "barrel.obj", 0.03, couch_tex, draw.textured_tri_3d_shader);
     defer couch.deinit();
 
@@ -888,6 +899,7 @@ pub fn main() !void {
     var tool: enum {
         none,
         pencil,
+        erase,
     } = .none;
 
     var pencil: struct {
@@ -910,12 +922,31 @@ pub fn main() !void {
     var grounded = false;
 
     while (!win.should_exit) {
+        if (day_timer.read() > day_length) {
+            _ = day_timer.reset();
+        }
+        {
+            sun_pitch = 360 * @as(f32, @floatFromInt(day_timer.read())) / day_length;
+            if (sun_pitch > 180) //cheese the night
+                sun_pitch = 0;
+            const cc = cos(radians(sun_pitch));
+            light_dir = V3f.new(cos(radians(sun_yaw)) * cc, sin(radians(sun_pitch)), sin(radians(sun_yaw)) * cc).norm();
+        }
         const dt = 1.0 / 60.0;
         _ = arena_alloc.reset(.retain_capacity);
         try draw.begin(0x3fbaeaff, win.screen_dimensions.toF());
         cubes.clear();
         for (lumber.items) |l| {
-            try cubes.cube(l.pos.x(), l.pos.y(), l.pos.z(), l.ext.x(), l.ext.y(), l.ext.z(), tex.rect(), null);
+            try cubes.cube(
+                l.pos.x(),
+                l.pos.y(),
+                l.pos.z(),
+                l.ext.x(),
+                l.ext.y(),
+                l.ext.z(),
+                tex.rect(),
+                null,
+            );
         }
         win.pumpEvents();
 
@@ -1007,6 +1038,9 @@ pub fn main() !void {
             tool = .pencil;
             pencil = .{};
         }
+        if (win.keyPressed(._3)) {
+            tool = .erase;
+        }
 
         if (win.keyPressed(.R))
             sel_snap *= 2;
@@ -1069,7 +1103,7 @@ pub fn main() !void {
             //
         }
         var third_cam = camera;
-        if (draw_thirdperson)
+        if (gcfg.draw_thirdperson)
             third_cam.pos = third_cam.pos.sub(third_cam.front.scale(3));
         const screen_aspect = draw.screen_dimensions.x / draw.screen_dimensions.y;
         const cam_near = 0.1;
@@ -1211,9 +1245,9 @@ pub fn main() !void {
             try cubes.cube(cam_bb.pos.x(), cam_bb.pos.y(), cam_bb.pos.z(), cam_bb.ext.x(), cam_bb.ext.y(), cam_bb.ext.z(), Rec(0, 0, 1, 1), null);
         }
 
-        const cam_matrix = switch (shadow_map_select) {
+        const cam_matrix = switch (gcfg.shadow_map_select) {
             .camera => cmatrix,
-            else => mats[sun_perspective_index],
+            else => mats[gcfg.sun_perspective_index],
         };
         cubes.setData();
         { //shadow map
@@ -1298,6 +1332,86 @@ pub fn main() !void {
         c.glBindFramebuffer(c.GL_FRAMEBUFFER, 0);
 
         switch (tool) {
+            .erase => {
+                var nearest_i: ?usize = null;
+                var nearest: f32 = 0;
+
+                for (lumber.items, 0..) |lum, i| {
+                    if (doesRayIntersectBoundingBox(3, f32, lum.pos.data, lum.pos.add(lum.ext).data, camera.pos.data, camera.front.data)) |int| {
+                        const p = V3f.new(int[0], int[1], int[2]);
+                        if (nearest_i == null) {
+                            nearest_i = i;
+                            nearest = p.distance(camera.pos);
+                            point = p;
+                        } else {
+                            const dist = p.distance(camera.pos);
+                            if (nearest > dist) {
+                                nearest = dist;
+                                nearest_i = i;
+                                point = p;
+                            }
+                        }
+                    }
+                }
+                if (nearest_i) |i| {
+                    if (win.mouse.left == .high) {
+                        //mode = .manipulate;
+                        sel_index = i;
+                        sel_dist = nearest;
+                    }
+                    const lum = &lumber.items[i];
+                    if (true) {
+                        var norm: @Vector(3, f32) = @splat(0);
+                        const p = point.toArray();
+                        const ex = lum.ext.toArray();
+                        for (lum.pos.toArray(), 0..) |dim, ind| {
+                            if (dim == p[ind]) {
+                                norm[ind] = -1;
+                                break;
+                            }
+                            if (dim + ex[ind] == p[ind]) {
+                                norm[ind] = 1;
+                                break;
+                            }
+                        }
+
+                        const n = V3f{ .data = norm };
+                        draw.line3D(
+                            point,
+                            point.add(n),
+                            0x00ff00ff,
+                        );
+
+                        if (win.keyPressed(.R))
+                            lum.* = lum.addInDir(6 * itm, n);
+                        if (win.keyPressed(.F))
+                            lum.* = lum.addInDir(-6 * itm, n);
+                    }
+                    if (win.mouse.right == .high) {
+                        _ = lumber.swapRemove(i);
+                    }
+                    // determine normal
+
+                    //line-plane intersection
+                    //try cubes_im.cube(
+                    //    lum.pos.x() - 0.01,
+                    //    lum.pos.y() - 0.01,
+                    //    lum.pos.z() - 0.01,
+                    //    lum.ext.x() + 0.02,
+                    //    lum.ext.y() + 0.02,
+                    //    lum.ext.z() + 0.02,
+                    //    tex.rect(),
+                    //    &[_]graph.CharColor{
+                    //        graph.itc(0x00ff00ff),
+                    //        graph.itc(0x00ff00ff),
+                    //        graph.itc(0x00ff00ff),
+                    //        graph.itc(0x00ff00ff),
+                    //        graph.itc(0x00ff00ff),
+                    //        graph.itc(0x00ff00ff),
+                    //    },
+                    //);
+                }
+            },
             .none => {},
             .pencil => {
                 var o = cam_bb.pos.add(cam_bb.ext.scale(0.5));
@@ -1370,7 +1484,7 @@ pub fn main() !void {
         //const rr = graph.Rec(0, 0, win.screen_dimensions.x, win.screen_dimensions.y);
         //const r2 = graph.Rec(0, 0, win.screen_dimensions.x, -win.screen_dimensions.y);
         //draw.rectTex(rr, r2, .{ .w = win.screen_dimensions.x, .h = win.screen_dimensions.y, .id = gbuffer.albedo });
-        if (draw_gbuffer == .shaded) { //Draw lighting quad
+        if (gcfg.draw_gbuffer == .shaded) { //Draw lighting quad
             try light_batch.clear();
             try light_batch.vertices.appendSlice(&.{
                 .{ .pos = graph.Vec3f.new(-1, 1, 0), .uv = graph.Vec2f.new(0, 1) },
@@ -1410,10 +1524,10 @@ pub fn main() !void {
         cubes_grnd.draw(cam_matrix, graph.za.Mat4.identity().scale(graph.za.Vec3.new(1, 1, 1)));
         try draw.flush(null, camera);
         graph.c.glClear(graph.c.GL_DEPTH_BUFFER_BIT);
-        if (draw_gbuffer != .shaded) {
+        if (gcfg.draw_gbuffer != .shaded) {
             const rr = graph.Rec(0, 0, win.screen_dimensions.x, win.screen_dimensions.y);
             const tr = graph.Rec(0, 0, win.screen_dimensions.x, -win.screen_dimensions.y);
-            draw.rectTex(rr, tr, .{ .id = switch (draw_gbuffer) {
+            draw.rectTex(rr, tr, .{ .id = switch (gcfg.draw_gbuffer) {
                 .pos => gbuffer.pos,
                 .normal => gbuffer.normal,
                 .albedo => gbuffer.albedo,
@@ -1438,7 +1552,7 @@ pub fn main() !void {
         }, &font, 12, 0xffffffff);
 
         if (show_gui) {
-            if (draw_wireframe)
+            if (gcfg.draw_wireframe)
                 graph.c.glPolygonMode(graph.c.GL_FRONT_AND_BACK, graph.c.GL_FILL);
             const gw = 1000; //Gui units
             const gh = 500;
@@ -1473,7 +1587,7 @@ pub fn main() !void {
             if (try os9gui.beginTlWindow(win_rect)) {
                 defer os9gui.endTlWindow();
                 {
-                    switch (try os9gui.beginTabs(&tab)) {
+                    switch (try os9gui.beginTabs(&gcfg.tab)) {
                         .main => {
                             _ = try os9gui.beginV();
                             defer os9gui.endL();
@@ -1485,11 +1599,11 @@ pub fn main() !void {
                                 c.alSourcePlay(audio_source);
 
                             os9gui.sliderEx(&camera.fov, 30, 120, "fov {d:.0}", .{camera.fov});
-                            if (os9gui.checkbox("wireframe", &draw_wireframe)) {
-                                graph.c.glPolygonMode(graph.c.GL_FRONT_AND_BACK, if (draw_wireframe) graph.c.GL_LINE else graph.c.GL_FILL);
+                            if (os9gui.checkbox("wireframe", &gcfg.draw_wireframe)) {
+                                graph.c.glPolygonMode(graph.c.GL_FRONT_AND_BACK, if (gcfg.draw_wireframe) graph.c.GL_LINE else graph.c.GL_FILL);
                                 c.alSourcePlay(ls);
                             }
-                            if (os9gui.checkbox("thirdperson", &draw_thirdperson))
+                            if (os9gui.checkbox("thirdperson", &gcfg.draw_thirdperson))
                                 c.alSourcePlay(ls);
                             os9gui.hr();
 
@@ -1499,8 +1613,6 @@ pub fn main() !void {
                                 defer os9gui.endL();
                                 os9gui.sliderEx(&sun_yaw, 0, 360, "sun yaw :{d:.0}", .{sun_yaw});
                                 os9gui.sliderEx(&sun_pitch, 0, 180, "sun pitch :{d:.0}", .{sun_pitch});
-                                const cc = cos(radians(sun_pitch));
-                                light_dir = V3f.new(cos(radians(sun_yaw)) * cc, sin(radians(sun_pitch)), sin(radians(sun_yaw)) * cc).norm();
                             }
                             try os9gui.colorPicker(&sun_color);
                             os9gui.label("{x}", .{sun_color.toInt()});
@@ -1514,10 +1626,10 @@ pub fn main() !void {
                                 _ = try os9gui.beginH(2);
                                 //_ = try os9gui.beginL(Gui.HorizLayout{ .count = 2 });
                                 defer os9gui.endL();
-                                try os9gui.radio(&shadow_map_select);
-                                os9gui.sliderEx(&sun_perspective_index, 0, CASCADE_COUNT - 1, "cascade level: {d}", .{sun_perspective_index});
+                                try os9gui.radio(&gcfg.shadow_map_select);
+                                os9gui.sliderEx(&gcfg.sun_perspective_index, 0, CASCADE_COUNT - 1, "cascade level: {d}", .{gcfg.sun_perspective_index});
                             }
-                            try os9gui.radio(&draw_gbuffer);
+                            try os9gui.radio(&gcfg.draw_gbuffer);
                             os9gui.hr();
                             if (try os9gui.numberCombo("shadow resolution: {d}", .{sm.res}, &.{ 256, 512, 1024, 2048, 4096 }, &sm.res)) {
                                 c.glDeleteFramebuffers(1, &sm.fbo);
@@ -1547,7 +1659,7 @@ pub fn main() !void {
             }
 
             try os9gui.endFrame(&draw);
-            if (draw_wireframe)
+            if (gcfg.draw_wireframe)
                 graph.c.glPolygonMode(graph.c.GL_FRONT_AND_BACK, graph.c.GL_LINE);
         }
         try draw.end(camera);
