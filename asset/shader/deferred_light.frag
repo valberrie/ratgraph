@@ -25,27 +25,25 @@ int CASCADE_COUNT = 4;
 float shadowCalculation(vec3 fp, vec3 norm){
     vec4 fp_vs = view * vec4(fp, 1.0);
     float depth = abs(fp_vs.z);
-    int layer = -1;
+    int layer = CASCADE_COUNT - 1;
     for(int i = 0; i < CASCADE_COUNT; i++){
         if(depth < cascadePlaneDistances[i]){
             layer = i;
             break;
         }
     }
-    if(layer == -1){
-        layer = CASCADE_COUNT - 1;
-    }
     mat4 ls = lightSpaceMatrices[layer];
     //vec4 frag_pos_ls = lightSpaceMatrices[layer] * vec4(fp, 1.0);
     vec4 frag_pos_ls = ls * vec4(fp, 1.0);
     vec3 proj_coord = frag_pos_ls.xyz / frag_pos_ls.w;
+    //vec3 proj_coord = frag_pos_ls.xyz ;
     proj_coord = proj_coord * 0.5 + 0.5;
     //float current_depth = proj_coord.z;
     //if(current_depth > 1.0){
     //    return 0.0;
     //}
 
-    float bias = max(0.05 * (1.0 - dot(norm, light_dir)), 0.005);
+    float bias = max(0.005 * (1.0 - dot(norm, light_dir)), 0.005);
     const float bias_mod = 0.5;
     bias *= 1 / (cascadePlaneDistances[layer] * bias_mod);
 
@@ -62,7 +60,6 @@ float shadowCalculation(vec3 fp, vec3 norm){
             shadow += (current_depth - bias) > pcf_depth ? 1.0: 0.0;
         }
     }
-
     shadow /= 9.0;
     return shadow;
 }

@@ -14,6 +14,7 @@ const sqrt = std.math.sqrt;
 const cos = std.math.cos;
 const sin = std.math.sin;
 const radians = std.math.degreesToRadians;
+const deg = std.math.radiansToDegrees;
 
 const gui_app = @import("gui_app.zig");
 const Os9Gui = gui_app.Os9Gui;
@@ -361,6 +362,36 @@ fn loadObj(alloc: std.mem.Allocator, dir: std.fs.Dir, filename: []const u8, scal
                     try cubes.indicies.appendSlice(&.{
                         vi, vi + 1, vi + 2,
                     });
+                    const v1 = &cubes.vertices.items[vi];
+                    const v2 = &cubes.vertices.items[vi + 1];
+                    const v3 = &cubes.vertices.items[vi + 2];
+                    const e1 = V3f.new(v2.x, v2.y, v2.z).sub(V3f.new(v1.x, v1.y, v1.z));
+                    const e2 = V3f.new(v3.x, v3.y, v3.z).sub(V3f.new(v1.x, v1.y, v1.z));
+                    const du1 = v2.u - v1.u;
+                    const dv1 = v2.v - v1.v;
+                    const du2 = v3.u - v1.u;
+                    const dv2 = v3.v - v1.v;
+                    const f = 1.0 / (du1 * dv2 - du2 * dv1);
+                    const tangent = V3f.new(
+                        (dv2 * e1.x()) - (dv1 * e2.x()),
+                        (dv2 * e1.y()) - (dv1 * e2.y()),
+                        (dv2 * e1.z()) - (dv1 * e2.z()),
+                    ).scale(f);
+
+                    //const bitangent = V3f.new(
+                    //    (-du2 * e1.x()) - (du1 * e2.x()),
+                    //    (-du2 * e1.y()) - (du1 * e2.y()),
+                    //    (-du2 * e1.z()) - (du1 * e2.z()),
+                    //    ).scale(f);
+                    v1.tx += tangent.x();
+                    v2.tx += tangent.x();
+                    v3.tx += tangent.x();
+                    v1.ty += tangent.y();
+                    v2.ty += tangent.y();
+                    v3.ty += tangent.y();
+                    v1.tz += tangent.z();
+                    v2.tz += tangent.z();
+                    v3.tz += tangent.z();
                 },
                 4 => {
                     try cubes.indicies.appendSlice(&.{
@@ -377,6 +408,12 @@ fn loadObj(alloc: std.mem.Allocator, dir: std.fs.Dir, filename: []const u8, scal
                 },
             }
         } else if (eql(u8, com, "s")) {} else {}
+    }
+    for (cubes.vertices.items) |*vert| {
+        const norm = V3f.new(vert.tx, vert.ty, vert.tz).norm();
+        vert.tx = norm.x();
+        vert.ty = norm.y();
+        vert.tz = norm.z();
     }
     cubes.setData();
     return cubes;
@@ -573,7 +610,7 @@ const GBuffer = struct {
         ret.scr_h = scrh;
         c.glGenFramebuffers(1, &ret.buffer);
         c.glBindFramebuffer(c.GL_FRAMEBUFFER, ret.buffer);
-        const pos_fmt = c.GL_RGBA16F;
+        const pos_fmt = c.GL_RGBA32F;
         const norm_fmt = c.GL_RGBA16F;
 
         c.glGenTextures(1, &ret.pos);
@@ -594,7 +631,7 @@ const GBuffer = struct {
         // - color + specular color buffer
         c.glGenTextures(1, &ret.albedo);
         c.glBindTexture(c.GL_TEXTURE_2D, ret.albedo);
-        c.glTexImage2D(c.GL_TEXTURE_2D, 0, c.GL_RGBA16F, scrw, scrh, 0, c.GL_RGBA, c.GL_UNSIGNED_BYTE, null);
+        c.glTexImage2D(c.GL_TEXTURE_2D, 0, c.GL_RGBA16F, scrw, scrh, 0, c.GL_RGBA, c.GL_FLOAT, null);
         c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_MIN_FILTER, c.GL_NEAREST);
         c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_MAG_FILTER, c.GL_NEAREST);
         c.glFramebufferTexture2D(c.GL_FRAMEBUFFER, c.GL_COLOR_ATTACHMENT2, c.GL_TEXTURE_2D, ret.albedo, 0);
@@ -637,6 +674,7 @@ pub const WorldCube = struct {
 };
 
 pub fn main() !void {
+    const cwd = std.fs.cwd();
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.detectLeaks();
     const alloc = gpa.allocator();
@@ -705,89 +743,52 @@ pub fn main() !void {
     c.alSourcePlay(audio_source);
 
     const init_size = 72;
-    var font = try graph.Font.init(alloc, std.fs.cwd(), "fonts/roboto.ttf", init_size, win.getDpi(), .{});
+    var font = try graph.Font.init(alloc, cwd, "fonts/roboto.ttf", init_size, win.getDpi(), .{});
     defer font.deinit();
 
     var draw = graph.ImmediateDrawingContext.init(alloc, win.getDpi());
     defer draw.deinit();
 
-    var os9gui = try Os9Gui.init(alloc, std.fs.cwd(), 2);
+    var os9gui = try Os9Gui.init(alloc, cwd, 2);
     defer os9gui.deinit();
     var show_gui = false;
     var tab: enum { main, graphics, keyboard, info, sound } = .main;
     var draw_wireframe = false;
     var draw_thirdperson = false;
     var shadow_map_select: enum { camera, sun, depth } = .camera;
+    var draw_gbuffer: enum { shaded, pos, normal, albedo } = .shaded;
     var sun_perspective_index: usize = 0;
 
     var camera = graph.Camera3D{};
     const camera_spawn = V3f.new(1, 3, 1);
     camera.pos = camera_spawn;
-    const woodtex = try graph.Texture.initFromImgFile(alloc, std.fs.cwd(), "asset/woodout/color.png", .{});
+    const woodtex = try graph.Texture.initFromImgFile(alloc, cwd, "asset/woodout/color.png", .{});
 
-    const hmap = try graph.Bitmap.initFromPngFile(alloc, std.fs.cwd(), "asset/hmap2.png");
-    defer hmap.deinit();
     var disp_cubes = graph.Cubes.init(alloc, woodtex, draw.textured_tri_3d_shader);
     defer disp_cubes.deinit();
-    for (0..(hmap.w * hmap.h)) |i| {
-        const w: f32 = @floatFromInt(hmap.w);
-        //const h:f32 = @floatFromInt(hmap.h);
-        const fi: f32 = @floatFromInt(i);
-        const height = hmap.data.items[i * 4];
-        try disp_cubes.vertices.append(
-            graph.cubeVert(@mod(fi, w) / 64, @as(f32, @floatFromInt(height)) / 256.0 + 1, fi / w / 64, 0, 0, 0, 0, 0, 0xffffffff),
-        );
-    }
-    for (0..(hmap.w - 1) * (hmap.h - 1)) |ii| {
-        const w = hmap.w;
-        const i: u32 = @intCast(ii);
-        try disp_cubes.indicies.appendSlice(&.{
-            i + 0,
-            i + w,
-            i + 1,
-            i + 1,
-            i + w,
-            i + w + 1,
-        });
-        const v = disp_cubes.vertices.items;
-        const v1 = V3f.new(v[i].x, v[i].y, v[i].z);
-        const v2 = V3f.new(v[i + w].x, v[i + w].y, v[i + w].z);
-        const v3 = V3f.new(v[i + 1].x, v[i + 1].y, v[i + 1].z);
-        const norm = v1.sub(v2).cross(v3.sub(v2));
-        v[i].nx += -norm.x();
-        v[i].ny += -norm.y();
-        v[i].nz += -norm.z();
-        v[i + w].nx += -norm.x();
-        v[i + w].ny += -norm.y();
-        v[i + w].nz += -norm.z();
-        v[i + 1].nx += -norm.x();
-        v[i + 1].ny += -norm.y();
-        v[i + 1].nz += -norm.z();
-    }
-    disp_cubes.setData();
 
-    const woodnormal = try graph.Texture.initFromImgFile(alloc, std.fs.cwd(), "asset/woodout/normal.png", .{});
-    const tex = try graph.Texture.initFromImgFile(alloc, std.fs.cwd(), "two4.png", .{});
-    const ggrid = try graph.Texture.initFromImgFile(alloc, std.fs.cwd(), "graygrid.png", .{});
-    const sky_tex = try graph.Texture.initFromImgFile(alloc, std.fs.cwd(), "sky06.png", .{
+    const woodnormal = try graph.Texture.initFromImgFile(alloc, cwd, "asset/norm.png", .{});
+    const tex = try graph.Texture.initFromImgFile(alloc, cwd, "two4.png", .{});
+    const ggrid = try graph.Texture.initFromImgFile(alloc, cwd, "graygrid.png", .{});
+    const sky_tex = try graph.Texture.initFromImgFile(alloc, cwd, "sky06.png", .{
         .mag_filter = graph.c.GL_NEAREST,
     });
-    const light_shader = try graph.Shader.loadFromFilesystem(alloc, std.fs.cwd(), &.{
+    const light_shader = try graph.Shader.loadFromFilesystem(alloc, cwd, &.{
         .{ .path = "src/graphics/shader/light.vert", .t = .vert },
         .{ .path = "src/graphics/shader/light.frag", .t = .frag },
     });
-    const shadow_shader = try graph.Shader.loadFromFilesystem(alloc, std.fs.cwd(), &.{
+    const shadow_shader = try graph.Shader.loadFromFilesystem(alloc, cwd, &.{
         .{ .path = "src/graphics/shader/shadow_map.vert", .t = .vert },
         .{ .path = "src/graphics/shader/shadow_map.frag", .t = .frag },
         .{ .path = "src/graphics/shader/shadow_map.geom", .t = .geom },
     });
 
-    const gbuffer_shader = try graph.Shader.loadFromFilesystem(alloc, std.fs.cwd(), &.{
+    const gbuffer_shader = try graph.Shader.loadFromFilesystem(alloc, cwd, &.{
         .{ .path = "asset/shader/gbuffer.vert", .t = .vert },
         .{ .path = "asset/shader/gbuffer.frag", .t = .frag },
     });
 
-    const deferred_light_shader = try graph.Shader.loadFromFilesystem(alloc, std.fs.cwd(), &.{
+    const deferred_light_shader = try graph.Shader.loadFromFilesystem(alloc, cwd, &.{
         .{ .path = "asset/shader/deferred_light.vert", .t = .vert },
         .{ .path = "asset/shader/deferred_light.frag", .t = .frag },
     });
@@ -832,7 +833,7 @@ pub fn main() !void {
 
     var lumber = std.ArrayList(ColType.Cube).init(alloc);
     {
-        if (std.fs.cwd().openFile("lumber.json", .{}) catch null) |infile| {
+        if (cwd.openFile("lumber.json", .{}) catch null) |infile| {
             const sl = try infile.reader().readAllAlloc(alloc, std.math.maxInt(usize));
             defer alloc.free(sl);
             const j = try std.json.parseFromSlice([]const ColType.Cube, alloc, sl, .{});
@@ -862,19 +863,24 @@ pub fn main() !void {
     }
     defer lumber.deinit();
     defer {
-        const outfile = std.fs.cwd().createFile("lumber.json", .{}) catch unreachable;
+        const outfile = cwd.createFile("lumber.json", .{}) catch unreachable;
         std.json.stringify(lumber.items, .{}, outfile.writer()) catch unreachable;
         outfile.close();
     }
 
-    var cubes_st = try loadObj(alloc, std.fs.cwd(), "sky.obj", 0.3, sky_tex, draw.textured_tri_3d_shader);
+    var cubes_st = try loadObj(alloc, cwd, "sky.obj", 0.3, sky_tex, draw.textured_tri_3d_shader);
     defer cubes_st.deinit();
 
-    const couch_tex = try graph.Texture.initFromImgFile(alloc, std.fs.cwd(), "drum.png", .{});
-    const couch_normal = try graph.Texture.initFromImgFile(alloc, std.fs.cwd(), "asset/oil_drum_normal.png", .{});
+    const couch_tex = try graph.Texture.initFromImgFile(alloc, cwd, "drum.png", .{});
+    const couch_normal = try graph.Texture.initFromImgFile(alloc, cwd, "asset/oil_drum_normal.png", .{});
     const couch_m = graph.za.Mat4.identity().translate(V3f.new(3, 0, 4));
-    var couch = try loadObj(alloc, std.fs.cwd(), "barrel.obj", 0.03, couch_tex, draw.textured_tri_3d_shader);
+    var couch = try loadObj(alloc, cwd, "barrel.obj", 0.03, couch_tex, draw.textured_tri_3d_shader);
     defer couch.deinit();
+
+    const pistol_tex = try graph.Texture.initFromImgFile(alloc, cwd, "asset/pistol/textures/BrowningHP_Albedo.png", .{});
+    const pistol_norm = try graph.Texture.initFromImgFile(alloc, cwd, "asset/pistol/textures/BrowningHP_Normal.png", .{});
+    var pistol = try loadObj(alloc, cwd, "asset/pistol/untitled.obj", 0.3, pistol_tex, draw.textured_tri_3d_shader);
+    defer pistol.deinit();
 
     cubes_st.setData();
     win.grabMouse(true);
@@ -1067,7 +1073,7 @@ pub fn main() !void {
             third_cam.pos = third_cam.pos.sub(third_cam.front.scale(3));
         const screen_aspect = draw.screen_dimensions.x / draw.screen_dimensions.y;
         const cam_near = 0.1;
-        const cam_far = 1000;
+        const cam_far = 500;
         const cmatrix = third_cam.getMatrix(screen_aspect, cam_near, cam_far);
 
         c.alListener3f(c.AL_POSITION, camera.pos.x(), camera.pos.y(), camera.pos.z());
@@ -1247,16 +1253,8 @@ pub fn main() !void {
 
                 c.glBindBufferBase(c.GL_UNIFORM_BUFFER, 0, light_mat_ubo);
 
-                graph.GL.passUniform(sh, "cascadePlaneDistances[0]", @as(f32, planes[0]));
-                graph.GL.passUniform(sh, "cascadePlaneDistances[1]", @as(f32, planes[1]));
-                graph.GL.passUniform(sh, "cascadePlaneDistances[2]", @as(f32, planes[2]));
-                graph.GL.passUniform(sh, "cascadePlaneDistances[3]", @as(f32, 400));
-
                 graph.GL.passUniform(sh, "view", cam_matrix);
                 graph.GL.passUniform(sh, "model", mod);
-                graph.GL.passUniform(sh, "view_pos", third_cam.pos);
-                graph.GL.passUniform(sh, "light_dir", light_dir);
-                graph.GL.passUniform(sh, "light_color", sun_color.toCharColor().toFloat());
 
                 c.glBindVertexArray(cubes.vao);
                 c.glDrawElements(c.GL_TRIANGLES, @as(c_int, @intCast(cubes.indicies.items.len)), c.GL_UNSIGNED_INT, null);
@@ -1268,6 +1266,23 @@ pub fn main() !void {
                 graph.GL.passUniform(sh, "model", couch_m);
                 c.glBindTexture(c.GL_TEXTURE_2D, couch.texture.id);
                 c.glDrawElements(c.GL_TRIANGLES, @as(c_int, @intCast(couch.indicies.items.len)), c.GL_UNSIGNED_INT, null);
+
+                c.glBindVertexArray(pistol.vao);
+                c.glBindTextureUnit(1, pistol_norm.id);
+                c.glUniform1i(diffuse_loc, 0);
+                c.glActiveTexture(c.GL_TEXTURE0 + 0);
+                graph.GL.passUniform(
+                    sh,
+                    "model",
+                    Mat4.fromTranslate(
+                        camera.pos.add(V3f.new(camera.front.x(), -0.3, camera.front.z())),
+                    ).rotate(
+                        deg(std.math.atan2(camera.front.x(), camera.front.z())),
+                        V3f.new(0, 1, 0),
+                    ),
+                );
+                c.glBindTexture(c.GL_TEXTURE_2D, pistol.texture.id);
+                c.glDrawElements(c.GL_TRIANGLES, @as(c_int, @intCast(pistol.indicies.items.len)), c.GL_UNSIGNED_INT, null);
 
                 { //draw the heightmap
                     c.glBindVertexArray(disp_cubes.vao);
@@ -1355,7 +1370,7 @@ pub fn main() !void {
         //const rr = graph.Rec(0, 0, win.screen_dimensions.x, win.screen_dimensions.y);
         //const r2 = graph.Rec(0, 0, win.screen_dimensions.x, -win.screen_dimensions.y);
         //draw.rectTex(rr, r2, .{ .w = win.screen_dimensions.x, .h = win.screen_dimensions.y, .id = gbuffer.albedo });
-        { //Draw lighting quad
+        if (draw_gbuffer == .shaded) { //Draw lighting quad
             try light_batch.clear();
             try light_batch.vertices.appendSlice(&.{
                 .{ .pos = graph.Vec3f.new(-1, 1, 0), .uv = graph.Vec2f.new(0, 1) },
@@ -1380,7 +1395,7 @@ pub fn main() !void {
             graph.GL.passUniform(deferred_light_shader, "cascadePlaneDistances[2]", @as(f32, planes[2]));
             graph.GL.passUniform(deferred_light_shader, "cascadePlaneDistances[3]", @as(f32, 400));
 
-            graph.GL.passUniform(deferred_light_shader, "view", cam_matrix);
+            graph.GL.passUniform(deferred_light_shader, "view", third_cam.getViewMatrix());
 
             c.glDrawArrays(c.GL_TRIANGLE_STRIP, 0, @as(c_int, @intCast(light_batch.vertices.items.len)));
         }
@@ -1395,14 +1410,24 @@ pub fn main() !void {
         cubes_grnd.draw(cam_matrix, graph.za.Mat4.identity().scale(graph.za.Vec3.new(1, 1, 1)));
         try draw.flush(null, camera);
         graph.c.glClear(graph.c.GL_DEPTH_BUFFER_BIT);
+        if (draw_gbuffer != .shaded) {
+            const rr = graph.Rec(0, 0, win.screen_dimensions.x, win.screen_dimensions.y);
+            const tr = graph.Rec(0, 0, win.screen_dimensions.x, -win.screen_dimensions.y);
+            draw.rectTex(rr, tr, .{ .id = switch (draw_gbuffer) {
+                .pos => gbuffer.pos,
+                .normal => gbuffer.normal,
+                .albedo => gbuffer.albedo,
+                .shaded => unreachable,
+            }, .w = win.screen_dimensions.x, .h = win.screen_dimensions.y });
+        }
         { //draw a gizmo at crosshair
             const p = camera.pos.add(camera.front.scale(1));
             const l = 0.08;
             draw.line3D(p, p.add(V3f.new(l, 0, 0)), 0xff0000ff);
-            draw.line3D(p, p.add(V3f.new(0, l, 0)), 0x0000ffff);
-            draw.line3D(p, p.add(V3f.new(0, 0, l)), 0x00ff00ff);
+            draw.line3D(p, p.add(V3f.new(0, l, 0)), 0x00ff00ff);
+            draw.line3D(p, p.add(V3f.new(0, 0, l)), 0x0000ffff);
         }
-        draw.textFmt(.{ .x = 0, .y = 0 }, "pos [{d:.2}, {d:.2}, {d:.2}]\nyaw: {d}\npitch: {d}\ngrounded {any}\ntool: {s}", .{
+        draw.textFmt(.{ .x = 0, .y = 0 }, "pos [{d:.2}, {d:.2}, {d:.2}]\nyaw: {d}\npitch: {d}\ngrounded {any}\ntool: {s}\n", .{
             cam_bb.pos.x(),
             cam_bb.pos.y(),
             cam_bb.pos.z(),
@@ -1492,6 +1517,7 @@ pub fn main() !void {
                                 try os9gui.radio(&shadow_map_select);
                                 os9gui.sliderEx(&sun_perspective_index, 0, CASCADE_COUNT - 1, "cascade level: {d}", .{sun_perspective_index});
                             }
+                            try os9gui.radio(&draw_gbuffer);
                             os9gui.hr();
                             if (try os9gui.numberCombo("shadow resolution: {d}", .{sm.res}, &.{ 256, 512, 1024, 2048, 4096 }, &sm.res)) {
                                 c.glDeleteFramebuffers(1, &sm.fbo);
