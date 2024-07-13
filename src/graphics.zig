@@ -1038,6 +1038,10 @@ pub const ImmediateDrawingContext = struct {
     }
 
     pub fn flush(self: *Self, custom_camera: ?Rect, camera_3d: ?Camera3D) !void {
+        c.glEnable(c.GL_BLEND);
+        c.glBlendFunc(c.GL_SRC_ALPHA, c.GL_ONE_MINUS_SRC_ALPHA);
+        c.glBlendEquation(c.GL_FUNC_ADD);
+        defer c.glDisable(c.GL_BLEND);
         const cb = if (custom_camera) |cc| cc else Rec(0, 0, self.screen_dimensions.x, self.screen_dimensions.y);
         const view = za.orthographic(cb.x, cb.x + cb.w, cb.y + cb.h, cb.y, -100000, 1);
         const view_3d = if (camera_3d) |c3| c3.getMatrix(self.screen_dimensions.x / self.screen_dimensions.y, 0.1, 100000) else view;

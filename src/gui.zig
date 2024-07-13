@@ -2019,6 +2019,10 @@ pub const GuiDrawContext = struct {
     pub fn drawGui(self: *Self, draw: *graph.ImmediateDrawingContext, gui: *Context) !void {
         try draw.flush(null, null);
         graph.c.glEnable(graph.c.GL_DEPTH_TEST);
+        graph.c.glEnable(graph.c.GL_BLEND);
+        graph.c.glBlendFunc(graph.c.GL_SRC_ALPHA, graph.c.GL_ONE_MINUS_SRC_ALPHA);
+        graph.c.glBlendEquation(graph.c.GL_FUNC_ADD);
+        defer graph.c.glDisable(graph.c.GL_BLEND);
         //defer graph.c.glDisable(graph.c.GL_DEPTH_TEST);
         const scr_dim = draw.screen_dimensions;
         const ignore_cache = true;

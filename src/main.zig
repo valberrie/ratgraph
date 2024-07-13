@@ -992,7 +992,7 @@ pub fn main() !void {
     var camera = graph.Camera3D{};
     const camera_spawn = V3f.new(1, 3, 1);
     camera.pos = camera_spawn;
-    const woodtex = try graph.Texture.initFromImgFile(alloc, cwd, "asset/color.png", .{});
+    const woodtex = try graph.Texture.initFromImgFile(alloc, cwd, "asset/woodout/color.png", .{});
 
     var disp_cubes = graph.Cubes.init(alloc, woodtex, draw.textured_tri_3d_shader);
     defer disp_cubes.deinit();
@@ -1127,6 +1127,7 @@ pub fn main() !void {
     try libatch.inst.append(.{ .light_pos = graph.Vec3f.new(-9, 1, 5) });
     try libatch.inst.append(.{ .light_pos = graph.Vec3f.new(10, 1, 3) });
     try libatch.inst.append(.{ .light_pos = graph.Vec3f.new(1, 2, 4) });
+    try libatch.inst.append(.{ .light_pos = graph.Vec3f.new(2, -4, 4) });
     try libatch.inst.append(.{
         .light_pos = graph.Vec3f.new(4.33, 2, -7.44),
         .diffuse = graph.Vec3f.new(3, 0, 0),
@@ -1576,7 +1577,7 @@ pub fn main() !void {
                     ),
                 );
                 c.glBindTexture(c.GL_TEXTURE_2D, pistol.texture.id);
-                c.glDrawElements(c.GL_TRIANGLES, @as(c_int, @intCast(pistol.indicies.items.len)), c.GL_UNSIGNED_INT, null);
+                //c.glDrawElements(c.GL_TRIANGLES, @as(c_int, @intCast(pistol.indicies.items.len)), c.GL_UNSIGNED_INT, null);
 
                 { //draw the heightmap
                     c.glBindVertexArray(disp_cubes.vao);
