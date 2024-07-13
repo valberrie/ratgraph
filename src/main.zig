@@ -1169,11 +1169,20 @@ pub fn main() !void {
         p2: V3f = V3f.zero(),
     } = .{};
 
+    const keys: struct {
+        const SC = graph.SDL.keycodes.Scancode;
+        delete_selected: SC = .X,
+        show_menu: SC = .TAB,
+        tool_1: SC = ._1,
+        tool_2: SC = ._2,
+        tool_3: SC = ._3,
+    } = .{};
+
     var mode: enum {
         look,
         manipulate,
     } = .look;
-    var sel_index: usize = 0;
+    var sel_index: ?usize = null;
     var sel_dist: f32 = 0;
     var sel_resid = V3f.new(0, 0, 0);
     var sel_snap: f32 = 12 * itm;
@@ -1287,18 +1296,18 @@ pub fn main() !void {
             .manipulate => {},
         }
 
-        if (win.keyPressed(.TAB)) {
+        if (win.keyPressed(keys.show_menu)) {
             show_gui = !show_gui;
             win.grabMouse(!show_gui);
         }
 
-        if (win.keyPressed(._1))
+        if (win.keyPressed(keys.tool_1))
             tool = .none;
-        if (win.keyPressed(._2)) {
+        if (win.keyPressed(keys.tool_2)) {
             tool = .pencil;
             pencil = .{};
         }
-        if (win.keyPressed(._3)) {
+        if (win.keyPressed(keys.tool_3)) {
             tool = .erase;
         }
 
@@ -1306,6 +1315,14 @@ pub fn main() !void {
             sel_snap *= 2;
         if (win.keyPressed(.F))
             sel_snap /= 2;
+
+        if (win.keyPressed(keys.delete_selected)) {
+            if (sel_index) |si| {
+                //TODO put in an undo buffer
+                _ = lumber.swapRemove(si);
+                sel_index = null;
+            }
+        }
 
         const sc = 1;
 
@@ -1462,12 +1479,12 @@ pub fn main() !void {
                         //        graph.itc(0x00ff00ff),
                         //    },
                         //);
-                    }
+                    } else {}
                 },
                 .manipulate => {
                     if (win.mouse.left != .high)
                         mode = .look;
-                    const lum = &lumber.items[sel_index];
+                    const lum = &lumber.items[sel_index.?];
                     //lum.origin = lum.origin.add(V3f.new(win.mouse.delta.y * 0.01, 0, win.mouse.delta.x * 0.01)); //win.mouse.delta.x
                     const yw = radians(camera.yaw);
                     const pf: f32 = if (camera.pitch < 0) -1.0 else 1.0;
@@ -1671,6 +1688,9 @@ pub fn main() !void {
                     //        graph.itc(0x00ff00ff),
                     //    },
                     //);
+                } else {
+                    if (win.mouse.left == .high)
+                        sel_index = null;
                 }
             },
             .none => {},
@@ -1888,7 +1908,34 @@ pub fn main() !void {
             draw.line3D(p, p.add(V3f.new(0, l, 0)), 0x00ff00ff);
             draw.line3D(p, p.add(V3f.new(0, 0, l)), 0x0000ffff);
         }
-        draw.textFmt(.{ .x = 0, .y = 0 }, "pos [{d:.2}, {d:.2}, {d:.2}]\nyaw: {d}\npitch: {d}\ngrounded {any}\ntool: {s}\nsnap: {d}\n", .{
+        if (sel_index) |si| { //draw outline around selected cube
+            const slum = &lumber.items[si];
+            const col = 0x00ff00ff;
+            draw.line3D(slum.pos, slum.pos.add(V3f.new(slum.ext.x(), 0, 0)), col);
+            draw.line3D(slum.pos, slum.pos.add(V3f.new(0, slum.ext.y(), 0)), col);
+            draw.line3D(slum.pos, slum.pos.add(V3f.new(0, 0, slum.ext.z())), col);
+
+            const other = slum.pos.add(slum.ext);
+            draw.line3D(other, other.sub(V3f.new(slum.ext.x(), 0, 0)), col);
+            draw.line3D(other, other.sub(V3f.new(0, slum.ext.y(), 0)), col);
+            draw.line3D(other, other.sub(V3f.new(0, 0, slum.ext.z())), col);
+
+            const p2 = slum.pos.add(V3f.new(slum.ext.x(), 0, 0));
+            draw.line3D(p2, p2.add(V3f.new(0, slum.ext.y(), 0)), col);
+            draw.line3D(p2, p2.add(V3f.new(0, 0, slum.ext.z())), col);
+
+            const p3 = slum.pos.add(V3f.new(0, 0, slum.ext.z()));
+            draw.line3D(p3, p3.add(V3f.new(0, slum.ext.y(), 0)), col);
+            draw.line3D(p3, p3.add(V3f.new(slum.ext.x(), 0, 0)), col);
+
+            const p4 = slum.pos.add(V3f.new(0, slum.ext.y(), 0));
+            draw.line3D(p4, p4.add(V3f.new(slum.ext.x(), 0, 0)), col);
+            draw.line3D(p4, p4.add(V3f.new(0, 0, slum.ext.z())), col);
+
+            //draw.line3D(other, other.sub(V3f.new()))
+            //draw.line3D()
+        }
+        draw.textFmt(.{ .x = 0, .y = 0 }, "pos [{d:.2}, {d:.2}, {d:.2}]\nyaw: {d}\npitch: {d}\ngrounded {any}\ntool: {s}\nsnap: {d}\nPress {s} to show menu\n", .{
             cam_bb.pos.x(),
             cam_bb.pos.y(),
             cam_bb.pos.z(),
@@ -1897,6 +1944,7 @@ pub fn main() !void {
             grounded,
             @tagName(tool),
             sel_snap,
+            @tagName(keys.show_menu),
         }, &font, 12, 0xffffffff);
 
         if (show_gui) {
@@ -1995,6 +2043,14 @@ pub fn main() !void {
                                 for (&planes) |*plane| {
                                     try os9gui.textboxNumber(plane);
                                 }
+                            }
+                        },
+                        .keyboard => {
+                            _ = try os9gui.beginV();
+                            defer os9gui.endL();
+                            const info = @typeInfo(@TypeOf(keys));
+                            inline for (info.Struct.fields) |field| {
+                                os9gui.label("{s}: {s}", .{ field.name, @tagName(@field(keys, field.name)) });
                             }
                         },
                         .info => {
