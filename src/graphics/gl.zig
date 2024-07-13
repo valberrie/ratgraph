@@ -105,7 +105,9 @@ pub fn passUniform(shader: c_uint, uniform_name: [*c]const u8, data: anytype) vo
         za.Mat4 => c.glUniformMatrix4fv(uniform_location, 1, c.GL_FALSE, &data.data[0][0]),
         za.Vec3 => c.glUniform3f(uniform_location, data.data[0], data.data[1], data.data[2]),
         f32 => c.glUniform1f(uniform_location, data),
+        bool => c.glUniform1i(uniform_location, if (data) 1 else 0),
         Color => c.glUniform3f(uniform_location, data[0], data[1], data[2]),
+        ptypes.Vec2i => c.glUniform2f(uniform_location, @floatFromInt(data.x), @floatFromInt(data.y)),
         else => @compileError("GL.passUniform type not implemented: " ++ @typeName(@TypeOf(data))),
     }
 }
@@ -122,12 +124,17 @@ pub fn bufferData(buffer_type: glID, handle: glID, comptime item: type, slice: [
 }
 
 pub fn generateVertexAttributes(vao: c_uint, vbo: c_uint, comptime T: anytype) void {
+    generateVertexAttributesEx(vao, vbo, T, 0);
+}
+
+pub fn generateVertexAttributesEx(vao: c_uint, vbo: c_uint, comptime T: anytype, field_offset: u32) void {
     const info = @typeInfo(T);
     switch (info) {
         .Struct => {
             const st = info.Struct;
             if (st.layout != .@"packed") @compileError("generateVertexAttributes only supports packed structs");
-            inline for (st.fields, 0..) |field, f_i| {
+            inline for (st.fields, 0..) |field, f_ii| {
+                const f_i = @as(u32, @intCast(f_ii)) + field_offset;
                 switch (field.type) {
                     f32 => floatVertexAttrib(vao, vbo, f_i, 1, T, field.name),
                     Vec2f => floatVertexAttrib(vao, vbo, f_i, 2, T, field.name),

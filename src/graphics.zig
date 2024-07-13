@@ -1046,7 +1046,7 @@ pub const ImmediateDrawingContext = struct {
         const sortctx = MapKeySortCtx{ .items = self.batches.keys() }; // Sort the batches by params.draw_priority
         self.batches.sort(sortctx);
         var b_it = self.batches.iterator();
-        c.glEnable(c.GL_BLEND);
+        //c.glEnable(c.GL_BLEND);
         while (b_it.next()) |b| {
             inline for (@typeInfo(Batches).Union.fields, 0..) |ufield, i| {
                 if (i == @intFromEnum(b.value_ptr.*)) {
