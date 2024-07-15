@@ -266,6 +266,11 @@ fn doesRayIntersectBoundingBox(comptime numdim: usize, comptime ft: type, min_b:
     return coord;
 }
 
+fn doesRayIntersectBBZ(ray_origin: V3f, ray_dir: V3f, min: V3f, max: V3f) ?V3f {
+    const ret = doesRayIntersectBoundingBox(3, f32, min.data, max.data, ray_origin.data, ray_dir.data);
+    return if (ret) |r| V3f.new(r[0], r[1], r[2]) else null;
+}
+
 fn doesRayIntersectPlane(ray_0: V3f, ray_norm: V3f, plane_0: V3f, plane_norm: V3f) ?V3f {
     const ln = ray_norm.dot(plane_norm);
     if (ln == 0)
@@ -889,6 +894,36 @@ pub const LightInstanceBatch = struct {
     }
 };
 
+pub const ScreenSpaceVertHelper = struct {
+    pub const SortItem = struct {
+        ws: graph.za.Vec3,
+        ss: graph.Vec2f,
+    };
+    reference: graph.Vec2f,
+    pub fn sortByDist(ctx: @This(), a: SortItem, b: SortItem) bool {
+        return a.ss.sub(ctx.reference).length() < b.ss.sub(ctx.reference).length();
+    }
+};
+
+pub fn screenSpaceToWorld(cam_matrix: Mat4, screen: graph.Vec2f, win_dim: graph.Vec2f, ndc_z: f32) V3f {
+    const sw = win_dim.smul(0.5);
+    const pp = screen.sub(sw).mul(sw.inv());
+    const t = V3f.new(pp.x, -pp.y, ndc_z);
+    const inv = cam_matrix.inv();
+    const world = inv.mulByVec4(t.toVec4(1));
+    return world.toVec3().scale(1 / world.w());
+}
+
+pub fn worldSpaceToScreen(cam_matrix: Mat4, world: V3f, win_dim: graph.Vec2f) graph.Vec2f {
+    const tpos = cam_matrix.mulByVec4(world.toVec4(1));
+    const w = tpos.w();
+    //const z = tpos.z();
+    const pp = graph.Vec2f.new(tpos.x() / w, tpos.y() / -w);
+    const sw = win_dim.smul(0.5);
+    const spos = pp.mul(sw).add(sw);
+    return spos;
+}
+
 pub fn main() !void {
     const cwd = std.fs.cwd();
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -1183,6 +1218,10 @@ pub fn main() !void {
         manipulate,
     } = .look;
     var sel_index: ?usize = null;
+    var sel_norm: ?V3f = null;
+    var sel_int: ?V3f = null;
+    var do_camera_move = true;
+
     var sel_dist: f32 = 0;
     var sel_resid = V3f.new(0, 0, 0);
     var sel_snap: f32 = 12 * itm;
@@ -1281,7 +1320,7 @@ pub fn main() !void {
 
                 camera.pos = camera.pos.add(p_velocity.scale(dt));
 
-                if (!show_gui)
+                if (!show_gui and do_camera_move)
                     camera.updateDebugMove(.{
                         .down = false,
                         .up = false,
@@ -1609,159 +1648,6 @@ pub fn main() !void {
         }
         c.glBindFramebuffer(c.GL_FRAMEBUFFER, 0);
 
-        switch (tool) {
-            .erase => {
-                var nearest_i: ?usize = null;
-                var nearest: f32 = 0;
-
-                for (lumber.items, 0..) |lum, i| {
-                    if (doesRayIntersectBoundingBox(3, f32, lum.pos.data, lum.pos.add(lum.ext).data, camera.pos.data, camera.front.data)) |int| {
-                        const p = V3f.new(int[0], int[1], int[2]);
-                        if (nearest_i == null) {
-                            nearest_i = i;
-                            nearest = p.distance(camera.pos);
-                            point = p;
-                        } else {
-                            const dist = p.distance(camera.pos);
-                            if (nearest > dist) {
-                                nearest = dist;
-                                nearest_i = i;
-                                point = p;
-                            }
-                        }
-                    }
-                }
-                if (nearest_i) |i| {
-                    if (win.mouse.left == .high) {
-                        //mode = .manipulate;
-                        sel_index = i;
-                        sel_dist = nearest;
-                    }
-                    const lum = &lumber.items[i];
-                    if (true) {
-                        var norm: @Vector(3, f32) = @splat(0);
-                        const p = point.toArray();
-                        const ex = lum.ext.toArray();
-                        for (lum.pos.toArray(), 0..) |dim, ind| {
-                            if (dim == p[ind]) {
-                                norm[ind] = -1;
-                                break;
-                            }
-                            if (dim + ex[ind] == p[ind]) {
-                                norm[ind] = 1;
-                                break;
-                            }
-                        }
-
-                        const n = V3f{ .data = norm };
-                        draw.line3D(
-                            point,
-                            point.add(n),
-                            0x00ff00ff,
-                        );
-
-                        if (win.keyPressed(.R))
-                            lum.* = lum.addInDir(6 * itm, n);
-                        if (win.keyPressed(.F))
-                            lum.* = lum.addInDir(-6 * itm, n);
-                    }
-                    if (win.mouse.right == .high) {
-                        _ = lumber.swapRemove(i);
-                    }
-                    // determine normal
-
-                    //line-plane intersection
-                    //try cubes_im.cube(
-                    //    lum.pos.x() - 0.01,
-                    //    lum.pos.y() - 0.01,
-                    //    lum.pos.z() - 0.01,
-                    //    lum.ext.x() + 0.02,
-                    //    lum.ext.y() + 0.02,
-                    //    lum.ext.z() + 0.02,
-                    //    tex.rect(),
-                    //    &[_]graph.CharColor{
-                    //        graph.itc(0x00ff00ff),
-                    //        graph.itc(0x00ff00ff),
-                    //        graph.itc(0x00ff00ff),
-                    //        graph.itc(0x00ff00ff),
-                    //        graph.itc(0x00ff00ff),
-                    //        graph.itc(0x00ff00ff),
-                    //    },
-                    //);
-                } else {
-                    if (win.mouse.left == .high)
-                        sel_index = null;
-                }
-            },
-            .none => {},
-            .pencil => {
-                var o = cam_bb.pos.add(cam_bb.ext.scale(0.5));
-                o.yMut().* = cam_bb.pos.y();
-                var origin = snapV3(o, sel_snap);
-                //origin.data = @divFloor(origin.data, @as(@Vector(3, f32), @splat(sel_snap))) * @as(@Vector(3, f32), @splat(sel_snap));
-                if (win.mouse.wheel_delta.y > 0)
-                    pencil.grid_y += sel_snap;
-                if (win.mouse.wheel_delta.y < 0)
-                    pencil.grid_y -= sel_snap;
-                origin.yMut().* = pencil.grid_y;
-                switch (pencil.state) {
-                    .init => {
-                        pencil.state = .p1;
-                        pencil.grid_y = snap1(cam_bb.pos.y(), sel_snap);
-                    },
-                    .p1 => {
-                        if (doesRayIntersectPlane(camera.pos, camera.front, origin, V3f.new(0, 1, 0))) |p| {
-                            const pp = snapV3(p.add(V3f.new(sel_snap / 2, 0, sel_snap / 2)), sel_snap);
-                            {
-                                const num_lines = 30;
-                                const half = @divTrunc(num_lines, 2) * sel_snap;
-                                for (0..num_lines + 1) |x| {
-                                    const xd: f32 = @as(f32, @floatFromInt(x)) * sel_snap;
-                                    const start = origin.add(V3f.new(xd - half, 0, -half));
-                                    const starty = origin.add(V3f.new(-half, 0, xd - half));
-                                    draw.line3D(start, start.add(V3f.new(0, 0, sel_snap * num_lines)), 0x00ff00ff);
-                                    draw.line3D(starty, starty.add(V3f.new(sel_snap * num_lines, 0, 0)), 0x00ff00ff);
-                                }
-                                const p_feet = o;
-                                const penc_base = V3f.new(pp.x(), p_feet.y(), pp.z());
-                                draw.line3D(p_feet, penc_base, 0x444444ff);
-                                draw.line3D(penc_base, pp, 0x888888ff);
-                            }
-                            draw.point3D(pp, 0xff0000ff);
-                            if (win.mouse.left == .rising) {
-                                pencil.state = .p2;
-                                pencil.p1 = pp;
-                            }
-                        }
-                    },
-                    .p2 => {
-                        if (doesRayIntersectPlane(camera.pos, camera.front, origin, V3f.new(0, 1, 0))) |p| {
-                            const pp = snapV3(p.add(V3f.new(sel_snap / 2, 0, sel_snap / 2)), sel_snap);
-                            const cube = ColType.Cube.fromBounds(pp, pencil.p1);
-                            draw.cube(cube.pos, cube.ext, 0xffffffff);
-                            {
-                                const num_lines = 30;
-                                for (0..num_lines + 1) |x| {
-                                    const half = @divTrunc(num_lines, 2) * sel_snap;
-                                    const xd: f32 = @as(f32, @floatFromInt(x)) * sel_snap;
-                                    const start = origin.add(V3f.new(xd - half, 0, -half));
-                                    const starty = origin.add(V3f.new(-half, 0, xd - half));
-                                    draw.line3D(start, start.add(V3f.new(0, 0, sel_snap * num_lines)), 0x00ff00ff);
-                                    draw.line3D(starty, starty.add(V3f.new(sel_snap * num_lines, 0, 0)), 0x00ff00ff);
-                                }
-                            }
-                            draw.point3D(pp, 0xff0000ff);
-                            if (win.mouse.left == .rising) {
-                                pencil.state = .init;
-                                pencil.p2 = pp;
-                                if (@reduce(.Mul, cube.ext.data) != 0)
-                                    try lumber.append(cube);
-                            }
-                        }
-                    },
-                }
-            },
-        }
         //const rr = graph.Rec(0, 0, win.screen_dimensions.x, win.screen_dimensions.y);
         //const r2 = graph.Rec(0, 0, win.screen_dimensions.x, -win.screen_dimensions.y);
         //draw.rectTex(rr, r2, .{ .w = win.screen_dimensions.x, .h = win.screen_dimensions.y, .id = gbuffer.albedo });
@@ -1908,32 +1794,271 @@ pub fn main() !void {
             draw.line3D(p, p.add(V3f.new(0, l, 0)), 0x00ff00ff);
             draw.line3D(p, p.add(V3f.new(0, 0, l)), 0x0000ffff);
         }
-        if (sel_index) |si| { //draw outline around selected cube
-            const slum = &lumber.items[si];
-            const col = 0x00ff00ff;
-            draw.line3D(slum.pos, slum.pos.add(V3f.new(slum.ext.x(), 0, 0)), col);
-            draw.line3D(slum.pos, slum.pos.add(V3f.new(0, slum.ext.y(), 0)), col);
-            draw.line3D(slum.pos, slum.pos.add(V3f.new(0, 0, slum.ext.z())), col);
+        if (sel_index) |si| {
+            const verts = &lumber.items[si].getVerts();
+            const col1 = 0x701c23ff;
+            const sel_col = 0x00ff00ff;
+            const bot = verts[0..4];
+            const top = verts[4..8];
+            for (0..4) |i| {
+                var col: u32 = col1;
+                var colb: u32 = col1;
+                var colt: u32 = col1;
+                //if norm vertical, shade all 2 or 3
+                //else
 
-            const other = slum.pos.add(slum.ext);
-            draw.line3D(other, other.sub(V3f.new(slum.ext.x(), 0, 0)), col);
-            draw.line3D(other, other.sub(V3f.new(0, slum.ext.y(), 0)), col);
-            draw.line3D(other, other.sub(V3f.new(0, 0, slum.ext.z())), col);
+                //determine if vert lies on selected face and change color
+                //does vert cross bottom_horiz equal sel_norm
+                const vert = top[i].sub(bot[i]);
+                const horiz = bot[@mod(i + 1, 4)].sub(bot[i]);
+                const prev_horiz = bot[if (i == 0) 3 else i - 1].sub(bot[i]);
+                const n = vert.cross(horiz).norm();
+                const pn = prev_horiz.cross(vert).norm();
+                if (sel_norm) |sn| {
+                    if (n.eql(sn)) {
+                        col = sel_col;
+                        colt = col;
+                        colb = col;
+                    }
+                    if (pn.eql(sn))
+                        col = sel_col;
+                    if (sn.eql(V3f.new(0, 1, 0)))
+                        colt = sel_col;
+                    if (sn.eql(V3f.new(0, -1, 0)))
+                        colb = sel_col;
+                }
+                draw.line3D(bot[i], top[i], col);
+                draw.line3D(bot[i], bot[@mod(i + 1, 4)], colb);
+                draw.line3D(top[i], top[@mod(i + 1, 4)], colt);
+            }
+        }
+        switch (tool) {
+            .erase => {
+                do_camera_move = true;
+                if (win.keydown(.LSHIFT)) {
+                    if (sel_index) |si| {
+                        const lum = &lumber.items[si];
+                        if (sel_norm != null and win.mouse.left == .high) {
+                            //do_camera_move = false;
+                            //Determine where mouse ray was intersecting plane last frame
+                            //Calculate new plane pos so it stays
 
-            const p2 = slum.pos.add(V3f.new(slum.ext.x(), 0, 0));
-            draw.line3D(p2, p2.add(V3f.new(0, slum.ext.y(), 0)), col);
-            draw.line3D(p2, p2.add(V3f.new(0, 0, slum.ext.z())), col);
+                            const p00 = lum.getPlane0(sel_norm.?);
+                            const p0 = sel_int.?;
 
-            const p3 = slum.pos.add(V3f.new(0, 0, slum.ext.z()));
-            draw.line3D(p3, p3.add(V3f.new(0, slum.ext.y(), 0)), col);
-            draw.line3D(p3, p3.add(V3f.new(slum.ext.x(), 0, 0)), col);
+                            const n = sel_norm.?;
+                            const c0 = camera.pos;
+                            const cf = camera.front;
+                            const a = n;
+                            const b = cf.scale(-1);
+                            const c_ = c0.sub(p0);
+                            const od = (c_.x() * b.z() - b.x() * c_.z()) / (a.x() * b.z() - b.x() * a.z());
+                            //const pd = (a.x() * c.z() - b.x() * c_.z()) / (a.x() * b.z() - b.x() * a.z());
+                            draw.line3D(p0, p0.add(n.scale(od)), 0xff0000ff);
+                            lum.* = lum.addInDir(p00.sub(p0.add(n.scale(od))).mul(n).length(), sel_norm.?);
+                            //draw.textFmt(.{ .x = 500, .y = 500 }, "crass, {d}", .{od}, &font, 12, 0xffffffff);
 
-            const p4 = slum.pos.add(V3f.new(0, slum.ext.y(), 0));
-            draw.line3D(p4, p4.add(V3f.new(slum.ext.x(), 0, 0)), col);
-            draw.line3D(p4, p4.add(V3f.new(0, 0, slum.ext.z())), col);
+                            //const dist = p0.sub(camera.pos).length();
+                            //const yw = radians(camera.yaw);
+                            //const pf: f32 = if (camera.pitch < 0) -1.0 else 1.0;
+                            //const x: f32 = (sin(yw) * -win.mouse.delta.x + cos(yw) * win.mouse.delta.y * pf);
+                            //const z: f32 = (sin(yw) * win.mouse.delta.y * pf + cos(yw) * win.mouse.delta.x);
+                            //const y: f32 = -win.mouse.delta.y;
+                            //const m_world = V3f.new(x, y, z);
+                            //lum.* = lum.addInDir(sel_norm.?.dot(m_world) * dist / 100, sel_norm.?);
+                            //const scale: f32 = 3;
+                            //const scale = (camera.front.dot(dist) / camera.front.length());
+                            //const a = screenSpaceToWorld(cmatrix, win.screen_dimensions.toF().smul(0.5), win.screen_dimensions.toF(), 2 * scale / (400 - 0.1) - 1);
+                            //{
+                            //    //draw.line3D(p0, p0.add(), 0xff00ffff);
+                            //    //draw.line3D(camera.pos.add(V3f.new(0, 0, 2)), V3f.zero(), 0xff0000ff);
+                            //}
+                            ////draw.line3D(p0, a.mul(sel_norm.?), 0x0000ffff);
+                            //draw.line3D(p0, p0.add(a.sub(p0).mul(sel_norm.?)), 0xff0000ff);
+                            //const len = a.sub(p0).dot(sel_norm.?);
 
-            //draw.line3D(other, other.sub(V3f.new()))
-            //draw.line3D()
+                            //const yw = radians(camera.yaw);
+                            //const pf: f32 = if (camera.pitch < 0) -1.0 else 1.0;
+                            //const x: f32 = (sin(yw) * -win.mouse.delta.x + cos(yw) * win.mouse.delta.y * pf);
+                            //const z: f32 = (sin(yw) * win.mouse.delta.y * pf + cos(yw) * win.mouse.delta.x);
+                            //const y: f32 = -win.mouse.delta.y;
+                            //const m_world = V3f.new(x, y, z).norm();
+                        } else {
+                            if (doesRayIntersectBoundingBox(3, f32, lum.pos.data, lum.pos.add(lum.ext).data, camera.pos.data, camera.front.data)) |int| {
+                                const p = V3f.new(int[0], int[1], int[2]);
+                                var norm: @Vector(3, f32) = @splat(0);
+                                const pa = p.toArray();
+                                const ex = lum.ext.toArray();
+                                for (lum.pos.toArray(), 0..) |dim, ind| {
+                                    if (dim == pa[ind]) {
+                                        norm[ind] = -1;
+                                        break;
+                                    }
+                                    if (dim + ex[ind] == pa[ind]) {
+                                        norm[ind] = 1;
+                                        break;
+                                    }
+                                }
+
+                                const n = V3f{ .data = norm };
+                                sel_norm = n;
+                                sel_int = p;
+                                //Draw outline of face rather than normal
+                                draw.line3D(
+                                    p,
+                                    p.add(n),
+                                    0x00ff00ff,
+                                );
+                            } else { //If we don't intersect the box, which edge are we closest to
+                                sel_norm = null;
+                                const normals = [6]V3f{
+                                    V3f.new(-1, 0, 0), //left
+                                    V3f.new(1, 0, 0), //right
+                                    V3f.new(0, -1, 0), //down
+                                    V3f.new(0, 1, 0), //up
+                                    V3f.new(0, 0, -1), //back
+                                    V3f.new(0, 0, 1), //forward
+                                };
+                                for (normals) |n| {
+                                    const d = n.dot(camera.front);
+                                    if (d >= 0) {
+                                        //for each normal, test if camera ray intersects a bounding box pointing out from normal
+                                        const positive = n.dot(V3f.new(1, 1, 1)) > 0;
+                                        //TODO what should this magic num be?
+                                        const min = if (positive) lum.pos else lum.pos.add(n.scale(100));
+                                        const max = if (positive) lum.pos.add(lum.ext.add(n.scale(100))) else lum.pos.add(lum.ext);
+                                        if (doesRayIntersectBBZ(camera.pos, camera.front, min, max)) |inti| {
+                                            sel_norm = n;
+                                            sel_int = inti;
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    sel_norm = null; //Reset the face selection once we let go of shift
+                    var nearest_i: ?usize = null;
+                    var nearest: f32 = 0;
+
+                    for (lumber.items, 0..) |lum, i| {
+                        if (doesRayIntersectBoundingBox(3, f32, lum.pos.data, lum.pos.add(lum.ext).data, camera.pos.data, camera.front.data)) |int| {
+                            const p = V3f.new(int[0], int[1], int[2]);
+                            if (nearest_i == null) {
+                                nearest_i = i;
+                                nearest = p.distance(camera.pos);
+                                point = p;
+                            } else {
+                                const dist = p.distance(camera.pos);
+                                if (nearest > dist) {
+                                    nearest = dist;
+                                    nearest_i = i;
+                                    point = p;
+                                }
+                            }
+                        }
+                    }
+                    if (nearest_i) |i| {
+                        if (win.mouse.left == .high) {
+                            //mode = .manipulate;
+                            sel_index = i;
+                            sel_dist = nearest;
+                        }
+                        // determine normal
+
+                        //line-plane intersection
+                        //try cubes_im.cube(
+                        //    lum.pos.x() - 0.01,
+                        //    lum.pos.y() - 0.01,
+                        //    lum.pos.z() - 0.01,
+                        //    lum.ext.x() + 0.02,
+                        //    lum.ext.y() + 0.02,
+                        //    lum.ext.z() + 0.02,
+                        //    tex.rect(),
+                        //    &[_]graph.CharColor{
+                        //        graph.itc(0x00ff00ff),
+                        //        graph.itc(0x00ff00ff),
+                        //        graph.itc(0x00ff00ff),
+                        //        graph.itc(0x00ff00ff),
+                        //        graph.itc(0x00ff00ff),
+                        //        graph.itc(0x00ff00ff),
+                        //    },
+                        //);
+                    } else {
+                        if (win.mouse.left == .high)
+                            sel_index = null;
+                    }
+                }
+            },
+            .none => {},
+            .pencil => {
+                var o = cam_bb.pos.add(cam_bb.ext.scale(0.5));
+                o.yMut().* = cam_bb.pos.y();
+                var origin = snapV3(o, sel_snap);
+                //origin.data = @divFloor(origin.data, @as(@Vector(3, f32), @splat(sel_snap))) * @as(@Vector(3, f32), @splat(sel_snap));
+                if (win.mouse.wheel_delta.y > 0)
+                    pencil.grid_y += sel_snap;
+                if (win.mouse.wheel_delta.y < 0)
+                    pencil.grid_y -= sel_snap;
+                origin.yMut().* = pencil.grid_y;
+                switch (pencil.state) {
+                    .init => {
+                        pencil.state = .p1;
+                        pencil.grid_y = snap1(cam_bb.pos.y(), sel_snap);
+                    },
+                    .p1 => {
+                        if (doesRayIntersectPlane(camera.pos, camera.front, origin, V3f.new(0, 1, 0))) |p| {
+                            const pp = snapV3(p.add(V3f.new(sel_snap / 2, 0, sel_snap / 2)), sel_snap);
+                            {
+                                const num_lines = 30;
+                                const half = @divTrunc(num_lines, 2) * sel_snap;
+                                for (0..num_lines + 1) |x| {
+                                    const xd: f32 = @as(f32, @floatFromInt(x)) * sel_snap;
+                                    const start = origin.add(V3f.new(xd - half, 0, -half));
+                                    const starty = origin.add(V3f.new(-half, 0, xd - half));
+                                    draw.line3D(start, start.add(V3f.new(0, 0, sel_snap * num_lines)), 0x00ff00ff);
+                                    draw.line3D(starty, starty.add(V3f.new(sel_snap * num_lines, 0, 0)), 0x00ff00ff);
+                                }
+                                const p_feet = o;
+                                const penc_base = V3f.new(pp.x(), p_feet.y(), pp.z());
+                                draw.line3D(p_feet, penc_base, 0x444444ff);
+                                draw.line3D(penc_base, pp, 0x888888ff);
+                            }
+                            draw.point3D(pp, 0xff0000ff);
+                            if (win.mouse.left == .rising) {
+                                pencil.state = .p2;
+                                pencil.p1 = pp;
+                            }
+                        }
+                    },
+                    .p2 => {
+                        if (doesRayIntersectPlane(camera.pos, camera.front, origin, V3f.new(0, 1, 0))) |p| {
+                            const pp = snapV3(p.add(V3f.new(sel_snap / 2, 0, sel_snap / 2)), sel_snap);
+                            const cube = ColType.Cube.fromBounds(pp, pencil.p1);
+                            draw.cube(cube.pos, cube.ext, 0xffffffff);
+                            {
+                                const num_lines = 30;
+                                for (0..num_lines + 1) |x| {
+                                    const half = @divTrunc(num_lines, 2) * sel_snap;
+                                    const xd: f32 = @as(f32, @floatFromInt(x)) * sel_snap;
+                                    const start = origin.add(V3f.new(xd - half, 0, -half));
+                                    const starty = origin.add(V3f.new(-half, 0, xd - half));
+                                    draw.line3D(start, start.add(V3f.new(0, 0, sel_snap * num_lines)), 0x00ff00ff);
+                                    draw.line3D(starty, starty.add(V3f.new(sel_snap * num_lines, 0, 0)), 0x00ff00ff);
+                                }
+                            }
+                            draw.point3D(pp, 0xff0000ff);
+                            if (win.mouse.left == .rising) {
+                                pencil.state = .init;
+                                pencil.p2 = pp;
+                                if (@reduce(.Mul, cube.ext.data) != 0)
+                                    try lumber.append(cube);
+                            }
+                        }
+                    },
+                }
+            },
         }
         draw.textFmt(.{ .x = 0, .y = 0 }, "pos [{d:.2}, {d:.2}, {d:.2}]\nyaw: {d}\npitch: {d}\ngrounded {any}\ntool: {s}\nsnap: {d}\nPress {s} to show menu\n", .{
             cam_bb.pos.x(),

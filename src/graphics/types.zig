@@ -235,6 +235,10 @@ pub const Vec2f = packed struct {
         };
     }
 
+    pub fn length(s: @This()) f32 {
+        return @sqrt(s.x * s.x + s.y * s.y);
+    }
+
     pub fn mul(s: @This(), b: @This()) @This() {
         return .{ .x = s.x * b.x, .y = s.y * b.y };
     }

@@ -24,11 +24,32 @@ pub fn CollisionType(comptime rect_type: type, comptime vector_type: type) type 
                 return ret;
             }
 
+            pub fn getPlane0(self: Cube, norm: Vec) Vec {
+                if (norm.dot(Vec.new(1, 1, 1)) > 0)
+                    return self.pos.add(self.ext.mul(norm));
+                return self.pos;
+            }
+
             pub fn fromBounds(p1: Vec, p2: Vec) Cube {
                 const ext = p1.sub(p2);
                 return Cube{
                     .pos = Vec{ .data = @min(p1.data, p2.data) },
                     .ext = Vec{ .data = @abs(ext.data) },
+                };
+            }
+
+            //Return the verts, bottom first, then top. [pos, x, xz, z]
+            pub fn getVerts(self: Cube) [8]Vec {
+                const p = self.pos.add(Vec.new(0, self.ext.y(), 0));
+                return [8]Vec{
+                    self.pos,
+                    self.pos.add(Vec.new(self.ext.x(), 0, 0)),
+                    self.pos.add(Vec.new(self.ext.x(), 0, self.ext.z())),
+                    self.pos.add(Vec.new(0, 0, self.ext.z())),
+                    p,
+                    p.add(Vec.new(self.ext.x(), 0, 0)),
+                    p.add(Vec.new(self.ext.x(), 0, self.ext.z())),
+                    p.add(Vec.new(0, 0, self.ext.z())),
                 };
             }
         };
