@@ -530,6 +530,7 @@ pub const FixedBitmapFont = struct {
     }
 };
 
+//TODO load a font and have a draw.textFmt convenience function with args:(pos, fmt, fmt_args, size);
 pub const ImmediateDrawingContext = struct {
     const Self = @This();
     const log = std.log.scoped(.ImmediateDrawingContext);

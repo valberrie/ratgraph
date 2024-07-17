@@ -5,6 +5,7 @@ const Gui = graph.Gui;
 const V2f = graph.Vec2f;
 const V3f = graph.za.Vec3;
 const Mat4 = graph.za.Mat4;
+const Mat3 = graph.za.Mat3;
 const Rec = graph.Rec;
 const Col3d = @import("col3d.zig");
 const ColType = Col3d.CollisionType(graph.Rect, graph.za.Vec3);
@@ -924,6 +925,24 @@ pub fn worldSpaceToScreen(cam_matrix: Mat4, world: V3f, win_dim: graph.Vec2f) gr
     return spos;
 }
 
+//Solve a system of 2 linear equations in 2 unknowns via Cramer's rule
+//a.x * x + b.x * y = c.x
+//a.y * x + b.y * y = c.y
+//Where x and y are unknowns
+pub fn cramers2D(a: graph.Vec2f, b: graph.Vec2f, c_: graph.Vec2f) graph.Vec2f {
+    const x = (c_.x * b.y - b.x * c_.y) / (a.x * b.y - b.x * a.y);
+    const y = (a.x * c_.y - c_.x * a.y) / (a.x * b.y - b.x * a.y);
+    return .{ .x = x, .y = y };
+}
+
+pub fn cramers3D(a: V3f, b: V3f, c_: V3f, d: V3f) V3f {
+    const r = (Mat3{ .data = .{ a.data, b.data, c_.data } }).det();
+    const x = (Mat3{ .data = .{ d.data, b.data, c_.data } }).det() / r;
+    const y = (Mat3{ .data = .{ a.data, d.data, c_.data } }).det() / r;
+    const z = (Mat3{ .data = .{ a.data, b.data, d.data } }).det() / r;
+    return V3f.new(x, y, z);
+}
+
 pub fn main() !void {
     const cwd = std.fs.cwd();
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -994,7 +1013,7 @@ pub fn main() !void {
     //checkAl();
     const ls = try loadOgg(lifetime_alloc, "stop.ogg", V3f.zero());
     checkAl();
-    c.alSourcePlay(audio_source);
+    //c.alSourcePlay(audio_source);
 
     const init_size = 72;
     var font = try graph.Font.init(alloc, cwd, "fonts/roboto.ttf", init_size, win.getDpi(), .{});
@@ -1091,7 +1110,7 @@ pub fn main() !void {
     {
         c.glGenBuffers(1, &light_mat_ubo);
         c.glBindBuffer(c.GL_UNIFORM_BUFFER, light_mat_ubo);
-        c.glBufferData(c.GL_UNIFORM_BUFFER, @sizeOf([4][4]f32) * 16, null, c.GL_STATIC_DRAW);
+        c.glBufferData(c.GL_UNIFORM_BUFFER, @sizeOf([4][4]f32) * 16, null, c.GL_DYNAMIC_DRAW);
         c.glBindBufferBase(c.GL_UNIFORM_BUFFER, 0, light_mat_ubo);
         c.glBindBuffer(c.GL_UNIFORM_BUFFER, 0);
 
@@ -1120,6 +1139,14 @@ pub fn main() !void {
             const j = try std.json.parseFromSlice([]const ColType.Cube, alloc, sl, .{});
             defer j.deinit();
             try lumber.appendSlice(j.value);
+            var i: usize = lumber.items.len;
+            while (i > 0) : (i -= 1) {
+                const l = lumber.items[i - 1];
+                if (l.ext.x() < 0 or l.ext.y() < 0 or l.ext.z() < 0) {
+                    _ = lumber.swapRemove(i - 1);
+                }
+            }
+            //for(to_remove.items)
         } else {
             //Units are meter
             //const extent = graph.Vec3f.new(38, 0, 89);
@@ -1832,6 +1859,7 @@ pub fn main() !void {
                 draw.line3D(top[i], top[@mod(i + 1, 4)], colt);
             }
         }
+        const MIN_SELECTION_ANGLE_DEG = 20;
         switch (tool) {
             .erase => {
                 do_camera_move = true;
@@ -1839,50 +1867,75 @@ pub fn main() !void {
                     if (sel_index) |si| {
                         const lum = &lumber.items[si];
                         if (sel_norm != null and win.mouse.left == .high) {
-                            //do_camera_move = false;
-                            //Determine where mouse ray was intersecting plane last frame
-                            //Calculate new plane pos so it stays
-
-                            const p00 = lum.getPlane0(sel_norm.?);
-                            const p0 = sel_int.?;
-
                             const n = sel_norm.?;
-                            const c0 = camera.pos;
-                            const cf = camera.front;
-                            const a = n;
-                            const b = cf.scale(-1);
-                            const c_ = c0.sub(p0);
-                            const od = (c_.x() * b.z() - b.x() * c_.z()) / (a.x() * b.z() - b.x() * a.z());
-                            //const pd = (a.x() * c.z() - b.x() * c_.z()) / (a.x() * b.z() - b.x() * a.z());
-                            draw.line3D(p0, p0.add(n.scale(od)), 0xff0000ff);
-                            lum.* = lum.addInDir(p00.sub(p0.add(n.scale(od))).mul(n).length(), sel_norm.?);
-                            //draw.textFmt(.{ .x = 500, .y = 500 }, "crass, {d}", .{od}, &font, 12, 0xffffffff);
+                            const fp0 = if (n.dot(V3f.new(0, 1, 0)) == 0) sel_int.? else sel_int.?;
+                            const fpn = blk: {
+                                if (n.dot(V3f.new(0, 1, 0)) == 0) {
+                                    if (@abs(camera.front.y()) < sin(radians(10))) {
+                                        break :blk n.cross(V3f.new(0, 1, 0));
+                                    }
 
-                            //const dist = p0.sub(camera.pos).length();
-                            //const yw = radians(camera.yaw);
-                            //const pf: f32 = if (camera.pitch < 0) -1.0 else 1.0;
-                            //const x: f32 = (sin(yw) * -win.mouse.delta.x + cos(yw) * win.mouse.delta.y * pf);
-                            //const z: f32 = (sin(yw) * win.mouse.delta.y * pf + cos(yw) * win.mouse.delta.x);
-                            //const y: f32 = -win.mouse.delta.y;
-                            //const m_world = V3f.new(x, y, z);
-                            //lum.* = lum.addInDir(sel_norm.?.dot(m_world) * dist / 100, sel_norm.?);
-                            //const scale: f32 = 3;
-                            //const scale = (camera.front.dot(dist) / camera.front.length());
-                            //const a = screenSpaceToWorld(cmatrix, win.screen_dimensions.toF().smul(0.5), win.screen_dimensions.toF(), 2 * scale / (400 - 0.1) - 1);
-                            //{
-                            //    //draw.line3D(p0, p0.add(), 0xff00ffff);
-                            //    //draw.line3D(camera.pos.add(V3f.new(0, 0, 2)), V3f.zero(), 0xff0000ff);
-                            //}
-                            ////draw.line3D(p0, a.mul(sel_norm.?), 0x0000ffff);
-                            //draw.line3D(p0, p0.add(a.sub(p0).mul(sel_norm.?)), 0xff0000ff);
-                            //const len = a.sub(p0).dot(sel_norm.?);
+                                    break :blk V3f.new(0, 1, 0);
+                                }
+                                break :blk sel_int.?.sub(camera.pos).mul(V3f.new(1, 0, 1)).norm();
+                            };
+                            const dp = n.dot(camera.front);
+                            const cp = n.cross(camera.front);
+                            draw.textFmt(.{ .x = 400, .y = 400 }, "dp {d}, {d} {d} {d}", .{ dp, cp.x(), cp.y(), cp.z() }, &font, 12, 0xffffffff);
+                            if (dp > cos(radians(MIN_SELECTION_ANGLE_DEG)) or dp < -1) {
 
-                            //const yw = radians(camera.yaw);
-                            //const pf: f32 = if (camera.pitch < 0) -1.0 else 1.0;
-                            //const x: f32 = (sin(yw) * -win.mouse.delta.x + cos(yw) * win.mouse.delta.y * pf);
-                            //const z: f32 = (sin(yw) * win.mouse.delta.y * pf + cos(yw) * win.mouse.delta.x);
-                            //const y: f32 = -win.mouse.delta.y;
-                            //const m_world = V3f.new(x, y, z).norm();
+                                //Don't do anything
+                            } else {
+                                //Create a plane at the cameras feet
+                                //extract non normal
+                                const p0 = lum.getPlane0(n);
+                                //Determine where the cameras ray intersects this plane
+                                if (doesRayIntersectPlane(camera.pos, camera.front, fp0, fpn)) |int| {
+                                    draw.line3D(fp0, int, 0xff0000ff);
+                                    //resize the cube so that it lies on this point
+
+                                    const normal_dist = int.sub(p0).dot(n);
+                                    lum.* = lum.addInDir(normal_dist, sel_norm.?);
+                                }
+                            }
+                            const p0 = sel_int.?;
+                            if (n.dot(V3f.new(0, 1, 0)) == 0 and false) { //Horizontal faces
+                                const c0 = camera.pos;
+                                const cf = camera.front;
+                                //const a = n;
+                                //const b = cf.scale(-1);
+                                //const c_ = c0.sub(p0);
+                                //const od = (c_.x() * b.z() - b.x() * c_.z()) / (a.x() * b.z() - b.x() * a.z());
+                                //const pd = (a.x() * c_.z() - c_.x() * a.z()) / (a.x() * b.z() - b.x() * a.z());
+                                const sol = cramers3D(
+                                    cf.mul(V3f.new(1, 0, 1)).norm(),
+                                    n.scale(-1),
+                                    V3f.new(1, 1, 1),
+                                    p0.sub(c0).mul(V3f.new(1, 0, 1)),
+                                    //c_.mul(V3f.new(1, 0, 1)),
+                                );
+                                //const sol = cramers2D(.{ .x = a.x(), .y = a.z() }, .{ .x = b.x(), .y = b.z() }, .{ .x = c_.x(), .y = c_.z() });
+                                const od = sol.y();
+                                const pd = sol.x();
+                                draw.line3D(p0, p0.add(n.scale(od)), 0xff0000ff);
+                                draw.line3D(p0, p0.add(cf.scale(pd)), 0x00ff00ff);
+                                const delta = od;
+                                const new_int = sel_int.?.add(n.scale(od));
+                                //Stop moving if the new position is greater than a max distance
+                                //pd must be positive, otherwise the players view is intersecting the plane behind front
+                                const max_plane_dist = 10;
+                                if (new_int.sub(c0).length() < max_plane_dist and pd > 0) {
+                                    lum.* = lum.addInDir(delta, sel_norm.?);
+                                    sel_int.? = new_int;
+                                }
+                                draw.textFmt(.{ .x = 400, .y = 400 }, "pd {d}, od {d}", .{ pd, od }, &font, 12, 0xffffffff);
+                            } else { //Vertical faces
+
+                            }
+                            //The line intersection will occur behind camera at angles greater than 0
+                            //Next, prevent creating negative extents,
+                            //Snap
+
                         } else {
                             if (doesRayIntersectBoundingBox(3, f32, lum.pos.data, lum.pos.add(lum.ext).data, camera.pos.data, camera.front.data)) |int| {
                                 const p = V3f.new(int[0], int[1], int[2]);
@@ -1904,11 +1957,6 @@ pub fn main() !void {
                                 sel_norm = n;
                                 sel_int = p;
                                 //Draw outline of face rather than normal
-                                draw.line3D(
-                                    p,
-                                    p.add(n),
-                                    0x00ff00ff,
-                                );
                             } else { //If we don't intersect the box, which edge are we closest to
                                 sel_norm = null;
                                 const normals = [6]V3f{
@@ -1934,6 +1982,18 @@ pub fn main() !void {
                                         }
                                     }
                                 }
+                            }
+                            if (sel_norm) |n| { //Draw the normal we have selected
+
+                                //Prevent selections at min acute angle
+                                if (n.dot(camera.front) > cos(radians(MIN_SELECTION_ANGLE_DEG)))
+                                    sel_norm = null;
+                                const pl = lum.getPlane0(n);
+                                draw.line3D(
+                                    pl,
+                                    pl.add(n),
+                                    0x00ffffff,
+                                );
                             }
                         }
                     }
