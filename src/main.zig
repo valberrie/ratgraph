@@ -1190,6 +1190,7 @@ pub fn main() !void {
     try libatch.inst.append(.{ .light_pos = graph.Vec3f.new(10, 1, 3) });
     try libatch.inst.append(.{ .light_pos = graph.Vec3f.new(1, 2, 4) });
     try libatch.inst.append(.{ .light_pos = graph.Vec3f.new(2, -4, 4) });
+    try libatch.inst.append(.{ .light_pos = graph.Vec3f.new(8, 1, 23), .diffuse = graph.Vec3f.new(239, 173, 93).scale(1.0 / 20.0) });
     try libatch.inst.append(.{
         .light_pos = graph.Vec3f.new(4.33, 2, -7.44),
         .diffuse = graph.Vec3f.new(3, 0, 0),
@@ -1282,6 +1283,10 @@ pub fn main() !void {
                 tex.rect(),
                 null,
             );
+        }
+        if (pencil.state == .p2) {
+            const cu = ColType.Cube.fromBounds(pencil.p1, pencil.p2);
+            try cubes.cube(cu.pos.x(), cu.pos.y(), cu.pos.z(), cu.ext.x(), cu.ext.y(), cu.ext.z(), tex.rect(), null);
         }
         win.pumpEvents();
 
@@ -1802,6 +1807,78 @@ pub fn main() !void {
         cubes_st.draw(cmatrixsky, graph.za.Mat4.identity().translate(V3f.new(0, -0.5, 0)).scale(graph.za.Vec3.new(1000, 1000, 1000)));
         //ico.draw(cam_matrix, graph.za.Mat4.identity().scale(graph.za.Vec3.new(1000, 1000, 1000)));
         cubes_grnd.draw(cam_matrix, graph.za.Mat4.identity().scale(graph.za.Vec3.new(1, 1, 1)));
+        //draw the wireframe
+        switch (tool) {
+            else => {},
+            .pencil => {
+                var o = cam_bb.pos.add(cam_bb.ext.scale(0.5));
+                o.yMut().* = cam_bb.pos.y();
+                var origin = snapV3(o, sel_snap);
+                //origin.data = @divFloor(origin.data, @as(@Vector(3, f32), @splat(sel_snap))) * @as(@Vector(3, f32), @splat(sel_snap));
+                if (win.mouse.wheel_delta.y > 0)
+                    pencil.grid_y += sel_snap;
+                if (win.mouse.wheel_delta.y < 0)
+                    pencil.grid_y -= sel_snap;
+                origin.yMut().* = pencil.grid_y;
+                switch (pencil.state) {
+                    .init => {
+                        pencil.state = .p1;
+                        pencil.grid_y = snap1(cam_bb.pos.y(), sel_snap);
+                    },
+                    .p1 => {
+                        if (doesRayIntersectPlane(camera.pos, camera.front, origin, V3f.new(0, 1, 0))) |p| {
+                            const pp = snapV3(p.add(V3f.new(sel_snap / 2, 0, sel_snap / 2)), sel_snap);
+                            {
+                                const num_lines = 30;
+                                const half = @divTrunc(num_lines, 2) * sel_snap;
+                                for (0..num_lines + 1) |x| {
+                                    const xd: f32 = @as(f32, @floatFromInt(x)) * sel_snap;
+                                    const start = pp.add(V3f.new(xd - half, 0, -half));
+                                    const starty = pp.add(V3f.new(-half, 0, xd - half));
+                                    draw.line3D(start, start.add(V3f.new(0, 0, sel_snap * num_lines)), 0x00ff00ff);
+                                    draw.line3D(starty, starty.add(V3f.new(sel_snap * num_lines, 0, 0)), 0x00ff00ff);
+                                }
+                                const p_feet = o;
+                                const penc_base = V3f.new(pp.x(), p_feet.y(), pp.z());
+                                draw.line3D(p_feet, penc_base, 0x444444ff);
+                                draw.line3D(penc_base, pp, 0x888888ff);
+                            }
+                            draw.point3D(pp, 0xff0000ff);
+                            if (win.mouse.left == .rising) {
+                                pencil.state = .p2;
+                                pencil.p1 = pp;
+                            }
+                        }
+                    },
+                    .p2 => {
+                        if (doesRayIntersectPlane(camera.pos, camera.front, origin, V3f.new(0, 1, 0))) |p| {
+                            const pp = snapV3(p.add(V3f.new(sel_snap / 2, 0, sel_snap / 2)), sel_snap);
+                            const cube = ColType.Cube.fromBounds(pp, pencil.p1);
+                            //draw.cube(cube.pos, cube.ext, 0xffffffff);
+                            {
+                                const num_lines = 30;
+                                for (0..num_lines + 1) |x| {
+                                    const half = @divTrunc(num_lines, 2) * sel_snap;
+                                    const xd: f32 = @as(f32, @floatFromInt(x)) * sel_snap;
+                                    const start = pp.add(V3f.new(xd - half, 0, -half));
+                                    const starty = pp.add(V3f.new(-half, 0, xd - half));
+                                    draw.line3D(start, start.add(V3f.new(0, 0, sel_snap * num_lines)), 0x00ff00ff);
+                                    draw.line3D(starty, starty.add(V3f.new(sel_snap * num_lines, 0, 0)), 0x00ff00ff);
+                                }
+                            }
+                            draw.point3D(pp, 0xff0000ff);
+                            pencil.p2 = pp;
+                            if (win.mouse.left == .rising) {
+                                pencil.state = .init;
+                                if (@reduce(.Mul, cube.ext.data) != 0)
+                                    try lumber.append(cube);
+                            }
+                        }
+                    },
+                }
+            },
+        }
+
         try draw.flush(null, camera);
         graph.c.glClear(graph.c.GL_DEPTH_BUFFER_BIT);
         if (gcfg.draw_gbuffer != .shaded) {
@@ -1861,6 +1938,7 @@ pub fn main() !void {
         }
         const MIN_SELECTION_ANGLE_DEG = 20;
         switch (tool) {
+            else => {},
             .erase => {
                 do_camera_move = true;
                 if (win.keydown(.LSHIFT)) {
@@ -1871,6 +1949,7 @@ pub fn main() !void {
                             const fp0 = if (n.dot(V3f.new(0, 1, 0)) == 0) sel_int.? else sel_int.?;
                             const fpn = blk: {
                                 if (n.dot(V3f.new(0, 1, 0)) == 0) {
+                                    //If the camera's pitch is close to zero, choose a plane perpendicular to the face and up
                                     if (@abs(camera.front.y()) < sin(radians(10))) {
                                         break :blk n.cross(V3f.new(0, 1, 0));
                                     }
@@ -1880,8 +1959,6 @@ pub fn main() !void {
                                 break :blk sel_int.?.sub(camera.pos).mul(V3f.new(1, 0, 1)).norm();
                             };
                             const dp = n.dot(camera.front);
-                            const cp = n.cross(camera.front);
-                            draw.textFmt(.{ .x = 400, .y = 400 }, "dp {d}, {d} {d} {d}", .{ dp, cp.x(), cp.y(), cp.z() }, &font, 12, 0xffffffff);
                             if (dp > cos(radians(MIN_SELECTION_ANGLE_DEG)) or dp < -1) {
 
                                 //Don't do anything
@@ -1894,7 +1971,7 @@ pub fn main() !void {
                                     draw.line3D(fp0, int, 0xff0000ff);
                                     //resize the cube so that it lies on this point
 
-                                    const normal_dist = int.sub(p0).dot(n);
+                                    const normal_dist = snap1(int.sub(p0).dot(n), sel_snap);
                                     lum.* = lum.addInDir(normal_dist, sel_norm.?);
                                 }
                             }
@@ -2052,73 +2129,6 @@ pub fn main() !void {
                 }
             },
             .none => {},
-            .pencil => {
-                var o = cam_bb.pos.add(cam_bb.ext.scale(0.5));
-                o.yMut().* = cam_bb.pos.y();
-                var origin = snapV3(o, sel_snap);
-                //origin.data = @divFloor(origin.data, @as(@Vector(3, f32), @splat(sel_snap))) * @as(@Vector(3, f32), @splat(sel_snap));
-                if (win.mouse.wheel_delta.y > 0)
-                    pencil.grid_y += sel_snap;
-                if (win.mouse.wheel_delta.y < 0)
-                    pencil.grid_y -= sel_snap;
-                origin.yMut().* = pencil.grid_y;
-                switch (pencil.state) {
-                    .init => {
-                        pencil.state = .p1;
-                        pencil.grid_y = snap1(cam_bb.pos.y(), sel_snap);
-                    },
-                    .p1 => {
-                        if (doesRayIntersectPlane(camera.pos, camera.front, origin, V3f.new(0, 1, 0))) |p| {
-                            const pp = snapV3(p.add(V3f.new(sel_snap / 2, 0, sel_snap / 2)), sel_snap);
-                            {
-                                const num_lines = 30;
-                                const half = @divTrunc(num_lines, 2) * sel_snap;
-                                for (0..num_lines + 1) |x| {
-                                    const xd: f32 = @as(f32, @floatFromInt(x)) * sel_snap;
-                                    const start = origin.add(V3f.new(xd - half, 0, -half));
-                                    const starty = origin.add(V3f.new(-half, 0, xd - half));
-                                    draw.line3D(start, start.add(V3f.new(0, 0, sel_snap * num_lines)), 0x00ff00ff);
-                                    draw.line3D(starty, starty.add(V3f.new(sel_snap * num_lines, 0, 0)), 0x00ff00ff);
-                                }
-                                const p_feet = o;
-                                const penc_base = V3f.new(pp.x(), p_feet.y(), pp.z());
-                                draw.line3D(p_feet, penc_base, 0x444444ff);
-                                draw.line3D(penc_base, pp, 0x888888ff);
-                            }
-                            draw.point3D(pp, 0xff0000ff);
-                            if (win.mouse.left == .rising) {
-                                pencil.state = .p2;
-                                pencil.p1 = pp;
-                            }
-                        }
-                    },
-                    .p2 => {
-                        if (doesRayIntersectPlane(camera.pos, camera.front, origin, V3f.new(0, 1, 0))) |p| {
-                            const pp = snapV3(p.add(V3f.new(sel_snap / 2, 0, sel_snap / 2)), sel_snap);
-                            const cube = ColType.Cube.fromBounds(pp, pencil.p1);
-                            draw.cube(cube.pos, cube.ext, 0xffffffff);
-                            {
-                                const num_lines = 30;
-                                for (0..num_lines + 1) |x| {
-                                    const half = @divTrunc(num_lines, 2) * sel_snap;
-                                    const xd: f32 = @as(f32, @floatFromInt(x)) * sel_snap;
-                                    const start = origin.add(V3f.new(xd - half, 0, -half));
-                                    const starty = origin.add(V3f.new(-half, 0, xd - half));
-                                    draw.line3D(start, start.add(V3f.new(0, 0, sel_snap * num_lines)), 0x00ff00ff);
-                                    draw.line3D(starty, starty.add(V3f.new(sel_snap * num_lines, 0, 0)), 0x00ff00ff);
-                                }
-                            }
-                            draw.point3D(pp, 0xff0000ff);
-                            if (win.mouse.left == .rising) {
-                                pencil.state = .init;
-                                pencil.p2 = pp;
-                                if (@reduce(.Mul, cube.ext.data) != 0)
-                                    try lumber.append(cube);
-                            }
-                        }
-                    },
-                }
-            },
         }
         draw.textFmt(.{ .x = 0, .y = 0 }, "pos [{d:.2}, {d:.2}, {d:.2}]\nyaw: {d}\npitch: {d}\ngrounded {any}\ntool: {s}\nsnap: {d}\nPress {s} to show menu\n", .{
             cam_bb.pos.x(),
@@ -2128,7 +2138,7 @@ pub fn main() !void {
             camera.pitch,
             grounded,
             @tagName(tool),
-            sel_snap,
+            sel_snap / 2.54 * 100,
             @tagName(keys.show_menu),
         }, &font, 12, 0xffffffff);
 
