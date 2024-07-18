@@ -21,6 +21,7 @@ const gui_app = @import("gui_app.zig");
 const Os9Gui = gui_app.Os9Gui;
 const itm = 0.0254;
 const c = graph.c;
+const log = std.log.scoped(.game);
 
 threadlocal var lua_draw: *LuaDraw = undefined;
 const LuaDraw = struct {
@@ -289,11 +290,22 @@ fn snap1(comp: f32, snap: f32) f32 {
     return @divFloor(comp, snap) * snap;
 }
 
-fn loadObj(alloc: std.mem.Allocator, dir: std.fs.Dir, filename: []const u8, scale: f32, tex: graph.Texture, shader: c_uint) !graph.Cubes {
+fn loadObj(alloc: std.mem.Allocator, dir: std.fs.Dir, filename: []const u8, scale: f32, tex: graph.Texture, shader: c_uint, atex: *ArrayTexture) !graph.Cubes {
     var uvs = std.ArrayList(graph.Vec2f).init(alloc);
     defer uvs.deinit();
     var verts = std.ArrayList(graph.Vec3f).init(alloc);
     defer verts.deinit();
+
+    var mtls = std.ArrayList(Mtl).init(alloc);
+    defer {
+        for (mtls.items) |m| {
+            alloc.free(m.name);
+        }
+        mtls.deinit();
+    }
+    var mtl_map = std.StringHashMap(u16).init(alloc);
+    defer mtl_map.deinit();
+    var ti: u16 = 0;
 
     var norms = std.ArrayList(graph.Vec3f).init(alloc);
     defer norms.deinit();
@@ -308,22 +320,22 @@ fn loadObj(alloc: std.mem.Allocator, dir: std.fs.Dir, filename: []const u8, scal
         var tok = std.mem.tokenizeAny(u8, line, " \t");
         const com = tok.next() orelse continue;
         const eql = std.mem.eql;
-        if (eql(u8, com, "v")) {
+        if (eql(u8, com, "v")) { //Vertex
             errdefer std.debug.print("{s}\n", .{line});
             const x = try std.fmt.parseFloat(f32, tok.next().?);
             const y = try std.fmt.parseFloat(f32, tok.next().?);
             const z = try std.fmt.parseFloat(f32, tok.next().?);
             try verts.append(.{ .x = x, .y = y, .z = z });
-        } else if (eql(u8, com, "vt")) {
+        } else if (eql(u8, com, "vt")) { //vertex uv
             const u = try std.fmt.parseFloat(f32, tok.next().?);
             const v = try std.fmt.parseFloat(f32, tok.next().?);
             try uvs.append(.{ .x = u, .y = v });
-        } else if (eql(u8, com, "vn")) {
+        } else if (eql(u8, com, "vn")) { //Vertex normal
             const x = try std.fmt.parseFloat(f32, tok.next().?);
             const y = try std.fmt.parseFloat(f32, tok.next().?);
             const z = try std.fmt.parseFloat(f32, tok.next().?);
             try norms.append(.{ .x = x, .y = y, .z = z });
-        } else if (eql(u8, com, "f")) {
+        } else if (eql(u8, com, "f")) { //Face
             var count: usize = 0;
             const vi: u32 = @intCast(cubes.vertices.items.len);
             while (tok.next()) |v| {
@@ -359,6 +371,7 @@ fn loadObj(alloc: std.mem.Allocator, dir: std.fs.Dir, filename: []const u8, scal
                     .ny = norm.y,
                     .nz = norm.z,
                     .color = 0xffffffff,
+                    .ti = ti,
                 });
                 //try cubes.indicies.append(@intCast(cubes.vertices.items.len - 1));
             }
@@ -413,7 +426,54 @@ fn loadObj(alloc: std.mem.Allocator, dir: std.fs.Dir, filename: []const u8, scal
                     std.debug.print("weird {d}\n", .{count});
                 },
             }
-        } else if (eql(u8, com, "s")) {} else {}
+        } else if (eql(u8, com, "usemtl")) {
+            const mtl = tok.next().?;
+            if (mtl_map.get(mtl)) |ind| {
+                ti = @intCast(ind);
+            }
+        } else if (eql(u8, com, "s")) { //smooth shading
+
+        } else if (eql(u8, com, "mtllib")) {
+            const mtl_filename = tok.next().?;
+
+            var file_prefix = std.ArrayList(u8).init(alloc);
+            var mtl_filename_full = std.ArrayList(u8).init(alloc);
+            defer mtl_filename_full.deinit();
+            defer file_prefix.deinit();
+            if (std.mem.lastIndexOfScalar(u8, filename, '/')) |ind| {
+                try file_prefix.appendSlice(filename[0..ind]);
+                try file_prefix.append('/');
+            }
+            try mtl_filename_full.appendSlice(file_prefix.items);
+            try mtl_filename_full.appendSlice(mtl_filename);
+
+            const old_mtl_len = mtls.items.len;
+            loadMtl(alloc, dir, mtl_filename_full.items, &mtls) catch |err| switch (err) {
+                error.FileNotFound => {
+                    log.warn("obj mtl file not found: {s} {s}", .{ filename, mtl_filename });
+                    continue;
+                },
+                else => return err,
+            };
+            const file_prefix_len = file_prefix.items.len;
+            for (mtls.items[old_mtl_len..]) |mt| {
+                try file_prefix.appendSlice(mt.name);
+                try file_prefix.appendSlice(".png");
+                defer file_prefix.shrinkRetainingCapacity(file_prefix_len);
+                const index = atex.loadFromPng(alloc, dir, file_prefix.items) catch |err| switch (err) {
+                    error.FileNotFound => {
+                        log.warn("png file not found: {s} {s}", .{ filename, file_prefix.items });
+                        continue;
+                    },
+                    error.invalidResolution => {
+                        log.warn("png has wrong resolution {s} {s}", .{ filename, file_prefix.items });
+                        continue;
+                    },
+                    else => return err,
+                };
+                try mtl_map.put(mt.name, index);
+            }
+        } else {}
     }
     for (cubes.vertices.items) |*vert| {
         const norm = V3f.new(vert.tx, vert.ty, vert.tz).norm();
@@ -423,6 +483,42 @@ fn loadObj(alloc: std.mem.Allocator, dir: std.fs.Dir, filename: []const u8, scal
     }
     cubes.setData();
     return cubes;
+}
+
+//We need to decide on a asset system.
+//loadobj has to load relevant textures
+
+//Load all the things into a texture
+pub const Mtl = struct {
+    name: []const u8,
+};
+
+pub fn loadMtl(alloc: std.mem.Allocator, dir: std.fs.Dir, filename: []const u8, mtl_list: *std.ArrayList(Mtl)) !void {
+    const h = std.hash.Wyhash.hash;
+    const mtl_file = try dir.openFile(filename, .{});
+    const slmtl = try mtl_file.reader().readAllAlloc(alloc, std.math.maxInt(usize));
+    defer alloc.free(slmtl);
+    var mtl_it = std.mem.splitAny(u8, slmtl, "\n\r");
+    while (mtl_it.next()) |mtlline| {
+        var tok = std.mem.tokenizeAny(u8, mtlline, " \t");
+        const com = tok.next() orelse continue;
+        switch (h(0, com)) {
+            h(0, "newmtl") => {
+                const name = tok.next().?;
+                std.debug.print("New mtl {s} {s}\n", .{ filename, name });
+                try mtl_list.append(.{ .name = try alloc.dupe(u8, name) });
+            },
+            h(0, "Ka") => { //ambient
+            },
+            h(0, "Ks") => { //Specular
+            },
+            h(0, "Kd") => { //Diffuse
+            },
+            h(0, "Ns") => { //specular exponent
+            },
+            else => {},
+        }
+    }
 }
 
 const CASCADE_COUNT = 4;
@@ -440,6 +536,46 @@ fn getLightMatrices(fov: f32, aspect: f32, near: f32, far: f32, cam_view: Mat4, 
         }
     }
     return ret;
+}
+
+pub const ArrayTexture = struct {
+    count: i32,
+    res: i32,
+    tid: c_uint,
+    used: u16 = 0,
+
+    pub fn loadFromPng(self: *@This(), alloc: std.mem.Allocator, dir: std.fs.Dir, filename: []const u8) !u16 {
+        var bmp = try graph.Bitmap.initFromPngFile(alloc, dir, filename);
+        defer bmp.deinit();
+        if (bmp.w != self.res or bmp.h != self.res) return error.invalidResolution;
+        c.glBindTexture(c.GL_TEXTURE_2D_ARRAY, self.tid);
+        c.glTexSubImage3D(c.GL_TEXTURE_2D_ARRAY, 0, 0, 0, @intCast(self.used), 512, 512, 1, c.GL_RGBA, c.GL_UNSIGNED_BYTE, &bmp.data.items[0]);
+        self.used += 1;
+        return self.used - 1;
+    }
+};
+
+fn createTextureArray(resolution: i32, count: i32) ArrayTexture {
+    var textures: c_uint = 0;
+    c.glGenTextures(1, &textures);
+    c.glBindTexture(c.GL_TEXTURE_2D_ARRAY, textures);
+    c.glTexImage3D(
+        c.GL_TEXTURE_2D_ARRAY,
+        0,
+        c.GL_RGBA,
+        resolution,
+        resolution,
+        count,
+        0,
+        c.GL_RGBA,
+        c.GL_UNSIGNED_BYTE,
+        null,
+    );
+    c.glTexParameteri(c.GL_TEXTURE_2D_ARRAY, c.GL_TEXTURE_MIN_FILTER, c.GL_NEAREST_MIPMAP_LINEAR);
+    c.glTexParameteri(c.GL_TEXTURE_2D_ARRAY, c.GL_TEXTURE_MAG_FILTER, c.GL_LINEAR);
+    c.glTexParameteri(c.GL_TEXTURE_2D_ARRAY, c.GL_TEXTURE_WRAP_S, c.GL_REPEAT);
+    c.glTexParameteri(c.GL_TEXTURE_2D_ARRAY, c.GL_TEXTURE_WRAP_T, c.GL_REPEAT);
+    return .{ .tid = textures, .res = resolution, .count = count };
 }
 
 fn create3DDepthMap(resolution: i32, cascade_count: i32) struct { fbo: c_uint, textures: c_uint, res: i32 } {
@@ -720,8 +856,57 @@ pub const DemoJson = struct {
     frames: []const Frame,
 };
 
+pub const JsonWorldCube = struct {
+    pos: [3]i32,
+    ext: [3]i32,
+    tex: u16,
+};
+
 pub const WorldCube = struct {
+    const Self = @This();
     cube: ColType.Cube,
+    texture_index: u16,
+
+    pub fn jsonStringify(self: *const Self, jw: anytype) !void {
+        try jw.beginObject();
+        try jw.objectField("pos");
+        try jw.write([3]i32{
+            @intFromFloat(self.cube.pos.x() * 100),
+            @intFromFloat(self.cube.pos.y() * 100),
+            @intFromFloat(self.cube.pos.z() * 100),
+        });
+
+        try jw.objectField("ext");
+        try jw.write([3]i32{
+            @intFromFloat(self.cube.ext.x() * 100), @intFromFloat(self.cube.ext.y() * 100), @intFromFloat(self.cube.ext.z() * 100),
+        });
+        try jw.objectField("tex");
+        try jw.write(self.texture_index);
+        try jw.endObject();
+    }
+};
+
+pub const WorldSaveJson = struct {
+    cubes: []const JsonWorldCube,
+};
+
+pub const World = struct {
+    const Self = @This();
+    cubes: std.ArrayList(WorldCube),
+
+    pub fn init(alloc: std.mem.Allocator) Self {
+        return .{ .cubes = std.ArrayList(WorldCube).init(alloc) };
+    }
+    pub fn deinit(self: *Self) void {
+        self.cubes.deinit();
+    }
+
+    pub fn jsonStringify(self: *const Self, jw: anytype) !void {
+        try jw.beginObject();
+        try jw.objectField("cubes");
+        try jw.write(self.cubes.items);
+        try jw.endObject();
+    }
 };
 
 pub const PointLight = packed struct {
@@ -1046,7 +1231,26 @@ pub fn main() !void {
     var camera = graph.Camera3D{};
     const camera_spawn = V3f.new(1, 3, 1);
     camera.pos = camera_spawn;
-    const woodtex = try graph.Texture.initFromImgFile(alloc, cwd, "asset/woodout/color.png", .{});
+    const woodtex = try graph.Texture.initFromImgFile(alloc, cwd, "asset/wood/color.png", .{});
+    const files_to_load = [_][]const u8{
+        "asset/brickfloor001a.png",
+        "asset/wood/woodfloor007a.png",
+        "asset/wood/woodfloor007a_normal.png",
+        "asset/plastercieling002b.png",
+        "asset/plastercieling002b_normal.png",
+        "asset/concretefloor001a.png",
+        "asset/concretefloor001a_normal.png",
+        "asset/oil_drum.png",
+        "asset/oil_drum_normal.png",
+    };
+    var tarr = createTextureArray(512, 256);
+    {
+        c.glBindTexture(c.GL_TEXTURE_2D_ARRAY, tarr.tid);
+        for (files_to_load) |f| {
+            _ = try tarr.loadFromPng(alloc, cwd, f);
+        }
+        c.glGenerateMipmap(c.GL_TEXTURE_2D_ARRAY);
+    }
 
     var disp_cubes = graph.Cubes.init(alloc, woodtex, draw.textured_tri_3d_shader);
     defer disp_cubes.deinit();
@@ -1070,11 +1274,6 @@ pub fn main() !void {
     const gbuffer_shader = try graph.Shader.loadFromFilesystem(alloc, cwd, &.{
         .{ .path = "asset/shader/gbuffer.vert", .t = .vert },
         .{ .path = "asset/shader/gbuffer.frag", .t = .frag },
-    });
-
-    const deferred_light_shader = try graph.Shader.loadFromFilesystem(alloc, cwd, &.{
-        .{ .path = "asset/shader/deferred_light.vert", .t = .vert },
-        .{ .path = "asset/shader/deferred_light.frag", .t = .frag },
     });
 
     const def_light_shad = try graph.Shader.loadFromFilesystem(alloc, cwd, &.{
@@ -1131,52 +1330,38 @@ pub fn main() !void {
     var cubes = graph.Cubes.init(alloc, woodtex, light_shader);
     defer cubes.deinit();
 
-    var lumber = std.ArrayList(ColType.Cube).init(alloc);
+    var world = World.init(alloc);
+    defer world.deinit();
     {
         if (cwd.openFile("lumber.json", .{}) catch null) |infile| {
             const sl = try infile.reader().readAllAlloc(alloc, std.math.maxInt(usize));
             defer alloc.free(sl);
-            const j = try std.json.parseFromSlice([]const ColType.Cube, alloc, sl, .{});
+            const j = try std.json.parseFromSlice(WorldSaveJson, alloc, sl, .{});
             defer j.deinit();
-            try lumber.appendSlice(j.value);
-            var i: usize = lumber.items.len;
-            while (i > 0) : (i -= 1) {
-                const l = lumber.items[i - 1];
-                if (l.ext.x() < 0 or l.ext.y() < 0 or l.ext.z() < 0) {
-                    _ = lumber.swapRemove(i - 1);
+            out: for (j.value.cubes) |cube| {
+                for (cube.ext) |e| {
+                    if (e < 0)
+                        continue :out;
                 }
+                try world.cubes.append(.{ .cube = .{
+                    .pos = V3f.new(@floatFromInt(cube.pos[0]), @floatFromInt(cube.pos[1]), @floatFromInt(cube.pos[2])).scale(1.0 / 100.0),
+                    .ext = V3f.new(@floatFromInt(cube.ext[0]), @floatFromInt(cube.ext[1]), @floatFromInt(cube.ext[2])).scale(1.0 / 100.0),
+                }, .texture_index = cube.tex });
             }
             //for(to_remove.items)
         } else {
-            //Units are meter
-            //const extent = graph.Vec3f.new(38, 0, 89);
-            //Winding order default is CCW
-
-            const xw = 12 * 4 * itm;
-            const yw = 12 * 8 * itm;
-            for (0..5) |x| {
-                for (0..5) |y| {
-                    try lumber.append(.{ .pos = V3f.new(@as(f32, @floatFromInt(x)) * xw, 0, @as(f32, @floatFromInt(y)) * yw), .ext = V3f.new(12 * 4, 0.75, 12 * 8).scale(itm) });
-                }
-            }
-            for (0..6) |i| {
-                const fi: f32 = @floatFromInt(i);
-                try lumber.append(.{ .pos = V3f.new(fi * 12 * itm, -1, 0), .ext = V3f.new(0.038, 8 * 18 * itm, 0.089) });
-            }
-
             //try cubes.cubeVec(V3f.new(50, 0, 0), V3f.new(38, 300, 89), tex.rect());
             //try cubes.cubeVec(V3f.new(0, -100, 0), V3f.new(25.4 * 4 * 12, 0.75 * 25.4, 25.4 * 8 * 12), tex.rect());
 
         }
     }
-    defer lumber.deinit();
     defer {
         const outfile = cwd.createFile("lumber.json", .{}) catch unreachable;
-        std.json.stringify(lumber.items, .{}, outfile.writer()) catch unreachable;
+        std.json.stringify(world, .{}, outfile.writer()) catch unreachable;
         outfile.close();
     }
 
-    var ico = try loadObj(alloc, cwd, "asset/icosphere.obj", 1, sky_tex, draw.textured_tri_3d_shader);
+    var ico = try loadObj(alloc, cwd, "asset/icosphere.obj", 1, sky_tex, draw.textured_tri_3d_shader, &tarr);
     defer ico.deinit();
     ico.setData();
 
@@ -1202,19 +1387,31 @@ pub fn main() !void {
     });
     libatch.pushVertexData();
 
-    var cubes_st = try loadObj(alloc, cwd, "sky.obj", 1, sky_tex, draw.textured_tri_3d_shader);
+    var cubes_st = try loadObj(alloc, cwd, "sky.obj", 1, sky_tex, draw.textured_tri_3d_shader, &tarr);
     defer cubes_st.deinit();
 
-    const couch_tex = try graph.Texture.initFromImgFile(alloc, cwd, "drum.png", .{});
-    const couch_normal = try graph.Texture.initFromImgFile(alloc, cwd, "asset/oil_drum_normal.png", .{});
-    const couch_m = graph.za.Mat4.identity().translate(V3f.new(-9, 0, 6));
-    var couch = try loadObj(alloc, cwd, "barrel.obj", 0.03, couch_tex, draw.textured_tri_3d_shader);
-    defer couch.deinit();
+    var gman = try loadObj(alloc, cwd, "asset/gman/gman.obj", 0.03, sky_tex, draw.textured_tri_3d_shader, &tarr);
+    defer gman.deinit();
 
-    const pistol_tex = try graph.Texture.initFromImgFile(alloc, cwd, "asset/pistol/textures/BrowningHP_Albedo.png", .{});
-    const pistol_norm = try graph.Texture.initFromImgFile(alloc, cwd, "asset/pistol/textures/BrowningHP_Normal.png", .{});
-    var pistol = try loadObj(alloc, cwd, "asset/pistol/untitled.obj", 0.3, pistol_tex, draw.textured_tri_3d_shader);
-    defer pistol.deinit();
+    var desk = try loadObj(alloc, cwd, "asset/desk/desk.obj", 0.03, sky_tex, draw.textured_tri_3d_shader, &tarr);
+    defer desk.deinit();
+
+    var tub = try loadObj(alloc, cwd, "asset/bathtub/bathtub.obj", 0.03, sky_tex, draw.textured_tri_3d_shader, &tarr);
+    defer tub.deinit();
+
+    var couch = try loadObj(alloc, cwd, "barrel.obj", 0.03, sky_tex, draw.textured_tri_3d_shader, &tarr);
+    defer couch.deinit();
+    var soda = try loadObj(alloc, cwd, "asset/soda/bathtub.obj", 0.03, sky_tex, draw.textured_tri_3d_shader, &tarr);
+    defer soda.deinit();
+
+    const objs = [_]*graph.Cubes{ &gman, &desk, &couch, &tub, &soda };
+    const obj_m = [objs.len]Mat4{
+        Mat4.fromTranslate(V3f.new(-9, 0, 6)),
+        Mat4.fromTranslate(V3f.new(-2, 0.5, 2)),
+        Mat4.identity(),
+        Mat4.identity(),
+        Mat4.fromTranslate(V3f.new(5, 1.25, 0)),
+    };
 
     cubes_st.setData();
     win.grabMouse(true);
@@ -1251,7 +1448,7 @@ pub fn main() !void {
     var do_camera_move = true;
 
     var sel_dist: f32 = 0;
-    var sel_resid = V3f.new(0, 0, 0);
+    //var sel_resid = V3f.new(0, 0, 0);
     var sel_snap: f32 = 12 * itm;
 
     var p_velocity = V3f.new(0, 0, 0);
@@ -1272,21 +1469,21 @@ pub fn main() !void {
         _ = arena_alloc.reset(.retain_capacity);
         try draw.begin(0x3fbaeaff, win.screen_dimensions.toF());
         cubes.clear();
-        for (lumber.items) |l| {
+        for (world.cubes.items) |l| {
             try cubes.cube(
-                l.pos.x(),
-                l.pos.y(),
-                l.pos.z(),
-                l.ext.x(),
-                l.ext.y(),
-                l.ext.z(),
-                tex.rect(),
-                null,
+                l.cube.pos.x(),
+                l.cube.pos.y(),
+                l.cube.pos.z(),
+                l.cube.ext.x(),
+                l.cube.ext.y(),
+                l.cube.ext.z(),
+                graph.Rec(0, 0, 512, 512),
+                l.texture_index,
             );
         }
         if (pencil.state == .p2) {
             const cu = ColType.Cube.fromBounds(pencil.p1, pencil.p2);
-            try cubes.cube(cu.pos.x(), cu.pos.y(), cu.pos.z(), cu.ext.x(), cu.ext.y(), cu.ext.z(), tex.rect(), null);
+            try cubes.cube(cu.pos.x(), cu.pos.y(), cu.pos.z(), cu.ext.x(), cu.ext.y(), cu.ext.z(), tex.rect(), 0);
         }
         win.pumpEvents();
 
@@ -1390,7 +1587,7 @@ pub fn main() !void {
         if (win.keyPressed(keys.delete_selected)) {
             if (sel_index) |si| {
                 //TODO put in an undo buffer
-                _ = lumber.swapRemove(si);
+                _ = world.cubes.swapRemove(si);
                 sel_index = null;
             }
         }
@@ -1405,8 +1602,8 @@ pub fn main() !void {
             var delta = camera.pos.sub(old_pos);
             while (delta.length() > 0) {
                 var cols = std.ArrayList(ColType.CollisionResult).init(arena);
-                for (lumber.items) |lum| {
-                    if (ColType.detectCollision(cam_bb, lum, delta)) |col| {
+                for (world.cubes.items) |lum| {
+                    if (ColType.detectCollision(cam_bb, lum.cube, delta)) |col| {
                         try cols.append(col);
                     }
                 }
@@ -1479,8 +1676,8 @@ pub fn main() !void {
                     var nearest_i: ?usize = null;
                     var nearest: f32 = 0;
 
-                    for (lumber.items, 0..) |lum, i| {
-                        if (doesRayIntersectBoundingBox(3, f32, lum.pos.data, lum.pos.add(lum.ext).data, camera.pos.data, camera.front.data)) |int| {
+                    for (world.cubes.items, 0..) |lum, i| {
+                        if (doesRayIntersectBoundingBox(3, f32, lum.cube.pos.data, lum.cube.pos.add(lum.ext).data, camera.pos.data, camera.front.data)) |int| {
                             const p = V3f.new(int[0], int[1], int[2]);
                             if (nearest_i == null) {
                                 nearest_i = i;
@@ -1502,7 +1699,7 @@ pub fn main() !void {
                             sel_index = i;
                             sel_dist = nearest;
                         }
-                        const lum = &lumber.items[i];
+                        const lum = &(world.cubes.items[i].cube);
                         {
                             var norm: @Vector(3, f32) = @splat(0);
                             const p = point.toArray();
@@ -1555,42 +1752,42 @@ pub fn main() !void {
                 .manipulate => {
                     if (win.mouse.left != .high)
                         mode = .look;
-                    const lum = &lumber.items[sel_index.?];
+                    //const lum = &lumber.items[sel_index.?];
                     //lum.origin = lum.origin.add(V3f.new(win.mouse.delta.y * 0.01, 0, win.mouse.delta.x * 0.01)); //win.mouse.delta.x
-                    const yw = radians(camera.yaw);
-                    const pf: f32 = if (camera.pitch < 0) -1.0 else 1.0;
+                    //const yw = radians(camera.yaw);
+                    //const pf: f32 = if (camera.pitch < 0) -1.0 else 1.0;
 
-                    const fac = sel_dist / 1000;
-                    const lx = win.keydown(.LCTRL);
-                    const lz = win.keydown(.LSHIFT);
+                    //const fac = sel_dist / 1000;
+                    //const lx = win.keydown(.LCTRL);
+                    //const lz = win.keydown(.LSHIFT);
                     if (win.keydown(.A)) { //Rotate
                     } else {
-                        const x: f32 = if (lx) 0 else (sin(yw) * -win.mouse.delta.x + cos(yw) * win.mouse.delta.y * pf) * fac + sel_resid.x();
-                        const z: f32 = if (lz) 0 else (sin(yw) * win.mouse.delta.y * pf + cos(yw) * win.mouse.delta.x) * fac + sel_resid.z();
-                        const y: f32 = if (lx and lz) -win.mouse.delta.y * fac + sel_resid.y() else 0;
-                        const rx = @divFloor(x, sel_snap) * sel_snap;
-                        const ry = @divFloor(y, sel_snap) * sel_snap;
-                        const rz = @divFloor(z, sel_snap) * sel_snap;
-                        sel_resid = V3f.new(
-                            @mod(x, sel_snap),
-                            @mod(y, sel_snap),
-                            @mod(z, sel_snap),
-                        );
-                        const r = V3f.new(rx, ry, rz);
+                        //const x: f32 = if (lx) 0 else (sin(yw) * -win.mouse.delta.x + cos(yw) * win.mouse.delta.y * pf) * fac + sel_resid.x();
+                        //const z: f32 = if (lz) 0 else (sin(yw) * win.mouse.delta.y * pf + cos(yw) * win.mouse.delta.x) * fac + sel_resid.z();
+                        //const y: f32 = if (lx and lz) -win.mouse.delta.y * fac + sel_resid.y() else 0;
+                        //const rx = @divFloor(x, sel_snap) * sel_snap;
+                        //const ry = @divFloor(y, sel_snap) * sel_snap;
+                        //const rz = @divFloor(z, sel_snap) * sel_snap;
+                        //sel_resid = V3f.new(
+                        //    @mod(x, sel_snap),
+                        //    @mod(y, sel_snap),
+                        //    @mod(z, sel_snap),
+                        //);
+                        //const r = V3f.new(rx, ry, rz);
 
-                        if (win.keydown(.D) and r.length() > 0) {
-                            try lumber.append(lum.*);
-                            lumber.items[lumber.items.len - 1].pos = lum.pos.add(r);
-                        } else {
-                            //lum.origin = lum.origin.add(V3f.new(0, 0, win.mouse.delta.x * sel_dist / 100)); //win.mouse.delta.x
-                            lum.pos = lum.pos.add(r); //win.mouse.delta.x
-                        }
+                        //if (win.keydown(.D) and r.length() > 0) {
+                        //    try lumber.append(lum.*);
+                        //    lumber.items[lumber.items.len - 1].pos = lum.pos.add(r);
+                        //} else {
+                        //    //lum.origin = lum.origin.add(V3f.new(0, 0, win.mouse.delta.x * sel_dist / 100)); //win.mouse.delta.x
+                        //    lum.pos = lum.pos.add(r); //win.mouse.delta.x
+                        //}
                     }
                 },
             }
         }
         {
-            try cubes.cube(cam_bb.pos.x(), cam_bb.pos.y(), cam_bb.pos.z(), cam_bb.ext.x(), cam_bb.ext.y(), cam_bb.ext.z(), Rec(0, 0, 1, 1), null);
+            try cubes.cube(cam_bb.pos.x(), cam_bb.pos.y(), cam_bb.pos.z(), cam_bb.ext.x(), cam_bb.ext.y(), cam_bb.ext.z(), Rec(0, 0, 1, 1), 0);
         }
 
         const cam_matrix = switch (gcfg.shadow_map_select) {
@@ -1609,7 +1806,9 @@ pub fn main() !void {
             couch.shader = shadow_shader;
             const mod = graph.za.Mat4.identity().scale(V3f.new(sc, sc, sc));
             cubes.drawSimple(graph.za.Mat4.identity(), mod, shadow_shader);
-            couch.drawSimple(graph.za.Mat4.identity(), couch_m, shadow_shader);
+            for (objs, 0..) |ob, i| {
+                ob.drawSimple(graph.za.Mat4.identity(), obj_m[i], shadow_shader);
+            }
             cubes.shader = light_shader;
             couch.shader = light_shader;
 
@@ -1640,32 +1839,14 @@ pub fn main() !void {
                 graph.GL.passUniform(sh, "model", mod);
 
                 c.glBindVertexArray(cubes.vao);
+                c.glBindTextureUnit(3, tarr.tid);
                 c.glDrawElements(c.GL_TRIANGLES, @as(c_int, @intCast(cubes.indicies.items.len)), c.GL_UNSIGNED_INT, null);
 
-                c.glBindVertexArray(couch.vao);
-                c.glBindTextureUnit(1, couch_normal.id);
-                c.glUniform1i(diffuse_loc, 0);
-                c.glActiveTexture(c.GL_TEXTURE0 + 0);
-                graph.GL.passUniform(sh, "model", couch_m);
-                c.glBindTexture(c.GL_TEXTURE_2D, couch.texture.id);
-                c.glDrawElements(c.GL_TRIANGLES, @as(c_int, @intCast(couch.indicies.items.len)), c.GL_UNSIGNED_INT, null);
-
-                c.glBindVertexArray(pistol.vao);
-                c.glBindTextureUnit(1, pistol_norm.id);
-                c.glUniform1i(diffuse_loc, 0);
-                c.glActiveTexture(c.GL_TEXTURE0 + 0);
-                graph.GL.passUniform(
-                    sh,
-                    "model",
-                    Mat4.fromTranslate(
-                        camera.pos.add(V3f.new(camera.front.x(), -0.3, camera.front.z())),
-                    ).rotate(
-                        deg(std.math.atan2(camera.front.x(), camera.front.z())),
-                        V3f.new(0, 1, 0),
-                    ),
-                );
-                c.glBindTexture(c.GL_TEXTURE_2D, pistol.texture.id);
-                //c.glDrawElements(c.GL_TRIANGLES, @as(c_int, @intCast(pistol.indicies.items.len)), c.GL_UNSIGNED_INT, null);
+                for (objs, 0..) |ob, i| {
+                    c.glBindVertexArray(ob.vao);
+                    graph.GL.passUniform(sh, "model", obj_m[i]);
+                    c.glDrawElements(c.GL_TRIANGLES, @as(c_int, @intCast(ob.indicies.items.len)), c.GL_UNSIGNED_INT, null);
+                }
 
                 { //draw the heightmap
                     c.glBindVertexArray(disp_cubes.vao);
@@ -1683,36 +1864,6 @@ pub fn main() !void {
         //const rr = graph.Rec(0, 0, win.screen_dimensions.x, win.screen_dimensions.y);
         //const r2 = graph.Rec(0, 0, win.screen_dimensions.x, -win.screen_dimensions.y);
         //draw.rectTex(rr, r2, .{ .w = win.screen_dimensions.x, .h = win.screen_dimensions.y, .id = gbuffer.albedo });
-        if (gcfg.draw_gbuffer == .shaded and false) { //Draw lighting quad
-            try light_batch.clear();
-            try light_batch.vertices.appendSlice(&.{
-                .{ .pos = graph.Vec3f.new(-1, 1, 0), .uv = graph.Vec2f.new(0, 1) },
-                .{ .pos = graph.Vec3f.new(-1, -1, 0), .uv = graph.Vec2f.new(0, 0) },
-                .{ .pos = graph.Vec3f.new(1, 1, 0), .uv = graph.Vec2f.new(1, 1) },
-                .{ .pos = graph.Vec3f.new(1, -1, 0), .uv = graph.Vec2f.new(1, 0) },
-            });
-            light_batch.pushVertexData();
-            c.glUseProgram(deferred_light_shader);
-            c.glBindVertexArray(light_batch.vao);
-            c.glBindTextureUnit(0, gbuffer.pos);
-            c.glBindTextureUnit(1, gbuffer.normal);
-            c.glBindTextureUnit(2, gbuffer.albedo);
-            c.glBindTextureUnit(3, sm.textures);
-            graph.GL.passUniform(deferred_light_shader, "view_pos", third_cam.pos);
-            graph.GL.passUniform(deferred_light_shader, "exposure", exposure);
-            graph.GL.passUniform(deferred_light_shader, "gamma", gamma);
-            graph.GL.passUniform(deferred_light_shader, "light_dir", light_dir);
-            graph.GL.passUniform(deferred_light_shader, "screenSize", win.screen_dimensions);
-            graph.GL.passUniform(deferred_light_shader, "light_color", sun_color.toCharColor().toFloat());
-            graph.GL.passUniform(deferred_light_shader, "cascadePlaneDistances[0]", @as(f32, planes[0]));
-            graph.GL.passUniform(deferred_light_shader, "cascadePlaneDistances[1]", @as(f32, planes[1]));
-            graph.GL.passUniform(deferred_light_shader, "cascadePlaneDistances[2]", @as(f32, planes[2]));
-            graph.GL.passUniform(deferred_light_shader, "cascadePlaneDistances[3]", @as(f32, 400));
-
-            graph.GL.passUniform(deferred_light_shader, "cam_view", third_cam.getViewMatrix());
-
-            c.glDrawArrays(c.GL_TRIANGLE_STRIP, 0, @as(c_int, @intCast(light_batch.vertices.items.len)));
-        }
         if (true) {
             c.glBindFramebuffer(c.GL_FRAMEBUFFER, hdrbuffer.fb);
             c.glViewport(0, 0, hdrbuffer.scr_w, hdrbuffer.scr_h);
@@ -1871,7 +2022,7 @@ pub fn main() !void {
                             if (win.mouse.left == .rising) {
                                 pencil.state = .init;
                                 if (@reduce(.Mul, cube.ext.data) != 0)
-                                    try lumber.append(cube);
+                                    try world.cubes.append(.{ .cube = cube, .texture_index = 1 });
                             }
                         }
                     },
@@ -1899,7 +2050,7 @@ pub fn main() !void {
             draw.line3D(p, p.add(V3f.new(0, 0, l)), 0x0000ffff);
         }
         if (sel_index) |si| {
-            const verts = &lumber.items[si].getVerts();
+            const verts = &world.cubes.items[si].cube.getVerts();
             const col1 = 0x701c23ff;
             const sel_col = 0x00ff00ff;
             const bot = verts[0..4];
@@ -1943,7 +2094,10 @@ pub fn main() !void {
                 do_camera_move = true;
                 if (win.keydown(.LSHIFT)) {
                     if (sel_index) |si| {
-                        const lum = &lumber.items[si];
+                        const lum = &world.cubes.items[si];
+                        if (@abs(win.mouse.wheel_delta.y) > 0) {
+                            lum.texture_index = @intCast(@mod(@as(i32, @intCast(lum.texture_index)) + @as(i32, @intFromFloat(win.mouse.wheel_delta.y)), tarr.count));
+                        }
                         if (sel_norm != null and win.mouse.left == .high) {
                             const n = sel_norm.?;
                             const fp0 = if (n.dot(V3f.new(0, 1, 0)) == 0) sel_int.? else sel_int.?;
@@ -1965,14 +2119,14 @@ pub fn main() !void {
                             } else {
                                 //Create a plane at the cameras feet
                                 //extract non normal
-                                const p0 = lum.getPlane0(n);
+                                const p0 = lum.cube.getPlane0(n);
                                 //Determine where the cameras ray intersects this plane
                                 if (doesRayIntersectPlane(camera.pos, camera.front, fp0, fpn)) |int| {
                                     draw.line3D(fp0, int, 0xff0000ff);
                                     //resize the cube so that it lies on this point
 
                                     const normal_dist = snap1(int.sub(p0).dot(n), sel_snap);
-                                    lum.* = lum.addInDir(normal_dist, sel_norm.?);
+                                    lum.cube = lum.cube.addInDir(normal_dist, sel_norm.?);
                                 }
                             }
                             const p0 = sel_int.?;
@@ -2014,12 +2168,12 @@ pub fn main() !void {
                             //Snap
 
                         } else {
-                            if (doesRayIntersectBoundingBox(3, f32, lum.pos.data, lum.pos.add(lum.ext).data, camera.pos.data, camera.front.data)) |int| {
+                            if (doesRayIntersectBoundingBox(3, f32, lum.cube.pos.data, lum.cube.pos.add(lum.cube.ext).data, camera.pos.data, camera.front.data)) |int| {
                                 const p = V3f.new(int[0], int[1], int[2]);
                                 var norm: @Vector(3, f32) = @splat(0);
                                 const pa = p.toArray();
-                                const ex = lum.ext.toArray();
-                                for (lum.pos.toArray(), 0..) |dim, ind| {
+                                const ex = lum.cube.ext.toArray();
+                                for (lum.cube.pos.toArray(), 0..) |dim, ind| {
                                     if (dim == pa[ind]) {
                                         norm[ind] = -1;
                                         break;
@@ -2050,8 +2204,8 @@ pub fn main() !void {
                                         //for each normal, test if camera ray intersects a bounding box pointing out from normal
                                         const positive = n.dot(V3f.new(1, 1, 1)) > 0;
                                         //TODO what should this magic num be?
-                                        const min = if (positive) lum.pos else lum.pos.add(n.scale(100));
-                                        const max = if (positive) lum.pos.add(lum.ext.add(n.scale(100))) else lum.pos.add(lum.ext);
+                                        const min = if (positive) lum.cube.pos else lum.cube.pos.add(n.scale(100));
+                                        const max = if (positive) lum.cube.pos.add(lum.cube.ext.add(n.scale(100))) else lum.cube.pos.add(lum.cube.ext);
                                         if (doesRayIntersectBBZ(camera.pos, camera.front, min, max)) |inti| {
                                             sel_norm = n;
                                             sel_int = inti;
@@ -2065,7 +2219,7 @@ pub fn main() !void {
                                 //Prevent selections at min acute angle
                                 if (n.dot(camera.front) > cos(radians(MIN_SELECTION_ANGLE_DEG)))
                                     sel_norm = null;
-                                const pl = lum.getPlane0(n);
+                                const pl = lum.cube.getPlane0(n);
                                 draw.line3D(
                                     pl,
                                     pl.add(n),
@@ -2079,8 +2233,8 @@ pub fn main() !void {
                     var nearest_i: ?usize = null;
                     var nearest: f32 = 0;
 
-                    for (lumber.items, 0..) |lum, i| {
-                        if (doesRayIntersectBoundingBox(3, f32, lum.pos.data, lum.pos.add(lum.ext).data, camera.pos.data, camera.front.data)) |int| {
+                    for (world.cubes.items, 0..) |lum, i| {
+                        if (doesRayIntersectBoundingBox(3, f32, lum.cube.pos.data, lum.cube.pos.add(lum.cube.ext).data, camera.pos.data, camera.front.data)) |int| {
                             const p = V3f.new(int[0], int[1], int[2]);
                             if (nearest_i == null) {
                                 nearest_i = i;
