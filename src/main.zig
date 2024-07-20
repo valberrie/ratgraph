@@ -1,6 +1,7 @@
 const std = @import("std");
 const graph = @import("graphics.zig");
 const gui = @import("gui.zig");
+const mesh_util = @import("mesh.zig");
 const Gui = graph.Gui;
 const V2f = graph.Vec2f;
 const V3f = graph.za.Vec3;
@@ -300,6 +301,8 @@ fn loadObj(alloc: std.mem.Allocator, dir: std.fs.Dir, filename: []const u8, scal
     defer {
         for (mtls.items) |m| {
             alloc.free(m.name);
+            if (m.diffuse_path) |d|
+                alloc.free(d);
         }
         mtls.deinit();
     }
@@ -457,8 +460,10 @@ fn loadObj(alloc: std.mem.Allocator, dir: std.fs.Dir, filename: []const u8, scal
             };
             const file_prefix_len = file_prefix.items.len;
             for (mtls.items[old_mtl_len..]) |mt| {
-                try file_prefix.appendSlice(mt.name);
-                try file_prefix.appendSlice(".png");
+                const dpath = mt.diffuse_path orelse continue;
+
+                try file_prefix.appendSlice(dpath);
+                //try file_prefix.appendSlice(".png");
                 defer file_prefix.shrinkRetainingCapacity(file_prefix_len);
                 const index = atex.loadFromPng(alloc, dir, file_prefix.items) catch |err| switch (err) {
                     error.FileNotFound => {
@@ -491,6 +496,7 @@ fn loadObj(alloc: std.mem.Allocator, dir: std.fs.Dir, filename: []const u8, scal
 //Load all the things into a texture
 pub const Mtl = struct {
     name: []const u8,
+    diffuse_path: ?[]const u8 = null,
 };
 
 pub fn loadMtl(alloc: std.mem.Allocator, dir: std.fs.Dir, filename: []const u8, mtl_list: *std.ArrayList(Mtl)) !void {
@@ -499,15 +505,27 @@ pub fn loadMtl(alloc: std.mem.Allocator, dir: std.fs.Dir, filename: []const u8, 
     const slmtl = try mtl_file.reader().readAllAlloc(alloc, std.math.maxInt(usize));
     defer alloc.free(slmtl);
     var mtl_it = std.mem.splitAny(u8, slmtl, "\n\r");
+    var mtl: ?Mtl = null;
     while (mtl_it.next()) |mtlline| {
         var tok = std.mem.tokenizeAny(u8, mtlline, " \t");
         const com = tok.next() orelse continue;
         switch (h(0, com)) {
             h(0, "newmtl") => {
+                if (mtl) |m|
+                    try mtl_list.append(m);
+
                 const name = tok.next().?;
-                std.debug.print("New mtl {s} {s}\n", .{ filename, name });
-                try mtl_list.append(.{ .name = try alloc.dupe(u8, name) });
+                mtl = .{ .name = try alloc.dupe(u8, name) };
             },
+            h(0, "map_Ka") => {},
+            h(0, "map_Kd") => {
+                const tex_path = tok.next().?;
+                mtl.?.diffuse_path = try alloc.dupe(u8, tex_path);
+            },
+            h(0, "map_Ks") => {},
+            h(0, "map_Ns") => {},
+            h(0, "map_d") => {},
+            h(0, "map_bump"), h(0, "bump") => {},
             h(0, "Ka") => { //ambient
             },
             h(0, "Ks") => { //Specular
@@ -519,6 +537,8 @@ pub fn loadMtl(alloc: std.mem.Allocator, dir: std.fs.Dir, filename: []const u8, 
             else => {},
         }
     }
+    if (mtl) |m|
+        try mtl_list.append(m);
 }
 
 const CASCADE_COUNT = 4;
@@ -1210,6 +1230,7 @@ pub fn main() !void {
     var os9gui = try Os9Gui.init(alloc, cwd, 2);
     defer os9gui.deinit();
     var gcfg: struct {
+        draw_gizmo: bool = false,
         draw_lighting_spheres: bool = false,
         lighting: bool = true,
         do_daylight_cycle: bool = false,
@@ -1274,6 +1295,11 @@ pub fn main() !void {
     const gbuffer_shader = try graph.Shader.loadFromFilesystem(alloc, cwd, &.{
         .{ .path = "asset/shader/gbuffer.vert", .t = .vert },
         .{ .path = "asset/shader/gbuffer.frag", .t = .frag },
+    });
+
+    const gbuffer_model_shader = try graph.Shader.loadFromFilesystem(alloc, cwd, &.{
+        .{ .path = "asset/shader/gbuffer_model.vert", .t = .vert },
+        .{ .path = "asset/shader/gbuffer_model.frag", .t = .frag },
     });
 
     const def_light_shad = try graph.Shader.loadFromFilesystem(alloc, cwd, &.{
@@ -1390,25 +1416,35 @@ pub fn main() !void {
     var cubes_st = try loadObj(alloc, cwd, "sky.obj", 1, sky_tex, draw.textured_tri_3d_shader, &tarr);
     defer cubes_st.deinit();
 
-    var gman = try loadObj(alloc, cwd, "asset/gman/gman.obj", 0.03, sky_tex, draw.textured_tri_3d_shader, &tarr);
-    defer gman.deinit();
-
-    var desk = try loadObj(alloc, cwd, "asset/desk/desk.obj", 0.03, sky_tex, draw.textured_tri_3d_shader, &tarr);
-    defer desk.deinit();
-
-    var tub = try loadObj(alloc, cwd, "asset/bathtub/bathtub.obj", 0.03, sky_tex, draw.textured_tri_3d_shader, &tarr);
-    defer tub.deinit();
+    var models = [_]mesh_util.Model{
+        try mesh_util.loadObj(alloc, cwd, "asset/alyx/alyx.obj", 0.0254),
+        try mesh_util.loadObj(alloc, cwd, "asset/gman/gman.obj", 0.03),
+        try mesh_util.loadObj(alloc, cwd, "asset/Sponza/sponza.obj", 0.01),
+        try mesh_util.loadObj(alloc, cwd, "asset/desk/desk.obj", 0.03),
+        try mesh_util.loadObj(alloc, cwd, "asset/bathtub/bathtub.obj", 0.03),
+        try mesh_util.loadObj(alloc, cwd, "asset/pistol2/untitled.obj", 0.06),
+    };
+    defer {
+        for (&models) |*m|
+            m.deinit();
+    }
+    const alyx_index = 0;
+    var model_m = [models.len]Mat4{
+        Mat4.fromTranslate(V3f.new(4, 0, 0)),
+        Mat4.fromTranslate(V3f.new(-9, 0, 6)),
+        Mat4.fromTranslate(V3f.new(40, 0, 0)),
+        Mat4.fromTranslate(V3f.new(-2, 0.5, 2)),
+        Mat4.identity(),
+        Mat4.fromTranslate(V3f.new(0, 2, 0)),
+    };
 
     var couch = try loadObj(alloc, cwd, "barrel.obj", 0.03, sky_tex, draw.textured_tri_3d_shader, &tarr);
     defer couch.deinit();
     var soda = try loadObj(alloc, cwd, "asset/soda/bathtub.obj", 0.03, sky_tex, draw.textured_tri_3d_shader, &tarr);
     defer soda.deinit();
 
-    const objs = [_]*graph.Cubes{ &gman, &desk, &couch, &tub, &soda };
+    const objs = [_]*graph.Cubes{ &couch, &soda };
     const obj_m = [objs.len]Mat4{
-        Mat4.fromTranslate(V3f.new(-9, 0, 6)),
-        Mat4.fromTranslate(V3f.new(-2, 0.5, 2)),
-        Mat4.identity(),
         Mat4.identity(),
         Mat4.fromTranslate(V3f.new(5, 1.25, 0)),
     };
@@ -1429,7 +1465,7 @@ pub fn main() !void {
         p2: V3f = V3f.zero(),
     } = .{};
 
-    const keys: struct {
+    var keys: struct {
         const SC = graph.SDL.keycodes.Scancode;
         delete_selected: SC = .X,
         show_menu: SC = .TAB,
@@ -1454,7 +1490,11 @@ pub fn main() !void {
     var p_velocity = V3f.new(0, 0, 0);
     var grounded = false;
 
+    var last_frame_shadow_view_mat = Mat4.identity();
+    var frame_count: usize = 0;
+
     while (!win.should_exit) {
+        frame_count = @mod(frame_count + 1, 1000);
         if (day_timer.read() > day_length) {
             _ = day_timer.reset();
         }
@@ -1636,6 +1676,7 @@ pub fn main() !void {
                     delta = V3f.zero();
                 }
             }
+            model_m[alyx_index] = Mat4.fromTranslate(cam_bb.pos.add(V3f.new(cam_bb.ext.x() / 2, 0, cam_bb.ext.z() / 2))).rotate(-camera.yaw + 90, V3f.new(0, 1, 0));
             //for each collidable
             //  col_list append(detectCollision)
             //
@@ -1657,17 +1698,6 @@ pub fn main() !void {
 
         c.alListener3f(c.AL_POSITION, camera.pos.x(), camera.pos.y(), camera.pos.z());
         c.alListenerfv(c.AL_ORIENTATION, &[_]f32{ camera.front.x(), camera.front.y(), camera.front.z(), 0, 1, 0 });
-        //CSM
-
-        const mats = getLightMatrices(camera.fov, screen_aspect, cam_near, cam_far, third_cam.getViewMatrix(), light_dir, planes);
-        c.glBindBuffer(c.GL_UNIFORM_BUFFER, light_mat_ubo);
-        for (mats, 0..) |mat, i| {
-            const ms = @sizeOf([4][4]f32);
-            c.glBufferSubData(c.GL_UNIFORM_BUFFER, @as(c_long, @intCast(i)) * ms, ms, &mat.data[0][0]);
-        }
-        c.glBindBuffer(c.GL_UNIFORM_BUFFER, 0);
-
-        //CSM END
 
         var point = V3f.zero();
         if (false) {
@@ -1786,9 +1816,30 @@ pub fn main() !void {
                 },
             }
         }
-        {
-            try cubes.cube(cam_bb.pos.x(), cam_bb.pos.y(), cam_bb.pos.z(), cam_bb.ext.x(), cam_bb.ext.y(), cam_bb.ext.z(), Rec(0, 0, 1, 1), 0);
+        //for (models, 0..) |m, i| {
+        //    var cu = ColType.Cube.fromBounds(m.min, m.max);
+        //    cu.pos = model_m[i].mulByVec4(cu.pos.toVec4(1)).toVec3();
+        //    try cubes.cube(
+        //        cu.pos.x(),
+        //        cu.pos.y(),
+        //        cu.pos.z(),
+        //        cu.ext.x(),
+        //        cu.ext.y(),
+        //        cu.ext.z(),
+        //        Rec(0, 0, 1, 1),
+        //        0,
+        //    );
+        //    //try cubes.cube(cam_bb.pos.x(), cam_bb.pos.y(), cam_bb.pos.z(), cam_bb.ext.x(), cam_bb.ext.y(), cam_bb.ext.z(), Rec(0, 0, 1, 1), 0);
+        //}
+
+        last_frame_shadow_view_mat = third_cam.getViewMatrix();
+        const mats = getLightMatrices(camera.fov, screen_aspect, cam_near, cam_far, last_frame_shadow_view_mat, light_dir, planes);
+        c.glBindBuffer(c.GL_UNIFORM_BUFFER, light_mat_ubo);
+        for (mats, 0..) |mat, i| {
+            const ms = @sizeOf([4][4]f32);
+            c.glBufferSubData(c.GL_UNIFORM_BUFFER, @as(c_long, @intCast(i)) * ms, ms, &mat.data[0][0]);
         }
+        c.glBindBuffer(c.GL_UNIFORM_BUFFER, 0);
 
         const cam_matrix = switch (gcfg.shadow_map_select) {
             .camera => cmatrix,
@@ -1797,20 +1848,26 @@ pub fn main() !void {
         cubes.setData();
         { //shadow map
 
-            c.glBindFramebuffer(c.GL_FRAMEBUFFER, sm.fbo);
-            c.glViewport(0, 0, sm.res, sm.res);
-            c.glClear(c.GL_DEPTH_BUFFER_BIT);
-
-            //const view = light_proj.mul(light_view);
-            cubes.shader = shadow_shader;
-            couch.shader = shadow_shader;
             const mod = graph.za.Mat4.identity().scale(V3f.new(sc, sc, sc));
-            cubes.drawSimple(graph.za.Mat4.identity(), mod, shadow_shader);
-            for (objs, 0..) |ob, i| {
-                ob.drawSimple(graph.za.Mat4.identity(), obj_m[i], shadow_shader);
+            {
+                c.glBindFramebuffer(c.GL_FRAMEBUFFER, sm.fbo);
+                c.glViewport(0, 0, sm.res, sm.res);
+                c.glClear(c.GL_DEPTH_BUFFER_BIT);
+
+                //const view = light_proj.mul(light_view);
+                cubes.shader = shadow_shader;
+                couch.shader = shadow_shader;
+                cubes.drawSimple(graph.za.Mat4.identity(), mod, shadow_shader);
+                for (objs, 0..) |ob, i| {
+                    ob.drawSimple(graph.za.Mat4.identity(), obj_m[i], shadow_shader);
+                }
+                for (models, 0..) |m, i| {
+                    for (m.meshes.items) |*mesh|
+                        mesh.drawSimple(graph.za.Mat4.identity(), model_m[i], shadow_shader);
+                }
+                cubes.shader = light_shader;
+                couch.shader = light_shader;
             }
-            cubes.shader = light_shader;
-            couch.shader = light_shader;
 
             //render scene from lights perspective
 
@@ -1856,6 +1913,27 @@ pub fn main() !void {
                         graph.za.Mat4.identity().translate(V3f.new(2, 0, 2)),
                     );
                     c.glDrawElements(c.GL_TRIANGLES, @as(c_int, @intCast(disp_cubes.indicies.items.len)), c.GL_UNSIGNED_INT, null);
+                }
+            }
+            {
+                const sh = gbuffer_model_shader;
+                c.glUseProgram(sh);
+                const diffuse_loc = c.glGetUniformLocation(sh, "diffuse_texture");
+
+                c.glUniform1i(diffuse_loc, 0);
+                for (models, 0..) |model, i| {
+                    if (i == alyx_index and !gcfg.draw_thirdperson) continue;
+                    for (model.meshes.items) |mesh| {
+                        c.glBindTextureUnit(0, mesh.diffuse_texture);
+
+                        c.glBindBufferBase(c.GL_UNIFORM_BUFFER, 0, light_mat_ubo);
+
+                        graph.GL.passUniform(sh, "view", cam_matrix);
+                        graph.GL.passUniform(sh, "model", model_m[i]);
+
+                        c.glBindVertexArray(mesh.vao);
+                        c.glDrawElements(c.GL_TRIANGLES, @as(c_int, @intCast(mesh.indicies.items.len)), c.GL_UNSIGNED_INT, null);
+                    }
                 }
             }
         }
@@ -2042,7 +2120,7 @@ pub fn main() !void {
                 .shaded => unreachable,
             }, .w = win.screen_dimensions.x, .h = win.screen_dimensions.y });
         }
-        { //draw a gizmo at crosshair
+        if (gcfg.draw_gizmo) { //draw a gizmo at crosshair
             const p = camera.pos.add(camera.front.scale(1));
             const l = 0.08;
             draw.line3D(p, p.add(V3f.new(l, 0, 0)), 0xff0000ff);
@@ -2369,6 +2447,7 @@ pub fn main() !void {
                             defer os9gui.endL();
                             _ = os9gui.checkbox("do lighting", &gcfg.lighting);
                             _ = os9gui.checkbox("draw lighting spheres", &gcfg.draw_lighting_spheres);
+                            _ = os9gui.checkbox("draw 3d gizmo", &gcfg.draw_gizmo);
                             {
                                 _ = try os9gui.beginH(2);
                                 //_ = try os9gui.beginL(Gui.HorizLayout{ .count = 2 });
@@ -2399,7 +2478,8 @@ pub fn main() !void {
                             defer os9gui.endL();
                             const info = @typeInfo(@TypeOf(keys));
                             inline for (info.Struct.fields) |field| {
-                                os9gui.label("{s}: {s}", .{ field.name, @tagName(@field(keys, field.name)) });
+                                //os9gui.label("{s}: {s}", .{ field.name, @tagName(@field(keys, field.name)) });
+                                try os9gui.enumCombo("{s} : {s}", .{ field.name, @tagName(@field(keys, field.name)) }, &@field(keys, field.name));
                             }
                         },
                         .info => {

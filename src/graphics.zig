@@ -1434,13 +1434,17 @@ pub const Cubes = struct {
         const nx = sx / tr.w * 512;
         const ny = sy / tr.h * 512;
         const nz = sz / tr.w * 512;
+
+        const uxx = (un.x + un.w) * nx;
+        const uyy = (un.y + un.h) * ny;
+        const uzz = (un.x + un.w) * nz;
         // zig fmt: off
     try self.vertices.appendSlice(&.{
         // front
-        cubeVert(px + sx, py + sy, pz, (un.x + un.w) * nx, (un.y + un.h) * ny, 0,0,-1, color, 1,0,0,ti), //0
-        cubeVert(px + sx, py     , pz, (un.x + un.w) * nx, un.y       , 0,0,-1, color, 1,0,0,ti), //1
+        cubeVert(px + sx, py + sy, pz, uxx, uyy, 0,0,-1, color, 1,0,0,ti), //0
+        cubeVert(px + sx, py     , pz, uxx, un.y       , 0,0,-1, color, 1,0,0,ti), //1
         cubeVert(px     , py     , pz, un.x       , un.y       , 0,0,-1, color, 1,0,0,ti), //2
-        cubeVert(px     , py + sy, pz, un.x       , (un.y + un.h) * ny, 0,0,-1, color, 1,0,0,ti), //3
+        cubeVert(px     , py + sy, pz, un.x       , uyy, 0,0,-1, color, 1,0,0,ti), //3
 
         // back
         cubeVert(px     , py + sy, pz + sz, un.x       , (un.y + un.h) * ny, 0,0,1, color, 1,0,0,ti), //3
@@ -1449,9 +1453,9 @@ pub const Cubes = struct {
         cubeVert(px + sx, py + sy, pz + sz, (un.x + un.w) * nx, (un.y + un.h) * ny, 0,0,1, color, 1,0,0,ti), //0
 
 
-        cubeVert(px + sx, py, pz,      un.x+un.w,un.y + un.h, 0,-1,0,      color, 1,0,0,ti),
-        cubeVert(px + sx, py, pz + sz, un.x+un.w,un.y,        0,-1,0,      color, 1,0,0,ti),
-        cubeVert(px     , py, pz + sz, un.x,un.y,             0,-1,0,      color, 1,0,0,ti),
+        cubeVert(px + sx, py, pz,      uxx,un.x, 0,-1,0,      color, 1,0,0,ti),
+        cubeVert(px + sx, py, pz + sz, uxx,uzz,        0,-1,0,      color, 1,0,0,ti),
+        cubeVert(px     , py, pz + sz, un.x,uzz,             0,-1,0,      color, 1,0,0,ti),
         cubeVert(px     , py, pz     , un.x,un.y + un.h,      0,-1,0,      color, 1,0,0,ti),
 
         cubeVert(px     , py + sy, pz     , un.x,un.y ,        0,1,0,   color, 1,0,0,ti),
@@ -1464,10 +1468,10 @@ pub const Cubes = struct {
         cubeVert(px, py , pz + sz, un.x,un.y,                -1,0,0,   color, 0,1,0,ti),
         cubeVert(px, py + sy , pz + sz, un.x,un.y + un.h,    -1,0,0,   color, 0,1,0,ti),
 
-        cubeVert(px + sx, py + sy , pz + sz, un.x,un.y + un.h,     1,0,0, color, 0,-1,0,ti),
-        cubeVert(px + sx, py , pz + sz, un.x,un.y,                 1,0,0, color, 0,-1,0,ti),
-        cubeVert(px + sx, py , pz, un.x + un.w,un.y,               1,0,0, color, 0,-1,0,ti),
-        cubeVert(px + sx, py + sy, pz, un.x + un.w,un.y + un.h,    1,0,0, color, 0,-1,0,ti),
+        cubeVert(px + sx, py + sy , pz + sz , un.x       ,  un.y + un.h,     1,0,0, color, 0,-1,0,ti),
+        cubeVert(px + sx, py      , pz + sz , un.x       ,  un.y,            1,0,0, color, 0,-1,0,ti),
+        cubeVert(px + sx, py      , pz      , un.x + un.w,  un.y,            1,0,0, color, 0,-1,0,ti),
+        cubeVert(px + sx, py + sy , pz      , un.x + un.w,  un.y + un.h,     1,0,0, color, 0,-1,0,ti),
 
 
     });
