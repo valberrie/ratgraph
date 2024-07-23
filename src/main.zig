@@ -24,175 +24,6 @@ const itm = 0.0254;
 const c = graph.c;
 const log = std.log.scoped(.game);
 
-threadlocal var lua_draw: *LuaDraw = undefined;
-const LuaDraw = struct {
-    const Lua = graph.Lua;
-
-    draw: *graph.ImmediateDrawingContext,
-    win: *graph.SDL.Window,
-    font: *graph.Font,
-    vm: *Lua,
-    clear_color: u32 = 0xff,
-
-    data: Data,
-    pub const Data = struct {
-        name_scancode_map: std.StringHashMap(graph.SDL.keycodes.Scancode),
-        tex_map: std.ArrayList(graph.Texture),
-        alloc: std.mem.Allocator,
-        pub fn init(alloc: std.mem.Allocator) !@This() {
-            var m = std.StringHashMap(graph.SDL.keycodes.Scancode).init(alloc);
-            inline for (@typeInfo(graph.SDL.keycodes.Scancode).Enum.fields) |f| {
-                try m.put(f.name, @enumFromInt(f.value));
-            }
-
-            return .{
-                .tex_map = std.ArrayList(graph.Texture).init(alloc),
-                .name_scancode_map = m,
-                .alloc = alloc,
-            };
-        }
-        pub fn deinit(self: *@This()) void {
-            self.name_scancode_map.deinit();
-            self.tex_map.deinit();
-        }
-    };
-
-    pub const Api = struct {
-        pub export fn loadTexture(L: Lua.Ls) c_int {
-            const self = lua_draw;
-            Lua.c.lua_settop(L, 1);
-            const str = self.vm.getArg(L, []const u8, 1);
-            const id = self.data.tex_map.items.len;
-            self.data.tex_map.append(graph.Texture.initFromImgFile(
-                self.data.alloc,
-                std.fs.cwd(),
-                str,
-                .{},
-            ) catch return 0) catch return 0;
-
-            Lua.pushV(L, id);
-            return 1;
-        }
-
-        pub export fn setBgColor(L: Lua.Ls) c_int {
-            const self = lua_draw;
-            const num_args = Lua.c.lua_gettop(L);
-            self.clear_color = blk: {
-                switch (num_args) {
-                    4 => {
-                        const r = self.vm.getArg(L, u8, 1);
-                        const g = self.vm.getArg(L, u8, 2);
-                        const b = self.vm.getArg(L, u8, 3);
-                        const a = self.vm.getArg(L, u8, 4);
-                        break :blk graph.ptypes.charColorToInt(graph.CharColor.new(r, g, b, a));
-                    },
-                    1 => {
-                        if (Lua.c.lua_isinteger(L, 1) == 1) {
-                            break :blk self.vm.getArg(L, u32, 1);
-                        } else {
-                            const color_name = self.vm.getArg(L, []const u8, 1);
-                            const cinfo = @typeInfo(graph.Colori);
-                            inline for (cinfo.Struct.decls) |d| {
-                                if (std.mem.eql(u8, d.name, color_name)) {
-                                    break :blk @field(graph.Colori, d.name);
-                                }
-                            }
-                            _ = Lua.c.luaL_error(L, "unknown color");
-                            return 0;
-                        }
-                    },
-                    else => {
-                        _ = Lua.c.luaL_error(L, "invalid arguments");
-                        return 0;
-                    },
-                }
-            };
-            return 0;
-        }
-
-        pub export fn text(L: Lua.Ls) c_int {
-            const self = lua_draw;
-            const x = self.vm.getArg(L, graph.Vec2f, 1);
-            //const y = self.vm.getArg(L, f32, 2);
-            const str = self.vm.getArg(L, []const u8, 2);
-            const sz = self.vm.getArg(L, f32, 3);
-            self.draw.text(x, str, self.font, sz, 0xffffffff);
-            return 0;
-        }
-
-        pub export fn mousePos(L: Lua.Ls) c_int {
-            const self = lua_draw;
-            Lua.pushV(L, self.win.mouse.pos);
-            return 1;
-        }
-
-        pub export fn getScreenSize(L: Lua.Ls) c_int {
-            const self = lua_draw;
-            Lua.pushV(L, self.win.screen_dimensions);
-            return 1;
-        }
-
-        pub export fn keydown(L: Lua.Ls) c_int {
-            const self = lua_draw;
-            Lua.c.lua_settop(L, 1);
-            const str = self.vm.getArg(L, []const u8, 1);
-            if (self.data.name_scancode_map.get(str)) |v| {
-                Lua.pushV(L, self.win.keydown(v));
-                return 1;
-            }
-            _ = Lua.c.luaL_error(L, "Unknown key");
-            return 0;
-        }
-
-        pub export fn rectTex(L: Lua.Ls) c_int {
-            const self = lua_draw;
-            const r: graph.Rect = blk: {
-                if (Lua.c.lua_istable(L, 1)) {
-                    defer Lua.c.lua_remove(L, 1);
-                    break :blk self.vm.getArg(L, graph.Rect, 1);
-                } else {
-                    const x = self.vm.getArg(L, f32, 1);
-                    const y = self.vm.getArg(L, f32, 2);
-                    const w = self.vm.getArg(L, f32, 3);
-                    const h = self.vm.getArg(L, f32, 4);
-                    Lua.c.lua_remove(L, 1);
-                    Lua.c.lua_remove(L, 2);
-                    Lua.c.lua_remove(L, 3);
-                    Lua.c.lua_remove(L, 4);
-                    break :blk graph.Rect.new(x, y, w, h);
-                }
-            };
-            const id = self.vm.getArg(L, u32, 1);
-
-            const tex = self.data.tex_map.items[@intCast(id)];
-            self.draw.rectTex(
-                r,
-                tex.rect(),
-                tex,
-            );
-            return 0;
-        }
-
-        pub export fn rect(L: Lua.Ls) c_int {
-            const self = lua_draw;
-            const r: graph.Rect = blk: {
-                if (Lua.c.lua_istable(L, 1)) {
-                    break :blk self.vm.getArg(L, graph.Rect, 1);
-                } else {
-                    const x = self.vm.getArg(L, f32, 1);
-                    const y = self.vm.getArg(L, f32, 2);
-                    const w = self.vm.getArg(L, f32, 3);
-                    const h = self.vm.getArg(L, f32, 4);
-                    break :blk graph.Rect.new(x, y, w, h);
-                }
-            };
-
-            self.draw.rect(r, 0xffffffff);
-            return 0;
-        }
-    };
-};
-
 //making it work
 //selecting an item in 3d.
 //Raycast and choose closest intersection.
@@ -2500,6 +2331,15 @@ pub fn main() !void {
         //const rr = graph.Rec(0, 0, win.screen_dimensions.x, win.screen_dimensions.y);
         //const r2 = graph.Rec(0, 0, win.screen_dimensions.x, -win.screen_dimensions.y);
         //draw.rectTex(rr, r2, .{ .w = win.screen_dimensions.x, .h = win.screen_dimensions.y, .id = hdrbuffer.color });
+        {
+            const num_verts = 10;
+            const dtheta = 360 / num_verts;
+            for (0..num_verts) |vi| {
+                const theta: f32 = @floatFromInt(vi * dtheta);
+
+                draw.line(.{ .x = 500, .y = 500 }, .{ .x = 500 + cos(radians(theta)) * 100, .y = 500 + sin(radians(theta)) * 100 }, 0xffffffff);
+            }
+        }
         try draw.end(camera);
         win.swap();
     }
