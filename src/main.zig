@@ -122,6 +122,8 @@ fn snap1(comp: f32, snap: f32) f32 {
     return @divFloor(comp, snap) * snap;
 }
 
+//TODO delete, this is duplicated in mesh.zig
+//only hangs around for icosphere and skybox
 fn loadObj(alloc: std.mem.Allocator, dir: std.fs.Dir, filename: []const u8, scale: f32, tex: graph.Texture, shader: c_uint, atex: *ArrayTexture) !graph.Cubes {
     var uvs = std.ArrayList(graph.Vec2f).init(alloc);
     defer uvs.deinit();
@@ -318,6 +320,7 @@ fn loadObj(alloc: std.mem.Allocator, dir: std.fs.Dir, filename: []const u8, scal
         vert.tz = norm.z();
     }
     cubes.setData();
+
     return cubes;
 }
 
@@ -1250,10 +1253,11 @@ pub fn main() !void {
     var models = [_]mesh_util.Model{
         try mesh_util.loadObj(alloc, cwd, "asset/alyx/alyx.obj", 0.0254),
         try mesh_util.loadObj(alloc, cwd, "asset/gman/gman.obj", 0.03),
-        try mesh_util.loadObj(alloc, cwd, "asset/Sponza/sponza.obj", 0.01),
+        //try mesh_util.loadObj(alloc, cwd, "asset/Sponza/sponza.obj", 0.01),
         try mesh_util.loadObj(alloc, cwd, "asset/desk/desk.obj", 0.03),
         try mesh_util.loadObj(alloc, cwd, "asset/bathtub/bathtub.obj", 0.03),
         try mesh_util.loadObj(alloc, cwd, "asset/pistol2/untitled.obj", 0.06),
+        try mesh_util.loadObj(alloc, cwd, "asset/crap/chair.obj", 1.0),
     };
     defer {
         for (&models) |*m|
@@ -1263,9 +1267,10 @@ pub fn main() !void {
     var model_m = [models.len]Mat4{
         Mat4.fromTranslate(V3f.new(4, 0, 0)),
         Mat4.fromTranslate(V3f.new(-9, 0, 6)),
-        Mat4.fromTranslate(V3f.new(40, 0, 0)),
+        //Mat4.fromTranslate(V3f.new(40, 0, 0)),
         Mat4.fromTranslate(V3f.new(-2, 0.5, 2)),
         Mat4.identity(),
+        Mat4.fromTranslate(V3f.new(0, 2, 0)),
         Mat4.fromTranslate(V3f.new(0, 2, 0)),
     };
 
@@ -1482,6 +1487,7 @@ pub fn main() !void {
                     std.sort.heap(ColType.CollisionResult, cols.items, {}, ColType.CollisionResult.lessThan);
                     const col = &cols.items[0];
                     delta = delta.sub(delta.scale(col.ti));
+                    if ((col.normal.x() != 0 or col.normal.z() != 0) and col.other.pos.y() + col.other.ext.y() - 0.25 < cam_bb.pos.y() and grounded) {}
                     if (col.normal.x() != 0) {
                         delta.xMut().* = 0;
                     }
@@ -2193,6 +2199,9 @@ pub fn main() !void {
             },
             .none => {},
         }
+        try draw.flush(null, camera);
+        if (gcfg.draw_wireframe)
+            graph.c.glPolygonMode(graph.c.GL_FRONT_AND_BACK, graph.c.GL_FILL);
         draw.textFmt(.{ .x = 0, .y = 0 }, "pos [{d:.2}, {d:.2}, {d:.2}]\nyaw: {d}\npitch: {d}\ngrounded {any}\ntool: {s}\nsnap: {d}\nPress {s} to show menu\n", .{
             cam_bb.pos.x(),
             cam_bb.pos.y(),
@@ -2206,8 +2215,6 @@ pub fn main() !void {
         }, &font, 12, 0xffffffff);
 
         if (show_gui) {
-            if (gcfg.draw_wireframe)
-                graph.c.glPolygonMode(graph.c.GL_FRONT_AND_BACK, graph.c.GL_FILL);
             const gw = 1000; //Gui units
             const gh = 500;
             const sw: f32 = @floatFromInt(win.screen_dimensions.x);
@@ -2325,9 +2332,9 @@ pub fn main() !void {
             }
 
             try os9gui.endFrame(&draw);
-            if (gcfg.draw_wireframe)
-                graph.c.glPolygonMode(graph.c.GL_FRONT_AND_BACK, graph.c.GL_LINE);
         }
+        if (gcfg.draw_wireframe)
+            graph.c.glPolygonMode(graph.c.GL_FRONT_AND_BACK, graph.c.GL_LINE);
         //const rr = graph.Rec(0, 0, win.screen_dimensions.x, win.screen_dimensions.y);
         //const r2 = graph.Rec(0, 0, win.screen_dimensions.x, -win.screen_dimensions.y);
         //draw.rectTex(rr, r2, .{ .w = win.screen_dimensions.x, .h = win.screen_dimensions.y, .id = hdrbuffer.color });

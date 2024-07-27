@@ -61,6 +61,7 @@ pub fn CollisionType(comptime rect_type: type, comptime vector_type: type) type 
         };
 
         pub const CollisionResult = struct {
+            other: Cube,
             /// The objects were overlapped before move
             overlaps: bool,
             /// Percentage of "delta" moved at collision
@@ -241,6 +242,7 @@ pub fn CollisionType(comptime rect_type: type, comptime vector_type: type) type 
             }
 
             return CollisionResult{
+                .other = c2,
                 .overlaps = overlaps,
                 .ti = ti.?,
                 .delta = delta,

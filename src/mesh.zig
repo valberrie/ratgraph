@@ -293,7 +293,10 @@ pub fn loadObj(alloc: std.mem.Allocator, dir: std.fs.Dir, filename: []const u8, 
             };
             const file_prefix_len = file_prefix.items.len;
             for (mtls.items[old_mtl_len..]) |mt| {
-                const dpath = mt.diffuse_path orelse continue;
+                const dpath = mt.diffuse_path orelse {
+                    try mesh_map.put(mt.name, Mesh.init(alloc, 0));
+                    continue;
+                };
 
                 try file_prefix.appendSlice(dpath);
                 //try file_prefix.appendSlice(".png");
@@ -323,6 +326,9 @@ pub fn loadObj(alloc: std.mem.Allocator, dir: std.fs.Dir, filename: []const u8, 
     }
     model.min = za.Vec3.new(minx, miny, minz).scale(scale);
     model.max = za.Vec3.new(maxx, maxy, maxz).scale(scale);
+
+    std.debug.print("Loaded obj {s}, with {d} verticies\n", .{ filename, verts.items.len });
+
     return model;
 }
 
