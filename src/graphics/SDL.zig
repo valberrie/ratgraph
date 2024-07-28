@@ -132,7 +132,7 @@ pub const Window = struct {
         frame_sync: enum(i32) {
             vsync = 1,
             ///FreeSync, G-Sync
-            adaptave_vsync = -1,
+            adaptive_vsync = -1,
             immediate = 0,
         } = .vsync,
         extra_gl_attributes: []const struct { attr: c.SDL_GLattr, val: i32 } = &.{},
@@ -196,7 +196,7 @@ pub const Window = struct {
 
         if (c.SDL_GL_SetSwapInterval(@intFromEnum(options.frame_sync)) < 0) {
             sdlLogErr();
-            if (options.frame_sync == .adaptave_vsync) {
+            if (options.frame_sync == .adaptive_vsync) {
                 log.warn("Failed to set adaptive sync, attempting to set vsync", .{});
                 if (c.SDL_GL_SetSwapInterval(1) < 0) {
                     sdlLogErr();
@@ -205,6 +205,13 @@ pub const Window = struct {
             } else {
                 return error.SetSwapInterval;
             }
+        }
+        {
+            const set_swap = c.SDL_GL_GetSwapInterval();
+            log.info("swap interval desired: {s}, actual {s}", .{
+                @tagName(options.frame_sync),
+                @tagName(@as(@TypeOf(options.frame_sync), @enumFromInt(set_swap))),
+            });
         }
         c.glEnable(c.GL_MULTISAMPLE);
         c.glEnable(c.GL_DEPTH_TEST);

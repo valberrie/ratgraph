@@ -675,7 +675,8 @@ pub const ImmediateDrawingContext = struct {
         try self.clearBuffers();
 
         self.zindex = 1;
-        std.time.sleep(16 * std.time.ns_per_ms);
+        //stupid, don't enable
+        //std.time.sleep(16 * std.time.ns_per_ms);
 
         const color = ptypes.intToColorF(bg_color);
         c.glClearColor(color[0], color[1], color[2], color[3]);
