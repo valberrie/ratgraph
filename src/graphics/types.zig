@@ -235,6 +235,14 @@ pub const Vec2f = packed struct {
         };
     }
 
+    pub fn normal(a: @This()) @This() {
+        return a.scale(1.0 / a.length());
+    }
+
+    pub fn dot(a: @This(), b: @This()) f32 {
+        return a.x * b.x + a.y * b.y;
+    }
+
     pub fn length(s: @This()) f32 {
         return @sqrt(s.x * s.x + s.y * s.y);
     }
@@ -248,6 +256,10 @@ pub const Vec2f = packed struct {
     }
 
     pub fn smul(s: @This(), scalar: f32) @This() {
+        return .{ .x = s.x * scalar, .y = s.y * scalar };
+    }
+
+    pub fn scale(s: @This(), scalar: f32) @This() {
         return .{ .x = s.x * scalar, .y = s.y * scalar };
     }
 

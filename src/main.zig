@@ -516,9 +516,9 @@ fn getLightMatrix(fov: f32, aspect: f32, near: f32, far: f32, cam_view: Mat4, li
     var min_y = std.math.floatMax(f32);
     var min_z = std.math.floatMax(f32);
 
-    var max_x = std.math.floatMin(f32);
-    var max_y = std.math.floatMin(f32);
-    var max_z = std.math.floatMin(f32);
+    var max_x = -std.math.floatMax(f32);
+    var max_y = -std.math.floatMax(f32);
+    var max_z = -std.math.floatMax(f32);
     for (corners) |corner| {
         const trf = lview.mulByVec4(corner);
         min_x = @min(min_x, trf.x());

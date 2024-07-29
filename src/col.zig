@@ -1,5 +1,8 @@
 const std = @import("std");
 
+const newcol = @import("newcol.zig");
+pub const ColType = newcol.CollisionType(graph.Rect, graph.Vec2f);
+
 const graph = @import("graphics.zig");
 pub const ColRect = graph.Rect;
 const Vec2f = graph.Vec2f;
@@ -8,36 +11,14 @@ pub const SparseSet = graph.SparseSet;
 const collision_set = SparseSet(ColRect);
 
 pub var simulate_move_time: u64 = 0;
-pub fn simulateMove(game: anytype, cols: *std.ArrayList(Collision), id: u32, dx: f32, dy: f32) !void {
-    var timer = try std.time.Timer.start();
-    defer simulate_move_time += timer.read();
-    const pl = try game.ecs.get(id, .col_rect);
 
-    const area = graph.Rect.hull(pl, pl.addV(dx, dy));
-    const rects_to_check = try game.grid.getObjectsInArea(game.temp_alloc.allocator(), area);
-
-    for (rects_to_check.items) |o_id| {
-        if (o_id == id) continue;
-        if (try game.ecs.getOpt(o_id, .collision_type) == null) continue;
-
-        const col = detectCollision(pl, try game.ecs.get(o_id, .col_rect), .{ .x = pl.x + dx, .y = pl.y + dy }, o_id);
-        if (col.x != null or col.y != null or col.overlaps) {
-            try cols.append(col);
-        }
-    }
-
-    if (cols.items.len > 1) {
-        std.sort.insertion(Collision, cols.items, Vec2f{ .x = 0, .y = 0 }, sortByCompletion);
-    }
-}
-
-pub fn simulateMoveNew(game: anytype, cols: *std.ArrayList(Collision), id: u32, dx: f32, dy: f32) !void {
+pub fn simulateMoveNew(game: anytype, cols: *std.ArrayList(ColType.CollisionResult), id: u32, goal: Vec2f) !void {
     var timer = try std.time.Timer.start();
     defer simulate_move_time += timer.read();
     const plc = try game.ecs.get(id, .collide);
     const pl = plc.rect;
 
-    const area = graph.Rect.hull(pl, pl.addV(dx, dy));
+    const area = graph.Rect.hull(pl, graph.Rect.newV(goal, pl.dim()));
     const rects_to_check = try game.grid.getObjectsInArea(game.temp_alloc.allocator(), area);
 
     for (rects_to_check.items) |o_id| {
@@ -45,8 +26,7 @@ pub fn simulateMoveNew(game: anytype, cols: *std.ArrayList(Collision), id: u32, 
         const other = try game.ecs.get(o_id, .collide);
         if (other.kind == .nocollide) continue;
 
-        const col = detectCollision(pl, other.rect, .{ .x = pl.x + dx, .y = pl.y + dy }, o_id);
-        if (col.x != null or col.y != null or col.overlaps) {
+        if (ColType.detectCollision(pl, other.rect, goal, o_id)) |col| {
             try cols.append(col);
         }
     }
@@ -61,7 +41,7 @@ pub fn simulateMoveNew(game: anytype, cols: *std.ArrayList(Collision), id: u32, 
     //    }
     //}
     if (cols.items.len > 1) {
-        std.sort.insertion(Collision, cols.items, Vec2f{ .x = 0, .y = 0 }, sortByCompletion);
+        std.sort.insertion(ColType.CollisionResult, cols.items, {}, ColType.CollisionResult.lessThan);
     }
 }
 
