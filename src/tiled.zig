@@ -1,3 +1,7 @@
+//TODO
+//have a way to "bake" a tiled tsj file from the asset hash_map thing.
+//it would take a previous version of the tileset, keeping ids constant for any existing tiles.
+//It would allow tiled maps to use our texture atlas instead of a seperate one
 const std = @import("std");
 pub const TileMap = struct {
     pub const JTileset = struct {
@@ -5,8 +9,43 @@ pub const TileMap = struct {
         image: []const u8,
         tileheight: u32,
         tilewidth: u32,
+
+        //A external tileset only defines these two fields
+        source: ?[]const u8 = null,
         firstgid: u32,
-        //source: ?[]const u8 = null,
+    };
+
+    //Only for collections of images
+    pub const ExternalTileset = struct {
+        pub const TileImage = struct {
+            id: u32,
+            image: []const u8,
+            imageheight: u32,
+            imagewidth: u32,
+
+            pub fn compare(_: void, lhs: TileImage, rhs: TileImage) bool {
+                return std.ascii.lessThanIgnoreCase(lhs.image, rhs.image);
+            }
+
+            pub fn compareId(_: void, l: TileImage, r: TileImage) bool {
+                return l.id < r.id;
+            }
+        };
+        tiles: []const TileImage,
+        tileheight: u32, //This should be set to the maxiumum height of all tiles
+        tilewidth: u32,
+        tilecount: u32,
+        type: enum { tileset } = .tileset,
+        version: []const u8 = "1.10",
+        name: []const u8,
+        columns: u32 = 0,
+        grid: struct {
+            height: u32 = 1,
+            orientation: enum { orthogonal } = .orthogonal,
+            width: u32 = 1,
+        } = .{},
+        margin: u32 = 0,
+        spacing: u32 = 0,
     };
 
     pub const LayerType = enum {
@@ -163,7 +202,7 @@ pub fn parseField(field_name: []const u8, field_type: type, default: ?field_type
                     return switch (cinfo) {
                         .Bool => p.value.bool,
                         .Optional => |o| try parseField(field_name, o.child, null, properties, namespace_offset),
-                        .Int => std.math.lossyCast(field_type, p.value.int),
+                        .Int => if (p.value == .int) std.math.lossyCast(field_type, p.value.int) else std.math.lossyCast(field_type, p.value.object),
                         .Float => p.value.float,
                         .Enum => |e| blk: {
                             inline for (e.fields) |ef| {
@@ -188,6 +227,103 @@ pub fn parseField(field_name: []const u8, field_type: type, default: ?field_type
         },
     }
     return default.?;
+}
+
+///name_rect_map is a std.hash_map that maps png paths to rectangles
+pub fn rebakeTileset(
+    alloc: std.mem.Allocator,
+    name_rect_map: anytype,
+    dir: std.fs.Dir,
+    path_prefix: []const u8, // path relative to 'dir' to prepend to each image path, should probably end in a slash
+    output_filename: []const u8, // relative to dir
+) !void {
+    const TileImage = TileMap.ExternalTileset.TileImage;
+    var aa = std.heap.ArenaAllocator.init(alloc);
+
+    defer aa.deinit();
+    const al = aa.allocator();
+    const old_set: ?TileMap.ExternalTileset = blk: {
+        const jslice = dir.readFileAlloc(al, output_filename, std.math.maxInt(usize)) catch break :blk null;
+        const parsed = try std.json.parseFromSlice(TileMap.ExternalTileset, al, jslice, .{ .ignore_unknown_fields = true });
+        break :blk parsed.value;
+    };
+    var it = name_rect_map.iterator();
+
+    var tiles = std.ArrayList(TileImage).init(al);
+    if (old_set) |os|
+        try tiles.appendSlice(os.tiles);
+
+    var name_id_map = std.StringHashMap(u32).init(al);
+    for (tiles.items) |t|
+        try name_id_map.put(t.image, t.id);
+
+    std.sort.heap(TileImage, tiles.items, {}, TileImage.compareId);
+    //start inclusive ,end exclusive. representing ids
+    var freelist = std.ArrayList(struct { start: u32, end: u32 }).init(alloc); //Uses allocator instead of arena as it will be modified a lot.
+    defer freelist.deinit();
+    {
+        var start: u32 = 0;
+        if (tiles.items.len > 0) {
+            for (tiles.items) |t| {
+                if (start == t.id) {
+                    start += 1;
+                    continue;
+                }
+                var end = start;
+                while (end < t.id) : (end += 1) {}
+                try freelist.append(.{ .start = start, .end = end });
+                start = t.id + 1;
+            }
+        }
+        try freelist.append(.{ .start = start, .end = std.math.maxInt(u32) });
+    }
+
+    var max_w: u32 = 0;
+    var max_h: u32 = 0;
+
+    while (it.next()) |item| {
+        var new_name = std.ArrayList(u8).init(al);
+        try new_name.appendSlice(path_prefix);
+        try new_name.appendSlice(item.key_ptr.*);
+        try new_name.appendSlice(".png");
+        if (name_id_map.get(new_name.items) != null) {
+            continue;
+        }
+        const new_id = blk: {
+            var range = &freelist.items[0];
+            while (range.start == range.end) {
+                _ = freelist.orderedRemove(0);
+                if (freelist.items.len == 0)
+                    return error.noIdsLeft;
+                range = &freelist.items[0];
+            }
+            defer range.start += 1;
+            break :blk range.start;
+        };
+
+        const h: u32 = @intFromFloat(item.value_ptr.h);
+        const w: u32 = @intFromFloat(item.value_ptr.w);
+        max_w = @max(max_w, w);
+        max_h = @max(max_h, h);
+        try tiles.append(.{
+            .id = new_id,
+            .image = new_name.items,
+            .imageheight = h,
+            .imagewidth = w,
+        });
+    }
+
+    std.sort.heap(TileImage, tiles.items, {}, TileImage.compare);
+    const new_tsj = TileMap.ExternalTileset{
+        .tiles = tiles.items,
+        .tileheight = max_h,
+        .tilewidth = max_w,
+        .tilecount = @intCast(tiles.items.len),
+        .name = "test output",
+    };
+    var outfile = dir.createFile(output_filename, .{}) catch unreachable;
+    std.json.stringify(new_tsj, .{}, outfile.writer()) catch unreachable;
+    outfile.close();
 }
 
 pub fn propertiesToStruct(struct_type: type, properties: []const TileMap.Property, namespace_offset: usize) !struct_type {

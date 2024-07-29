@@ -3148,6 +3148,15 @@ pub const Lua = struct {
 //
 // adding metadata to this model?
 
+//TODO
+//map the tiled ids to rectangles
+//no, just convert them.
+//store rects in arraylist
+//map maps to indicies for name lookups
+//convert all tiled ids to this index
+//still O(1) lookup but with some memory access
+//hash map?
+//sparse set?
 pub const AssetMap = struct {
     const Self = @This();
     map: std.StringHashMap(Rect),
