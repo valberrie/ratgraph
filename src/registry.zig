@@ -41,6 +41,7 @@ pub fn GenRegistryStructs(comptime fields: FieldList) struct {
     union_type: type,
     callbacks: type,
     aggregate_type: type,
+    file_proto_type: type,
 } {
     const TypeInfo = std.builtin.Type;
 
@@ -55,6 +56,7 @@ pub fn GenRegistryStructs(comptime fields: FieldList) struct {
     var callback_fields: [fields.len * num_cbs]TypeInfo.StructField = undefined;
 
     var big_ent_type: [fields.len]TypeInfo.StructField = undefined;
+    var file_proto_types: [fields.len]TypeInfo.UnionField = undefined;
 
     inline for (fields, 0..) |f, lt_i| {
         const inner_struct = container_struct(f.ftype, ID_TYPE);
@@ -85,6 +87,17 @@ pub fn GenRegistryStructs(comptime fields: FieldList) struct {
             .type = f.ftype,
             .alignment = @alignOf(f.ftype),
         };
+
+        //Test if f.ftype has a field called prototype and use it instead
+        if (@hasDecl(f.ftype, "Prototype")) {
+            file_proto_types[lt_i] = .{
+                .name = f.name,
+                .type = f.ftype.Prototype,
+                .alignment = @alignOf(f.ftype.Prototype),
+            };
+        } else {
+            file_proto_types[lt_i] = union_fields[lt_i];
+        }
 
         const cb_type = if (f.callback) |cb| cb.create_pointer else void;
         callback_fields[lt_i * num_cbs] = .{
@@ -148,6 +161,12 @@ pub fn GenRegistryStructs(comptime fields: FieldList) struct {
             .fields = callback_fields[0..],
             .decls = &.{},
             .is_tuple = false,
+        } }),
+        .file_proto_type = @Type(TypeInfo{ .Union = .{
+            .layout = lt,
+            .fields = file_proto_types[0..],
+            .decls = &.{},
+            .tag_type = null,
         } }),
         .union_type = @Type(TypeInfo{ .Union = .{
             .layout = lt,

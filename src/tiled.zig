@@ -111,6 +111,7 @@ pub const TileMap = struct {
     };
 
     pub const Object = struct {
+        name: []const u8,
         height: f32,
         width: f32,
         x: f32,
@@ -150,3 +151,77 @@ pub const TileMap = struct {
 
     properties: ?[]Property = null,
 };
+
+pub fn parseField(field_name: []const u8, field_type: type, default: ?field_type, properties: []const TileMap.Property, namespace_offset: usize) !field_type {
+    const cinfo = @typeInfo(field_type);
+    switch (cinfo) {
+        .Struct => return try propertiesToStruct(field_type, properties, namespace_offset + field_name.len + 1),
+        else => {
+            for (properties) |p| {
+                const pname = if (namespace_offset >= p.name.len) continue else p.name[namespace_offset..];
+                if (std.mem.eql(u8, field_name, pname)) {
+                    return switch (cinfo) {
+                        .Bool => p.value.bool,
+                        .Optional => |o| try parseField(field_name, o.child, null, properties, namespace_offset),
+                        .Int => std.math.lossyCast(field_type, p.value.int),
+                        .Float => p.value.float,
+                        .Enum => |e| blk: {
+                            inline for (e.fields) |ef| {
+                                if (std.mem.eql(u8, ef.name, p.value.string))
+                                    break :blk @enumFromInt(ef.value);
+                            }
+                            return error.invalidEnumValue;
+                        },
+                        .Pointer => |po| blk: {
+                            if (po.size == .Slice and po.child == u8)
+                                break :blk p.value.string;
+                            @compileError("unable to parse type" ++ @typeName(field_type));
+                        },
+                        else => @compileError("unable to parse type " ++ @typeName(field_type)),
+                    };
+                }
+            }
+            if (default == null) {
+                std.debug.print("FIELD MISSING {s} {s}\n", .{ field_name, @typeName(field_type) });
+                return error.nonDefaultFieldNotProvided;
+            }
+        },
+    }
+    return default.?;
+}
+
+pub fn propertiesToStruct(struct_type: type, properties: []const TileMap.Property, namespace_offset: usize) !struct_type {
+    var ret: struct_type = undefined;
+    const info = @typeInfo(struct_type);
+    inline for (info.Struct.fields) |field| {
+        @field(ret, field.name) = try parseField(
+            field.name,
+            field.type,
+            if (field.default_value) |dv| @as(*const field.type, @ptrCast(@alignCast(dv))).* else null,
+            properties,
+            namespace_offset,
+        );
+    }
+    return ret;
+}
+
+test "prop to struct" {
+    const mys = struct {
+        crass: i64,
+        dookie: []const u8,
+        a: struct { b: i64 },
+        d: struct { g: struct { a: []const u8 } },
+    };
+    const props = [_]TileMap.Property{
+        .{ .name = "crass", .value = .{ .int = 10 } },
+        .{ .name = "a.b", .value = .{ .int = 10 } },
+        .{ .name = "d.g.a", .value = .{ .string = "fuckery" } },
+    };
+
+    _ = try propertiesToStruct(mys, &props, 0);
+}
+
+//a function that given a struct and an array of , attempts to fill that struct with properties, obeying namespacing
+//for each nondefault field of struct, see if there is a matching field in array.
+//what if not a primitive?
+//do this recursively
