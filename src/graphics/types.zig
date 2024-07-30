@@ -29,6 +29,12 @@ pub const Rect = struct {
     w: f32,
     h: f32,
 
+    pub fn format(self: Self, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+        _ = options;
+        _ = fmt;
+        try writer.print("R({d:.2} {d:.2} {d:.2} {d:.2})", .{ self.x, self.y, self.w, self.h });
+    }
+
     pub fn NewAny(x: anytype, y: anytype, w: anytype, h: anytype) Rect {
         return .{
             .x = std.math.lossyCast(f32, x),

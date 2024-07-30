@@ -191,17 +191,70 @@ pub const TileMap = struct {
     properties: ?[]Property = null,
 };
 
-pub fn parseField(field_name: []const u8, field_type: type, default: ?field_type, properties: []const TileMap.Property, namespace_offset: usize) !field_type {
+threadlocal var propertiesToStructErrorCtx: struct {
+    base_type_name: []const u8 = "",
+    last_property_name: ?[]const u8 = null,
+    last_property_field: ?[]const u8 = null,
+
+    pub fn printError(self: @This(), props: []const TileMap.Property) void {
+        std.debug.print("{s} {s} {s}\n", .{ self.base_type_name, self.last_property_name orelse "", self.last_property_field orelse "" });
+        std.debug.print("Provided properties: \n", .{});
+        for (props) |p| {
+            std.debug.print("{s}: {any}\n", .{ p.name, p.value });
+        }
+    }
+} = .{};
+
+//fix bug, this ignores namespaces
+//a.g.b
+//c.c.b
+//both match b
+//problem is names are not
+pub fn parseField(
+    field_name: []const u8,
+    field_type: type,
+    default: ?field_type,
+    properties: []const TileMap.Property,
+    property_mask: []bool,
+    namespace_offset: usize,
+) !field_type {
+    //std.debug.print("BEGIN\n", .{});
+    //for (properties, 0..) |p, i| {
+    //    std.debug.print("\t{s} {any} {s}\n", .{ p.name, property_mask[i], field_name });
+    //}
     const cinfo = @typeInfo(field_type);
     switch (cinfo) {
-        .Struct => return try propertiesToStruct(field_type, properties, namespace_offset + field_name.len + 1),
+        .Struct => {
+            propertiesToStructErrorCtx.last_property_name = @typeName(field_type);
+            propertiesToStructErrorCtx.last_property_field = field_name;
+            for (properties, 0..) |p, i| {
+                if (property_mask[i]) {
+                    const pname = if (namespace_offset >= p.name.len) {
+                        property_mask[i] = false;
+                        continue;
+                    } else p.name[namespace_offset..];
+                    const ns = if (std.mem.indexOfScalar(u8, pname, '.')) |n| pname[0..n] else pname;
+                    if (!std.mem.eql(u8, field_name, ns)) {
+                        property_mask[i] = false;
+                    }
+                }
+            }
+            return propertiesToStructRecur(field_type, properties, property_mask, namespace_offset + field_name.len + 1) catch |err| switch (err) {
+                error.nonDefaultFieldNotProvided => {
+                    if (default) |d|
+                        return d;
+                    return err;
+                },
+                else => return err,
+            };
+        },
         else => {
-            for (properties) |p| {
+            for (properties, 0..) |p, i| {
                 const pname = if (namespace_offset >= p.name.len) continue else p.name[namespace_offset..];
-                if (std.mem.eql(u8, field_name, pname)) {
+                if (property_mask[i] and std.mem.eql(u8, field_name, pname)) {
                     return switch (cinfo) {
                         .Bool => p.value.bool,
-                        .Optional => |o| try parseField(field_name, o.child, null, properties, namespace_offset),
+                        .Optional => |o| try parseField(field_name, o.child, null, properties, property_mask, namespace_offset),
                         .Int => if (p.value == .int) std.math.lossyCast(field_type, p.value.int) else std.math.lossyCast(field_type, p.value.object),
                         .Float => p.value.float,
                         .Enum => |e| blk: {
@@ -209,6 +262,7 @@ pub fn parseField(field_name: []const u8, field_type: type, default: ?field_type
                                 if (std.mem.eql(u8, ef.name, p.value.string))
                                     break :blk @enumFromInt(ef.value);
                             }
+                            std.debug.print("INVALID ENUM {s} for {s} {s}\n", .{ p.value.string, @typeName(field_type), field_name });
                             return error.invalidEnumValue;
                         },
                         .Pointer => |po| blk: {
@@ -221,13 +275,43 @@ pub fn parseField(field_name: []const u8, field_type: type, default: ?field_type
                 }
             }
             if (default == null) {
-                std.debug.print("FIELD MISSING {s} {s}\n", .{ field_name, @typeName(field_type) });
+                propertiesToStructErrorCtx.printError(properties);
+                std.debug.print("FIELD MISSING {s} {s} \n", .{ field_name, @typeName(field_type) });
                 return error.nonDefaultFieldNotProvided;
             }
         },
     }
     return default.?;
 }
+
+pub fn propertiesToStruct(struct_type: type, type_name: []const u8, properties: []const TileMap.Property, property_mask: []bool, namespace_offset: usize) !struct_type {
+    propertiesToStructErrorCtx.base_type_name = type_name;
+    return try propertiesToStructRecur(struct_type, properties, property_mask, namespace_offset);
+}
+
+fn propertiesToStructRecur(struct_type: type, properties: []const TileMap.Property, property_mask: []bool, namespace_offset: usize) !struct_type {
+    var ret: struct_type = undefined;
+    const info = @typeInfo(struct_type);
+    inline for (info.Struct.fields) |field| {
+        @field(ret, field.name) = try parseField(
+            field.name,
+            field.type,
+            if (field.default_value) |dv| @as(*const field.type, @ptrCast(@alignCast(dv))).* else null,
+            properties,
+            property_mask,
+            namespace_offset,
+        );
+    }
+    return ret;
+}
+
+//write a new function.
+//this one takes a pointer to struct_type and a single tiled.property
+
+//a function that given a struct and an array of , attempts to fill that struct with properties, obeying namespacing
+//for each nondefault field of struct, see if there is a matching field in array.
+//what if not a primitive?
+//do this recursively
 
 ///name_rect_map is a std.hash_map that maps png paths to rectangles
 pub fn rebakeTileset(
@@ -326,38 +410,111 @@ pub fn rebakeTileset(
     outfile.close();
 }
 
-pub fn propertiesToStruct(struct_type: type, properties: []const TileMap.Property, namespace_offset: usize) !struct_type {
-    var ret: struct_type = undefined;
-    const info = @typeInfo(struct_type);
-    inline for (info.Struct.fields) |field| {
-        @field(ret, field.name) = try parseField(
-            field.name,
-            field.type,
-            if (field.default_value) |dv| @as(*const field.type, @ptrCast(@alignCast(dv))).* else null,
-            properties,
-            namespace_offset,
-        );
+//given a struct and a base.sub.field string, return the byte offset of field
+pub fn getOffsetRecursive(comptime stype: type, path: []const u8, offset: usize) usize {
+    const info = @typeInfo(stype);
+    inline for (info.Struct.fields) |f| {
+        switch (@typeInfo(f.type)) {
+            .Int, .Float, .Bool => {
+                if (std.mem.eql(u8, path, f.name))
+                    return @offsetOf(stype, f.name) + offset;
+            },
+            .Struct => {
+                const first_dot = std.mem.indexOfScalar(u8, path, '.');
+                if (first_dot) |fd| {
+                    const name = path[0..fd];
+                    if (std.mem.eql(u8, name, f.name)) {
+                        return getOffsetRecursive(f.type, path[fd + 1 ..], @offsetOf(stype, f.name));
+                    }
+                }
+            },
+            else => {},
+        }
     }
-    return ret;
+    return 0;
 }
 
-test "prop to struct" {
-    const mys = struct {
-        crass: i64,
-        dookie: []const u8,
-        a: struct { b: i64 },
-        d: struct { g: struct { a: []const u8 } },
-    };
-    const props = [_]TileMap.Property{
-        .{ .name = "crass", .value = .{ .int = 10 } },
-        .{ .name = "a.b", .value = .{ .int = 10 } },
-        .{ .name = "d.g.a", .value = .{ .string = "fuckery" } },
-    };
-
-    _ = try propertiesToStruct(mys, &props, 0);
+pub fn setStructFromProperty(comptime stype: type, field_name: []const u8, ptr: *stype, name: []const u8, value: TileMap.PropertyValue) !void {
+    const info = @typeInfo(stype);
+    if (!std.mem.eql(u8, name, field_name) and info != .Struct)
+        return error.notGOOD;
+    switch (info) {
+        .Int => {
+            ptr.* = if (value == .int) std.math.lossyCast(stype, value.int) else std.math.lossyCast(stype, value.object);
+            return;
+        },
+        .Struct => |s| {
+            //"myname" sub = myname, name = myname
+            //"my.name" sub = my, name = name
+            const fd = std.mem.indexOfScalar(u8, name, '.');
+            const sub_name = name[0 .. fd orelse name.len];
+            if (name.len == 0)
+                return;
+            inline for (s.fields) |f| {
+                if (std.mem.eql(u8, sub_name, f.name)) {
+                    return setStructFromProperty(f.type, f.name, &@field(ptr, f.name), if (fd) |ff| name[ff + 1 ..] else name, value);
+                }
+            }
+            return error.notFoundStructField;
+        },
+        .Optional => |o| {
+            if (@typeInfo(o.child) == .Struct)
+                return error.optNotAllowedOnStruct;
+            var opt: o.child = undefined;
+            defer ptr.* = opt;
+            return setStructFromProperty(o.child, field_name, &opt, name, value);
+        },
+        .Enum => |e| {
+            inline for (e.fields) |ef| {
+                if (std.mem.eql(u8, ef.name, value.string)) {
+                    ptr.* = @enumFromInt(ef.value);
+                    return;
+                }
+            }
+            std.debug.print("INVALID ENUM {s} for {s} {s}\n", .{ value.string, @typeName(stype), name });
+            return error.invalidEnumValue;
+        },
+        .Float => {
+            ptr.* = value.float;
+            return;
+        },
+        .Bool => {
+            ptr.* = value.bool;
+            return;
+        },
+        .Pointer => |po| {
+            if (po.size == .Slice and po.child == u8) {
+                ptr.* = value.string;
+                return;
+            }
+            @compileError("unable to parse type" ++ @typeName(stype));
+        },
+        else => @compileError("unable to parse type " ++ @typeName(stype)),
+    }
 }
 
-//a function that given a struct and an array of , attempts to fill that struct with properties, obeying namespacing
-//for each nondefault field of struct, see if there is a matching field in array.
-//what if not a primitive?
-//do this recursively
+test "prop2struct" {
+    const S = struct {
+        tex: f32 = 0,
+        sub: struct {
+            b: i32 = 0,
+            tex: bool = false,
+        } = .{},
+        sus: struct {
+            b: i32 = 0,
+        } = .{},
+    };
+    var s = S{};
+    try setStructFromProperty(S, "", &s, "tex", .{ .float = 68 });
+    try setStructFromProperty(S, "", &s, "sub.b", .{ .int = 22 });
+    try setStructFromProperty(S, "", &s, "sus.b", .{ .int = 11 });
+    try setStructFromProperty(S, "", &s, "sub.tex", .{ .bool = true });
+    std.debug.print("{any}\n", .{s});
+
+    //var mask = [_]bool{ true, true, true };
+    //_ = try propertiesToStruct(S, "S", &.{
+    //    .{ .name = "tex", .value = .{ .int = 0 } },
+    //    .{ .name = "sub.b", .value = .{ .int = 0 } },
+    //    .{ .name = "sus.b", .value = .{ .int = 0 } },
+    //}, &mask, 0);
+}

@@ -273,6 +273,16 @@ pub fn Registry(comptime field_names_l: FieldList) type {
             }
         }
 
+        pub fn stringToComponent(string: []const u8) ?Components {
+            const h = std.hash.Wyhash.hash;
+            inline for (Fields, 0..) |f, i| {
+                if (h(0, f.name) == h(0, string)) {
+                    return @enumFromInt(i);
+                }
+            }
+            return null;
+        }
+
         fn call_create_callback(self: *Self, comptime component_type: Components, comp: anytype, id: ID_TYPE) void {
             const fname = @tagName(component_type) ++ "create";
             const data = @tagName(component_type) ++ "data";
