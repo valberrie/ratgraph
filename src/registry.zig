@@ -365,6 +365,10 @@ pub fn Registry(comptime field_names_l: FieldList) type {
             ent.set(Types.tombstone_bit);
         }
 
+        pub fn isEntity(self: *Self, index: ID_TYPE) bool {
+            return !((index >= self.entities.items.len) or self.entities.items[index].isSet(Types.tombstone_bit));
+        }
+
         pub fn getEntity(self: *const Self, entity_index: ID_TYPE) !*Types.component_bit_set {
             if (entity_index >= self.entities.items.len) {
                 std.debug.print("ID {d}\n", .{entity_index});
@@ -486,11 +490,17 @@ pub fn Registry(comptime field_names_l: FieldList) type {
         }
 
         pub fn sleepEntity(self: *Self, index: ID_TYPE) !void {
-            try self.slept.insert(index, .{});
+            self.slept.insert(index, .{}) catch |err| switch (err) {
+                error.indexOccupied => {}, //We can sleep a sleeping entity
+                else => return err,
+            };
         }
 
         pub fn wakeEntity(self: *Self, index: ID_TYPE) !void {
-            _ = try self.slept.remove(index);
+            _ = self.slept.remove(index) catch |err| switch (err) {
+                error.invalidIndex => {}, //We can wake a non sleeping entity
+                else => return err,
+            };
         }
 
         pub fn hasComponent(self: *Self, index: ID_TYPE, comptime component_type: Components) !bool {

@@ -52,6 +52,10 @@ pub const Rect = struct {
         return rectContainsPoint(r, p);
     }
 
+    pub fn center(r: Self) Vec2f {
+        return .{ .x = r.x + r.w / 2, .y = r.y + r.h / 2 };
+    }
+
     pub fn overlap(r1: Self, r2: Self) bool {
         return !(r1.x > r2.x + r2.w or r2.x > r1.x + r1.w or r1.y > r2.y + r2.h or r2.y > r1.y + r1.h);
     }

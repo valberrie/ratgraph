@@ -3159,6 +3159,27 @@ pub const Lua = struct {
 //sparse set?
 pub const AssetMap = struct {
     const Self = @This();
+    const IDT = u32;
+    pub const BakedManifestJson = struct {
+        pub const IdRect = struct {
+            id: IDT,
+            x: u32,
+            y: u32,
+            w: u32,
+            h: u32,
+        };
+        //What we need to store
+        //path to the atlas.png
+        //an array mapping names to id
+        //array mapping ids to rects
+        name_id_map: std.json.ArrayHashMap(IDT),
+        rects: []IdRect,
+
+        //collected_json: std.json.ArrayHashMap()
+    };
+
+    sparse_id_rect: std.ArrayList(?Rect),
+
     map: std.StringHashMap(Rect),
     names: std.ArrayList([]const u8),
     alloc: std.mem.Allocator,
@@ -3171,8 +3192,129 @@ pub const AssetMap = struct {
         }
         self.names.deinit();
         self.map.deinit();
+        self.sparse_id_rect.deinit();
     }
 };
+
+//Instead of bringing in the tiled dependcy, do the id lifetime manegement here and output a json file
+//assetLoad should be renamed to assetBake
+
+pub fn assetBake(
+    alloc: std.mem.Allocator,
+    dir: std.fs.Dir,
+    sub_path: []const u8,
+    context: anytype,
+    output_dir: std.fs.Dir,
+    output_filename_prefix: []const u8, //prefix.json prefix.png etc
+) !AssetMap {
+    var arena = std.heap.ArenaAllocator.init(alloc);
+    defer arena.deinit();
+    const talloc = arena.allocator();
+    //store json files in seperate json file
+
+    var idir = try dir.openDir(sub_path, .{ .iterate = true });
+    defer idir.close();
+    var walker = try idir.walk(
+        alloc,
+    );
+    defer walker.deinit();
+
+    var ret = AssetMap{
+        .alloc = alloc,
+        .sparse_id_rect = std.ArrayList(?Rect).init(alloc),
+        .map = std.StringHashMap(Rect).init(alloc),
+        .names = std.ArrayList([]const u8).init(alloc),
+        .texture = undefined,
+    };
+
+    var bmps = std.ArrayList(graph.Bitmap).init(alloc);
+    defer {
+        for (bmps.items) |bmp| {
+            bmp.deinit();
+        }
+        bmps.deinit();
+    }
+
+    var rpack = graph.RectPack.init(alloc);
+    defer rpack.deinit();
+
+    var json_files = std.ArrayList(struct {
+        path: []const u8, //allocated
+        basename: []const u8, //slice of path
+        dir_path: []const u8, //slice of path
+    }).init(alloc);
+    defer {
+        for (json_files.items) |jf| {
+            alloc.free(jf.path);
+        }
+        json_files.deinit();
+    }
+    var json_out_dict = std.ArrayList(struct {
+        path: []const u8,
+        json_string: []const u8,
+
+        pub fn jsonStringify(self: *const @This(), wj: anytype) !void {
+            try wj.beginObject();
+            try wj.objectField(self.path);
+            try wj.print("{s}", .{self.json_string});
+            try wj.endObject();
+        }
+    }).init(talloc);
+
+    //First we walk the directory and all children, creating a list of images and a list of json files.
+    while (try walker.next()) |w| {
+        switch (w.kind) {
+            .file => {
+                if (std.mem.endsWith(u8, w.basename, ".png")) {
+                    const index = bmps.items.len;
+                    try bmps.append(try graph.Bitmap.initFromPngFile(alloc, w.dir, w.basename));
+                    try rpack.appendRect(index, bmps.items[index].w, bmps.items[index].h);
+                    //names has the same indicies as bmps
+                    try ret.names.append(try alloc.dupe(u8, w.path[0 .. w.path.len - ".png".len]));
+                } else if (std.mem.endsWith(u8, w.basename, ".json")) {
+                    const path = try talloc.dupe(u8, w.path);
+                    try json_files.append(.{
+                        .path = path,
+                        .dir_path = path[0 .. w.path.len - w.basename.len],
+                        .basename = path[w.path.len - w.basename.len ..],
+                    });
+                }
+            },
+            else => {},
+        }
+    }
+
+    //Pack all the rectangles and output to a file
+    const out_size = try rpack.packOptimalSize();
+    var out_bmp = try graph.Bitmap.initBlank(alloc, out_size.x, out_size.y, .rgba_8);
+    defer out_bmp.deinit();
+    for (rpack.rects.items) |rect| {
+        const i: usize = @intCast(rect.id);
+        const r = graph.Rec(rect.x, rect.y, rect.w, rect.h);
+        graph.Bitmap.copySubR(4, &out_bmp, @intCast(rect.x), @intCast(rect.y), &bmps.items[i], 0, 0, @intCast(rect.w), @intCast(rect.h));
+        try ret.map.put(ret.names.items[i], r);
+    }
+    try out_bmp.writeToPngFile(std.fs.cwd(), "testpack.png");
+    ret.texture = graph.Texture.initFromBitmap(out_bmp, .{ .mag_filter = graph.c.GL_NEAREST });
+
+    const ctype = @typeInfo(@TypeOf(context));
+    if (ctype == .Pointer) {
+        if (comptime std.meta.hasFn(ctype.Pointer.child, "parseJson")) {
+            for (json_files.items) |jf| {
+                var f = try idir.openFile(jf.path, .{});
+                defer f.close();
+                const s = try f.readToEndAlloc(talloc, std.math.maxInt(usize));
+                try json_out_dict.append(.{ .json_string = s, .path = jf.path });
+            }
+        }
+    }
+
+    var out = try output_dir.createFile(output_filename_prefix, .{});
+    defer out.close();
+    try std.json.stringify(json_out_dict.items, .{}, out.writer());
+
+    return ret;
+}
 
 pub fn assetLoad(alloc: std.mem.Allocator, dir: std.fs.Dir, sub_path: []const u8, context: anytype) !AssetMap {
     var idir = try dir.openDir(sub_path, .{ .iterate = true });
@@ -3184,6 +3326,7 @@ pub fn assetLoad(alloc: std.mem.Allocator, dir: std.fs.Dir, sub_path: []const u8
 
     var ret = AssetMap{
         .alloc = alloc,
+        .sparse_id_rect = std.ArrayList(?Rect).init(alloc),
         .map = std.StringHashMap(Rect).init(alloc),
         .names = std.ArrayList([]const u8).init(alloc),
         .texture = undefined,
@@ -3212,6 +3355,7 @@ pub fn assetLoad(alloc: std.mem.Allocator, dir: std.fs.Dir, sub_path: []const u8
         json_files.deinit();
     }
 
+    //First we walk the directory and all children, creating a list of images and a list of json files.
     while (try walker.next()) |w| {
         switch (w.kind) {
             .file => {
@@ -3234,6 +3378,7 @@ pub fn assetLoad(alloc: std.mem.Allocator, dir: std.fs.Dir, sub_path: []const u8
         }
     }
 
+    //Pack all the rectangles and output to a file
     const out_size = try rpack.packOptimalSize();
     var out_bmp = try graph.Bitmap.initBlank(alloc, out_size.x, out_size.y, .rgba_8);
     defer out_bmp.deinit();

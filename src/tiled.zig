@@ -75,7 +75,7 @@ pub const TileMap = struct {
         bool: bool,
     };
 
-    pub const LayerClass = enum {
+    pub const LayerClass = enum { //Todo remove this and replace with string
         entity,
         collision,
         bg,
@@ -455,6 +455,7 @@ pub fn setStructFromProperty(comptime stype: type, field_name: []const u8, ptr: 
                     return setStructFromProperty(f.type, f.name, &@field(ptr, f.name), if (fd) |ff| name[ff + 1 ..] else name, value);
                 }
             }
+            std.debug.print("{s} {s}\n", .{ field_name, name });
             return error.notFoundStructField;
         },
         .Optional => |o| {
