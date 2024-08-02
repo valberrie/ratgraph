@@ -10,3 +10,6 @@
 	path = c_libs/stb
 	url = https://github.com/nothings/stb.git
 	branch = master
+[submodule "zig_libs/zalgebra"]
+	path = zig_libs/zalgebra
+	url = https://github.com/nmalthouse/zalgebra.git

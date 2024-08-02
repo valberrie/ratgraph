@@ -5,31 +5,31 @@ fn getSrcDir() []const u8 {
 }
 const srcdir = getSrcDir();
 
-pub fn linkLibrary(mod: *std.Build.Module) void {
+pub fn linkLibrary(b: *std.Build, mod: *std.Build.Module) void {
     const cdir = "c_libs";
 
     const include_paths = [_][]const u8{
-        "/usr/include",
-        srcdir ++ "/" ++ cdir ++ "/freetype",
-        srcdir ++ "/" ++ cdir ++ "/stb",
-        srcdir ++ "/" ++ cdir,
-        srcdir ++ "/" ++ cdir ++ "/libspng/spng",
+        cdir ++ "/freetype",
+        cdir ++ "/stb",
+        cdir,
+        cdir ++ "/libspng/spng",
     };
+    mod.addSystemIncludePath(.{ .cwd_relative = "/usr/include" });
 
     for (include_paths) |path| {
-        mod.addIncludePath(.{ .path = path });
+        mod.addIncludePath(b.path(path));
     }
 
     const c_source_files = [_][]const u8{
-        srcdir ++ "/" ++ cdir ++ "/stb_image_write.c",
-        srcdir ++ "/" ++ cdir ++ "/stb_image.c",
-        srcdir ++ "/" ++ cdir ++ "/stb/stb_vorbis.c",
-        srcdir ++ "/" ++ cdir ++ "/stb_rect_pack.c",
-        srcdir ++ "/" ++ cdir ++ "/libspng/spng/spng.c",
+        cdir ++ "/stb_image_write.c",
+        cdir ++ "/stb_image.c",
+        cdir ++ "/stb/stb_vorbis.c",
+        cdir ++ "/stb_rect_pack.c",
+        cdir ++ "/libspng/spng/spng.c",
     };
 
     for (c_source_files) |cfile| {
-        mod.addCSourceFile(.{ .file = .{ .path = cfile }, .flags = &[_][]const u8{"-Wall"} });
+        mod.addCSourceFile(.{ .file = b.path(cfile), .flags = &[_][]const u8{"-Wall"} });
     }
     mod.link_libc = true;
     mod.linkSystemLibrary("sdl2", .{});
@@ -47,15 +47,15 @@ pub fn build(b: *std.Build) void {
 
     const exe = b.addExecutable(.{
         .name = "the_engine",
-        .root_source_file = .{ .path = "src/main.zig" },
+        .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = mode,
     });
     b.installArtifact(exe);
 
-    linkLibrary(&exe.root_module);
-    const m = b.addModule("ratgraph", .{ .root_source_file = .{ .path = "src/graphics.zig" }, .target = target });
-    linkLibrary(m);
+    linkLibrary(b, &exe.root_module);
+    const m = b.addModule("ratgraph", .{ .root_source_file = b.path("src/graphics.zig"), .target = target });
+    linkLibrary(b, m);
 
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());
@@ -67,13 +67,13 @@ pub fn build(b: *std.Build) void {
     run_step.dependOn(&run_cmd.step);
 
     const unit_tests = b.addTest(.{
-        .root_source_file = .{ .path = "src/tests.zig" },
+        .root_source_file = b.path("src/tests.zig"),
         .target = target,
         .optimize = mode,
         .link_libc = true,
     });
     unit_tests.setExecCmd(&[_]?[]const u8{ "kcov", "kcov-output", null });
-    linkLibrary(&unit_tests.root_module);
+    linkLibrary(b, &unit_tests.root_module);
 
     const run_unit_tests = b.addRunArtifact(unit_tests);
 
