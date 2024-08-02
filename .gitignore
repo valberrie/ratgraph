@@ -1,6 +1,7 @@
 callgrind*
 zig-out
 zig-cache
+.zig-cache
 *.log
 fonts/
 debug

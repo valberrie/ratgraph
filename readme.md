@@ -1,5 +1,5 @@
 # ratgraph
-![Icon](icon.png)
+![Icon](img/icon.png)
 
 A bunch of graphics code.
 
