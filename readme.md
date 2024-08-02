@@ -1,15 +1,13 @@
 # ratgraph
 ![Icon](icon.png)
 
-Graphics code.
+A bunch of graphics code.
 
-## Using this library
-        # make sure you have the following libraries installed system-wide:
-        # libepoxy
-        # sdl2
-        # freetype
-        git submodule update --init --recursive
-        zig build run
+* Some 3d rendering
+* Some 2d rendering
+* An imgui that looks like Mac OS 9
+
+Currently does not build on windows, only linux
 
 ## Depends on
 * [zalgebra](https://github.com/kooparse/zalgebra)
@@ -21,15 +19,3 @@ Graphics code.
 * [libepoxy](https://github.com/anholt/libepoxy)
 * [sdl2](https://www.libsdl.org/)
 
-
-
-### Current functionality
-* AABB collision detection
-* Opengl drawing, font loading
-* A unfinished Imgui
-* A basic ecs used in a mario clone
-* Helper functions and structures for texture atlas generation
-
-### Todo
-* Finish a basic GUI
-* Remove the old `Context` from graphics.zig and replace with `NewCtx`
