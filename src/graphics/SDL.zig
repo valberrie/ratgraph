@@ -85,6 +85,8 @@ pub const Window = struct {
     ctx: *anyopaque,
 
     screen_dimensions: Vec2i = .{ .x = 0, .y = 0 },
+    frame_time: std.time.Timer,
+    target_frame_len_ns: ?u64 = null,
 
     should_exit: bool = false,
 
@@ -129,6 +131,8 @@ pub const Window = struct {
         stencil_buffer_depth: ?i32 = 8,
         gl_major_version: i32 = 4,
         gl_minor_version: i32 = 6,
+        ///If set, attempt to make all frames last this long in ns. This option should only be set when frame_sync = .immediate
+        target_frame_len_ns: ?u64 = null,
         frame_sync: enum(i32) {
             vsync = 1,
             ///FreeSync, G-Sync
@@ -181,18 +185,10 @@ pub const Window = struct {
         };
         errdefer c.SDL_GL_DeleteContext(context);
 
-        {
-            log.info("gl renderer: {s}", .{c.glGetString(c.GL_RENDERER)});
-            log.info("gl vendor: {s}", .{c.glGetString(c.GL_VENDOR)});
-            log.info("gl version: {s}", .{c.glGetString(c.GL_VERSION)});
-            log.info("gl shader version: {s}", .{c.glGetString(c.GL_SHADING_LANGUAGE_VERSION)});
-
-            //var num_ext: i64 = 0;
-            //c.glGetInteger64v(c.GL_NUM_EXTENSIONS, &num_ext);
-            //for (0..@intCast(num_ext)) |i| {
-            //    log.info("ext: {s}", .{c.glGetStringi(c.GL_EXTENSIONS, @intCast(i))});
-            //}
-        }
+        log.info("gl renderer: {s}", .{c.glGetString(c.GL_RENDERER)});
+        log.info("gl vendor: {s}", .{c.glGetString(c.GL_VENDOR)});
+        log.info("gl version: {s}", .{c.glGetString(c.GL_VERSION)});
+        log.info("gl shader version: {s}", .{c.glGetString(c.GL_SHADING_LANGUAGE_VERSION)});
 
         if (c.SDL_GL_SetSwapInterval(@intFromEnum(options.frame_sync)) < 0) {
             sdlLogErr();
@@ -208,11 +204,12 @@ pub const Window = struct {
         }
         {
             const set_swap = c.SDL_GL_GetSwapInterval();
-            log.info("swap interval desired: {s}, actual {s}", .{
+            log.info("set swap interval, desired: {s}, actual: {s}", .{
                 @tagName(options.frame_sync),
                 @tagName(@as(@TypeOf(options.frame_sync), @enumFromInt(set_swap))),
             });
         }
+        //TODO where should these be set instead?
         c.glEnable(c.GL_MULTISAMPLE);
         c.glEnable(c.GL_DEPTH_TEST);
         //c.glEnable(c.GL_STENCIL_TEST);
@@ -225,6 +222,8 @@ pub const Window = struct {
             .win = win,
             .ctx = context,
             .text_input = "",
+            .frame_time = try std.time.Timer.start(),
+            .target_frame_len_ns = options.target_frame_len_ns,
         };
         ret.pumpEvents();
         return ret;
@@ -236,6 +235,14 @@ pub const Window = struct {
         c.SDL_Quit();
     }
 
+    pub fn logGlExtensions() void {
+        var num_ext: i64 = 0;
+        c.glGetInteger64v(c.GL_NUM_EXTENSIONS, &num_ext);
+        for (0..@intCast(num_ext)) |i| {
+            log.info("ext: {s}", .{c.glGetStringi(c.GL_EXTENSIONS, @intCast(i))});
+        }
+    }
+
     pub fn getScancodeFromName(self: *Self, name: [*c]const u8) usize {
         _ = self;
         return c.SDL_GetScancodeFromName(name);
@@ -243,6 +250,11 @@ pub const Window = struct {
 
     pub fn swap(self: *Self) void {
         c.SDL_GL_SwapWindow(self.win);
+        if (self.target_frame_len_ns) |tft| {
+            const frame_took = self.frame_time.read();
+            if (frame_took < tft)
+                std.time.sleep(tft - frame_took);
+        }
     }
 
     pub fn getDpi(self: *Self) f32 {
@@ -284,6 +296,8 @@ pub const Window = struct {
     }
 
     pub fn pumpEvents(self: *Self) void {
+        self.frame_time.reset();
+
         c.SDL_PumpEvents();
         {
             var x: c_int = undefined;
@@ -317,6 +331,9 @@ pub const Window = struct {
             }
         }
         self.text_input = "";
+        //TODO mechanism for using sdl_waitevent instead.
+        //block on sdl_waitevent, then sdl_peekevent, check against interval and then return from this function
+        //would allow for a gui app to only render frames when needed
 
         var event: c.SDL_Event = undefined;
         while (c.SDL_PollEvent(&event) != 0) {
@@ -398,9 +415,14 @@ pub const Window = struct {
         c.glViewport(0, 0, self.screen_dimensions.x, self.screen_dimensions.y);
     }
 
-    pub fn startTextInput(self: *const Self) void {
+    pub fn startTextInput(self: *const Self, ime_rect: ?ptypes.Rect) void {
         _ = self;
-        const rec = c.SDL_Rect{ .x = 50, .y = 500, .w = 300, .h = 72 };
+        const rec = if (ime_rect) |r| c.SDL_Rect{
+            .x = @intFromFloat(r.x),
+            .y = @intFromFloat(r.x),
+            .w = @intFromFloat(r.w),
+            .h = @intFromFloat(r.h),
+        } else c.SDL_Rect{ .x = 0, .y = 0, .w = 100, .h = 100 };
         c.SDL_SetTextInputRect(&rec);
         c.SDL_StartTextInput();
     }
@@ -410,15 +432,15 @@ pub const Window = struct {
         c.SDL_StopTextInput();
     }
 
-    pub fn keyPressed(self: *const Self, scancode: keycodes.Scancode) bool {
+    pub fn keyRising(self: *const Self, scancode: keycodes.Scancode) bool {
         return self.key_state[@intFromEnum(scancode)] == .rising;
     }
 
-    pub fn keyReleased(self: *const Self, scancode: keycodes.Scancode) bool {
+    pub fn keyFalling(self: *const Self, scancode: keycodes.Scancode) bool {
         return self.key_state[@intFromEnum(scancode)] == .falling;
     }
 
-    pub fn keydown(self: *const Self, scancode: keycodes.Scancode) bool {
+    pub fn keyHigh(self: *const Self, scancode: keycodes.Scancode) bool {
         return self.keyboard_state.isSet(@intFromEnum(scancode));
     }
 
@@ -437,6 +459,7 @@ pub const BindType = struct {
 };
 
 pub const BindList = []const BindType;
+//TODO remove this crap
 
 ///Takes a list of bindings{"name", "key_name"} and generates an enum
 ///can be used with BindingMap and a switch() to map key input events to actions

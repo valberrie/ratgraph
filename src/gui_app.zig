@@ -1912,7 +1912,7 @@ pub const Os9Gui = struct {
 
     pub fn beginFrame(self: *Self, input_state: Gui.InputState, win: *graph.SDL.Window) !void {
         switch (self.gui.text_input_state.state) {
-            .start => win.startTextInput(),
+            .start => win.startTextInput(null),
             .stop => win.stopTextInput(),
             .cont => self.gui.text_input_state.buffer = win.text_input,
             .disabled => {},
