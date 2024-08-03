@@ -14,7 +14,6 @@ pub fn linkLibrary(b: *std.Build, mod: *std.Build.Module) void {
         cdir,
         cdir ++ "/libspng/spng",
     };
-    mod.addSystemIncludePath(.{ .cwd_relative = "/usr/include" });
 
     for (include_paths) |path| {
         mod.addIncludePath(b.path(path));
@@ -32,12 +31,32 @@ pub fn linkLibrary(b: *std.Build, mod: *std.Build.Module) void {
         mod.addCSourceFile(.{ .file = b.path(cfile), .flags = &[_][]const u8{"-Wall"} });
     }
     mod.link_libc = true;
+    if(mod.resolved_target)|rt|{
+        if(rt.result.os.tag == .windows){
+            mod.addSystemIncludePath(.{ .cwd_relative =  "/msys64//mingw64/include"});
+            mod.addSystemIncludePath(.{ .cwd_relative =  "/msys64//mingw64/include/freetype2"});
+            mod.addLibraryPath(.{ .cwd_relative =  "/msys64/mingw64/lib" });
+            mod.linkSystemLibrary("epoxy", .{});
+            mod.linkSystemLibrary("mingw32", .{});
+            mod.linkSystemLibrary("sdl2.dll", .{});
+            mod.linkSystemLibrary("c", .{});
+            mod.linkSystemLibrary("opengl32",.{});
+            mod.linkSystemLibrary("openal.dll", .{});
+            mod.linkSystemLibrary("freetype.dll", .{});
+            mod.linkSystemLibrary("z", .{});
+
+        }
+        else{
+    mod.addSystemIncludePath(.{ .cwd_relative = "/usr/include" });
     mod.linkSystemLibrary("sdl2", .{});
     mod.linkSystemLibrary("openal", .{});
     mod.linkSystemLibrary("epoxy", .{});
     mod.linkSystemLibrary("freetype2", .{});
     mod.linkSystemLibrary("zlib", .{});
     mod.linkSystemLibrary("lua", .{});
+
+        }
+    }
 }
 
 pub fn build(b: *std.Build) void {

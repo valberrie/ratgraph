@@ -1376,7 +1376,7 @@ pub fn main() !void {
         };
         try os9gui.beginFrame(is, &win);
 
-        if (win.keydown(.H))
+        if (win.keyHigh(.H))
             camera.pos = V3f.new(1, 3, 1);
 
         const old_pos = camera.pos;
@@ -1385,22 +1385,22 @@ pub fn main() !void {
                 var vx: f32 = 0;
                 var vz: f32 = 0;
                 const pspeed = 4;
-                if (win.keydown(.W)) {
+                if (win.keyHigh(.W)) {
                     const m = camera.front.mul(V3f.new(1, 0, 1)).norm();
                     vx += m.x();
                     vz += m.z();
                 }
-                if (win.keydown(.S)) {
+                if (win.keyHigh(.S)) {
                     const m = camera.front.mul(V3f.new(-1, 0, -1)).norm();
                     vx += m.x();
                     vz += m.z();
                 }
-                if (win.keydown(.A)) {
+                if (win.keyHigh(.A)) {
                     const m = camera.front.cross(.{ .data = .{ 0, -1, 0 } }).norm();
                     vx += m.x();
                     vz += m.z();
                 }
-                if (win.keydown(.D)) {
+                if (win.keyHigh(.D)) {
                     const m = camera.front.cross(.{ .data = .{ 0, 1, 0 } }).norm();
                     vx += m.x();
                     vz += m.z();
@@ -1417,7 +1417,7 @@ pub fn main() !void {
                     }
                 }
 
-                if (grounded and win.keydown(.SPACE))
+                if (grounded and win.keyHigh(.SPACE))
                     p_velocity.yMut().* = 5;
 
                 if (!grounded)
@@ -1440,27 +1440,27 @@ pub fn main() !void {
             .manipulate => {},
         }
 
-        if (win.keyPressed(keys.show_menu)) {
+        if (win.keyRising(keys.show_menu)) {
             show_gui = !show_gui;
             win.grabMouse(!show_gui);
         }
 
-        if (win.keyPressed(keys.tool_1))
+        if (win.keyRising(keys.tool_1))
             tool = .none;
-        if (win.keyPressed(keys.tool_2)) {
+        if (win.keyRising(keys.tool_2)) {
             tool = .pencil;
             pencil = .{};
         }
-        if (win.keyPressed(keys.tool_3)) {
+        if (win.keyRising(keys.tool_3)) {
             tool = .erase;
         }
 
-        if (win.keyPressed(.R))
+        if (win.keyRising(.R))
             sel_snap *= 2;
-        if (win.keyPressed(.F))
+        if (win.keyRising(.F))
             sel_snap /= 2;
 
-        if (win.keyPressed(keys.delete_selected)) {
+        if (win.keyRising(keys.delete_selected)) {
             if (sel_index) |si| {
                 //TODO put in an undo buffer
                 _ = world.cubes.swapRemove(si);
@@ -1589,9 +1589,9 @@ pub fn main() !void {
                                 0x00ff00ff,
                             );
 
-                            if (win.keyPressed(.R))
+                            if (win.keyRising(.R))
                                 lum.* = lum.addInDir(6 * itm, n);
-                            if (win.keyPressed(.F))
+                            if (win.keyRising(.F))
                                 lum.* = lum.addInDir(-6 * itm, n);
                         }
                         // determine normal
@@ -1625,9 +1625,9 @@ pub fn main() !void {
                     //const pf: f32 = if (camera.pitch < 0) -1.0 else 1.0;
 
                     //const fac = sel_dist / 1000;
-                    //const lx = win.keydown(.LCTRL);
-                    //const lz = win.keydown(.LSHIFT);
-                    if (win.keydown(.A)) { //Rotate
+                    //const lx = win.keyHigh(.LCTRL);
+                    //const lz = win.keyHigh(.LSHIFT);
+                    if (win.keyHigh(.A)) { //Rotate
                     } else {
                         //const x: f32 = if (lx) 0 else (sin(yw) * -win.mouse.delta.x + cos(yw) * win.mouse.delta.y * pf) * fac + sel_resid.x();
                         //const z: f32 = if (lz) 0 else (sin(yw) * win.mouse.delta.y * pf + cos(yw) * win.mouse.delta.x) * fac + sel_resid.z();
@@ -1642,7 +1642,7 @@ pub fn main() !void {
                         //);
                         //const r = V3f.new(rx, ry, rz);
 
-                        //if (win.keydown(.D) and r.length() > 0) {
+                        //if (win.keyHigh(.D) and r.length() > 0) {
                         //    try lumber.append(lum.*);
                         //    lumber.items[lumber.items.len - 1].pos = lum.pos.add(r);
                         //} else {
@@ -2007,7 +2007,7 @@ pub fn main() !void {
             else => {},
             .erase => {
                 do_camera_move = true;
-                if (win.keydown(.LSHIFT)) {
+                if (win.keyHigh(.LSHIFT)) {
                     if (sel_index) |si| {
                         const lum = &world.cubes.items[si];
                         if (@abs(win.mouse.wheel_delta.y) > 0) {

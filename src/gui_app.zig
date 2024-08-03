@@ -3416,9 +3416,9 @@ pub fn assetLoad(alloc: std.mem.Allocator, dir: std.fs.Dir, sub_path: []const u8
     defer rpack.deinit();
 
     var json_files = std.ArrayList(struct {
-        path: []const u8, //allocated
+        path: []u8, //allocated
         basename: []const u8, //slice of path
-        dir_path: []const u8, //slice of path
+        dir_path: []u8, //slice of path
     }).init(alloc);
     defer {
         for (json_files.items) |jf| {
@@ -3436,7 +3436,9 @@ pub fn assetLoad(alloc: std.mem.Allocator, dir: std.fs.Dir, sub_path: []const u8
                     try bmps.append(try graph.Bitmap.initFromPngFile(alloc, w.dir, w.basename));
                     try rpack.appendRect(index, bmps.items[index].w, bmps.items[index].h);
                     //names has the same indicies as bmps
-                    try ret.names.append(try alloc.dupe(u8, w.path[0 .. w.path.len - ".png".len]));
+                    const aname = try alloc.dupe(u8, w.path[0..w.path.len - ".png".len]);
+                    std.mem.replaceScalar(u8, aname, '\\', '/');
+                    try ret.names.append(aname);
                 } else if (std.mem.endsWith(u8, w.basename, ".json")) {
                     const path = try alloc.dupe(u8, w.path);
                     try json_files.append(.{
@@ -3471,8 +3473,16 @@ pub fn assetLoad(alloc: std.mem.Allocator, dir: std.fs.Dir, sub_path: []const u8
                 defer f.close();
                 const s = try f.readToEndAlloc(alloc, std.math.maxInt(usize));
                 defer alloc.free(s);
+                std.mem.replaceScalar(u8, jf.dir_path, '\\','/');
                 try context.parseJson(s, jf.dir_path, jf.basename, &ret);
             }
+        }
+    }
+
+    {
+        var it = ret.map.iterator();
+        while(it.next())|item|{
+            std.debug.print("crass :{s}\n" ,.{item.key_ptr.*});
         }
     }
     return ret;
