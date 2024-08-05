@@ -17,6 +17,7 @@ pub const SpatialGrid = @import("spatial_grid.zig");
 pub const Ecs = @import("registry.zig");
 pub const Lua = @import("lua.zig");
 pub const V3 = za.Vec3;
+pub const AssetBake = @import("assetbake.zig");
 
 pub const ptypes = @import("graphics/types.zig");
 pub const Rect = ptypes.Rect;

@@ -3157,6 +3157,7 @@ pub const Lua = struct {
 //still O(1) lookup but with some memory access
 //hash map?
 //sparse set?
+//TODO delete this struct, use assetbake.zig instead
 pub const AssetMap = struct {
     const Self = @This();
     const IDT = u32;
@@ -3238,156 +3239,6 @@ pub const AssetMap = struct {
 //Instead of bringing in the tiled dependcy, do the id lifetime manegement here and output a json file
 //assetLoad should be renamed to assetBake
 
-fn suffix(alloc: std.mem.Allocator, str: []const u8, _suffix: []const u8) ![]const u8 {
-    const sl = try alloc.alloc(u8, str.len + _suffix.len);
-    @memcpy(sl[0..str.len], str);
-    @memcpy(sl[str.len..], _suffix);
-    return sl;
-}
-
-pub fn assetBake(
-    alloc: std.mem.Allocator,
-    dir: std.fs.Dir,
-    sub_path: []const u8,
-    output_dir: std.fs.Dir,
-    output_filename_prefix: []const u8, //prefix.json prefix.png etc
-) !void {
-    var arena = std.heap.ArenaAllocator.init(alloc);
-    defer arena.deinit();
-    const talloc = arena.allocator();
-
-    const manifest_filename = try suffix(talloc, output_filename_prefix, "_manifest.json");
-    const userdata_filename = try suffix(talloc, output_filename_prefix, "_userdata.bin");
-    const atlas_filename = try suffix(talloc, output_filename_prefix, "_atlas.png");
-
-    //Really just assign a numerical id to every item in the dir
-    const old_bake: ?AssetMap.BakedManifestJson = blk: {
-        const jslice = output_dir.readFileAlloc(talloc, manifest_filename, std.math.maxInt(usize)) catch break :blk null;
-        const parsed = try std.json.parseFromSlice(AssetMap.BakedManifestJson, talloc, jslice, .{ .ignore_unknown_fields = true });
-        break :blk parsed.value;
-    };
-    //store json files in seperate json file
-    var out_name_id_map = std.StringArrayHashMap(u32).init(alloc);
-    defer out_name_id_map.deinit();
-
-    //if a resource has an id in old_bake then use that id otherwise get it from freelist
-    //we create freelist by gathering all old ids, sorting then iterating and generating a freelist.
-    var freelist = try AssetMap.createFreelist(alloc, if (old_bake) |ob| &ob.name_id_map else null);
-    defer freelist.deinit();
-
-    var idir = try dir.openDir(sub_path, .{ .iterate = true });
-    defer idir.close();
-    var walker = try idir.walk(
-        alloc,
-    );
-    defer walker.deinit();
-
-    var bmps = std.ArrayList(graph.Bitmap).init(alloc);
-    defer {
-        for (bmps.items) |bmp| {
-            bmp.deinit();
-        }
-        bmps.deinit();
-    }
-
-    var rpack = graph.RectPack.init(alloc);
-    defer rpack.deinit();
-
-    var json_files = std.ArrayList(struct {
-        path: []const u8, //allocated
-        basename: []const u8, //slice of path
-        dir_path: []const u8, //slice of path
-    }).init(alloc);
-    defer {
-        json_files.deinit();
-    }
-
-    //First we walk the directory and all children, creating a list of images and a list of json files.
-    var uid_bmp_index_map = std.AutoHashMap(u32, u32).init(alloc);
-    defer uid_bmp_index_map.deinit();
-    while (try walker.next()) |w| {
-        switch (w.kind) {
-            .file => {
-                const ind = blk: {
-                    if (old_bake) |ob| {
-                        if (ob.name_id_map.map.get(w.path)) |id|
-                            break :blk id;
-                    }
-                    var range = &freelist.items[0];
-                    while (range.start == range.end) {
-                        _ = freelist.orderedRemove(0);
-                        if (freelist.items.len == 0)
-                            return error.noIdsLeft;
-                        range = &freelist.items[0];
-                    }
-                    defer range.start += 1;
-                    break :blk range.start;
-                };
-                try out_name_id_map.put(try talloc.dupe(u8, w.path), @intCast(ind));
-                if (std.mem.endsWith(u8, w.basename, ".png")) {
-                    const index = bmps.items.len;
-                    try bmps.append(try graph.Bitmap.initFromPngFile(alloc, w.dir, w.basename));
-                    try rpack.appendRect(index, bmps.items[index].w, bmps.items[index].h);
-                    try uid_bmp_index_map.put(@intCast(index), @intCast(ind));
-                    //names has the same indicies as bmps
-                } else if (std.mem.endsWith(u8, w.basename, ".json")) {
-                    const path = try talloc.dupe(u8, w.path);
-                    try json_files.append(.{
-                        .path = path,
-                        .dir_path = path[0 .. w.path.len - w.basename.len],
-                        .basename = path[w.path.len - w.basename.len ..],
-                    });
-                }
-            },
-            else => {},
-        }
-    }
-    var id_rects = std.ArrayList(AssetMap.BakedManifestJson.IdRect).init(alloc);
-    defer id_rects.deinit();
-
-    //Pack all the rectangles and output to a file
-    const out_size = try rpack.packOptimalSize();
-    var out_bmp = try graph.Bitmap.initBlank(alloc, out_size.x, out_size.y, .rgba_8);
-    defer out_bmp.deinit();
-    for (rpack.rects.items) |rect| {
-        const i: usize = @intCast(rect.id);
-        graph.Bitmap.copySubR(4, &out_bmp, @intCast(rect.x), @intCast(rect.y), &bmps.items[i], 0, 0, @intCast(rect.w), @intCast(rect.h));
-        try id_rects.append(.{
-            .id = uid_bmp_index_map.get(@intCast(rect.id)).?,
-            .x = @intCast(rect.x),
-            .y = @intCast(rect.y),
-            .w = @intCast(rect.w),
-            .h = @intCast(rect.h),
-        });
-    }
-    try out_bmp.writeToPngFile(output_dir, atlas_filename);
-
-    var userdataout = try output_dir.createFile(userdata_filename, .{});
-    defer userdataout.close();
-    const uout = userdataout.writer();
-    for (json_files.items) |jf| {
-        var f = try idir.openFile(jf.path, .{});
-        defer f.close();
-        const s = try f.readToEndAlloc(talloc, std.math.maxInt(usize));
-        var cout = try std.compress.gzip.compressor(uout, .{});
-        const wr = cout.writer();
-        try wr.writeInt(u32, @intCast(jf.path.len), .big);
-        _ = try wr.write(jf.path);
-        try wr.writeInt(u32, @intCast(s.len), .big);
-        _ = try wr.write(s);
-    }
-
-    var out = try output_dir.createFile(manifest_filename, .{});
-    defer out.close();
-    try std.json.stringify(
-        AssetMap.BakedManifestJson{ .rects = id_rects.items, .name_id_map = std.json.ArrayHashMap(u32){
-            .map = out_name_id_map.unmanaged,
-        } },
-        .{},
-        out.writer(),
-    );
-}
-
 pub fn assetLoad(alloc: std.mem.Allocator, dir: std.fs.Dir, sub_path: []const u8, context: anytype) !AssetMap {
     var idir = try dir.openDir(sub_path, .{ .iterate = true });
     defer idir.close();
@@ -3436,7 +3287,7 @@ pub fn assetLoad(alloc: std.mem.Allocator, dir: std.fs.Dir, sub_path: []const u8
                     try bmps.append(try graph.Bitmap.initFromPngFile(alloc, w.dir, w.basename));
                     try rpack.appendRect(index, bmps.items[index].w, bmps.items[index].h);
                     //names has the same indicies as bmps
-                    const aname = try alloc.dupe(u8, w.path[0..w.path.len - ".png".len]);
+                    const aname = try alloc.dupe(u8, w.path[0 .. w.path.len - ".png".len]);
                     std.mem.replaceScalar(u8, aname, '\\', '/');
                     try ret.names.append(aname);
                 } else if (std.mem.endsWith(u8, w.basename, ".json")) {
@@ -3473,18 +3324,12 @@ pub fn assetLoad(alloc: std.mem.Allocator, dir: std.fs.Dir, sub_path: []const u8
                 defer f.close();
                 const s = try f.readToEndAlloc(alloc, std.math.maxInt(usize));
                 defer alloc.free(s);
-                std.mem.replaceScalar(u8, jf.dir_path, '\\','/');
+                std.mem.replaceScalar(u8, jf.dir_path, '\\', '/');
                 try context.parseJson(s, jf.dir_path, jf.basename, &ret);
             }
         }
     }
 
-    {
-        var it = ret.map.iterator();
-        while(it.next())|item|{
-            std.debug.print("crass :{s}\n" ,.{item.key_ptr.*});
-        }
-    }
     return ret;
 }
 

@@ -105,6 +105,8 @@ pub const Font = struct {
         return error.freetype;
     }
 
+    //TODO write a init function for stb_truetype
+
     pub fn init(alloc: Alloc, dir: Dir, filename: []const u8, point_size: f32, dpi: f32, options: struct {
         codepoints_to_load: []const CharMapEntry = &(CharMaps.Default),
         pack_factor: f32 = 1.3,
