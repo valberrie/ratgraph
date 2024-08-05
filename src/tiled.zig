@@ -5,10 +5,10 @@
 const std = @import("std");
 pub const TileMap = struct {
     pub const JTileset = struct {
-        columns: u32,
-        image: []const u8,
-        tileheight: u32,
-        tilewidth: u32,
+        columns: u32 = 0,
+        image: []const u8 = "",
+        tileheight: u32 = 0,
+        tilewidth: u32 = 0,
 
         //A external tileset only defines these two fields
         source: ?[]const u8 = null,

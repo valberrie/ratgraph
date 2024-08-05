@@ -312,7 +312,8 @@ pub fn assetBake(
                     try rpack.appendRect(index, bmps.items[index].w, bmps.items[index].h);
                     try uid_bmp_index_map.put(@intCast(index), @intCast(ind));
                     //names has the same indicies as bmps
-                } else if (std.mem.endsWith(u8, w.basename, ".json")) {
+                    //} else if (std.mem.endsWith(u8, w.basename, ".json")) {
+                } else {
                     const path = try talloc.dupe(u8, w.path);
                     try json_files.append(.{
                         .path = path,
