@@ -3,6 +3,12 @@ const graph = @import("graphics.zig");
 const Rect = graph.Rect;
 const Tiled = @import("tiled.zig");
 
+//TODO
+//Have a top level json file that specifies how asset map should be loaded.
+//I want to be able to disable directories from being added to tiled tsj but still added to atlas
+//some images I want as a separate texture.
+//be able to specify texture settings?
+
 pub const AssetMap = struct {
     const Self = @This();
     const IDT = u32;

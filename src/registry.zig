@@ -6,8 +6,11 @@ pub const MapField = struct {
     name: [:0]const u8,
     allow_getPtr: bool = true,
     callback: ?struct {
+        /// Called on component creation, args are user_data, *ftype, EcsIndex
         create_pointer: type = void,
+        /// Called on component destroy, args are user_data, ftype, EcsIndex
         destroy_pointer: type = void,
+        /// Called once on Ecs Reset, args are user_data. []const container_struct(ftype,ID_TYPE)
         reset_pointer: type = void,
         user_data: type = void,
     } = null,
@@ -338,7 +341,9 @@ pub fn Registry(comptime field_names_l: FieldList) type {
 
                         try @field(self.data, field.name).insert(new_ent, .{ .i = new_ent, .item = @field(comp, field.name) });
                         ent.set(comp_i);
-                        self.call_create_callback(@enumFromInt(i), @field(comp, field.name), new_ent);
+                        //self.call_create_callback(@enumFromInt(i), @field(comp, field.name), new_ent);
+                        const ptr = try @field(self.data, field.name).getPtr(new_ent);
+                        self.call_create_callback(@enumFromInt(i), &ptr.item, new_ent);
                     }
                 }
             }
@@ -395,7 +400,8 @@ pub fn Registry(comptime field_names_l: FieldList) type {
                     if (ent.isSet(i)) return error.componentAlreadyAttached;
                     try @field(self.data, field.name).insert(index, .{ .i = index, .item = @field(component, field.name) });
                     ent.set(i);
-                    self.call_create_callback(@enumFromInt(i), @field(component, field.name), index);
+                    const ptr = try @field(self.data, field.name).getPtr(index);
+                    self.call_create_callback(@enumFromInt(i), &ptr.item, index);
                     return;
                 }
             }
@@ -416,7 +422,8 @@ pub fn Registry(comptime field_names_l: FieldList) type {
 
             try @field(self.data, @tagName(component_type)).insert(index, .{ .i = index, .item = component });
             ent.set(@intFromEnum(component_type));
-            self.call_create_callback(component_type, component, index);
+            const ptr = try @field(self.data, @tagName(component_type)).getPtr(index);
+            self.call_create_callback(component_type, &ptr.item, index);
         }
 
         pub fn removeComponent(self: *Self, index: ID_TYPE, comptime component_type: Components) !Fields[@intFromEnum(component_type)].ftype {
