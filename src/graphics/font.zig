@@ -32,7 +32,6 @@ pub const Font = struct {
         tr: Rect = .{ .x = 0, .y = 0, .w = 0, .h = 0 },
         width: f32 = 0,
         height: f32 = 0,
-        i: u21 = 0,
     };
 
     ///Used to specify what codepoints are to be loaded
@@ -118,28 +117,32 @@ pub const Font = struct {
     //}
 
     pub fn init(alloc: Alloc, dir: Dir, filename: []const u8, point_size: f32, dpi: f32, options: InitOptions) !Self {
-        const codepoints: []Glyph = blk: {
-            var codepoint_list = std.ArrayList(Glyph).init(alloc);
-            try codepoint_list.append(.{ .i = std.unicode.replacement_character });
+        const codepoints_i: []u21 = blk: {
+            var glyph_indices = std.ArrayList(u21).init(alloc);
+            try glyph_indices.append(std.unicode.replacement_character);
+            //try codepoint_list.append(.{ .i = std.unicode.replacement_character });
             for (options.codepoints_to_load) |codepoint| {
                 switch (codepoint) {
                     .list => |list| {
                         for (list) |cp| {
-                            try codepoint_list.append(.{ .i = cp });
+                            try glyph_indices.append(cp);
+                            //try codepoint_list.append(.{ .i = cp });
                         }
                     },
                     .range => |range| {
                         var i = range[0];
                         while (i <= range[1]) : (i += 1) {
-                            try codepoint_list.append(.{ .i = i });
+                            try glyph_indices.append(i);
+                            //try codepoint_list.append(.{ .i = i });
                         }
                     },
                     .unicode => |cp| {
-                        try codepoint_list.append(.{ .i = cp });
+                        //try codepoint_list.append(.{ .i = cp });
+                        try glyph_indices.append(cp);
                     },
                 }
             }
-            break :blk try codepoint_list.toOwnedSlice();
+            break :blk try glyph_indices.toOwnedSlice();
         };
 
         var log = OptionalFileWriter{};
@@ -158,11 +161,12 @@ pub const Font = struct {
             });
             try log.print("px_size: {d}\n", .{point_size * (dpi / 72)});
         }
+        const dense_slice = try alloc.alloc(Glyph, codepoints_i.len);
         var result = Font{
             .height = 0,
             .dpi = dpi,
             .max_advance = 0,
-            .glyph_set = try (SparseSet(Glyph, u21).fromOwnedDenseSlice(alloc, codepoints)),
+            .glyph_set = try (SparseSet(Glyph, u21).fromOwnedDenseSlice(alloc, dense_slice, codepoints_i)),
             .font_size = point_size,
             .texture = .{ .id = 0, .w = 0, .h = 0 },
             .ascent = 0,
@@ -298,8 +302,9 @@ pub const Font = struct {
         }
 
         var timer = try std.time.Timer.start();
-        for (result.glyph_set.dense.items) |*codepoint| {
-            const glyph_i = c.FT_Get_Char_Index(face, codepoint.i);
+        for (result.glyph_set.dense.items, 0..) |*codepoint, c_i| {
+            const code_i = result.glyph_set.dense_index_lut.items[c_i];
+            const glyph_i = c.FT_Get_Char_Index(face, code_i);
             if (glyph_i == 0) {
                 //std.debug.print("Undefined char index: {d} {x}\n", .{ codepoint.i, codepoint.i });
                 continue;
@@ -327,11 +332,11 @@ pub const Font = struct {
                 }
                 try bitmaps.append(try Bitmap.initFromBuffer(alloc, bitmap.buffer[0 .. bitmap.width * bitmap.rows], bitmap.width, bitmap.rows, .g_8));
 
-                try pack_ctx.appendRect(codepoint.i, bitmap.width + padding + padding, bitmap.rows + padding + padding);
+                try pack_ctx.appendRect(code_i, bitmap.width + padding + padding, bitmap.rows + padding + padding);
             }
             const metrics = &face.*.glyph.*.metrics;
             {
-                const g: u21 = @intCast(codepoint.i);
+                const g: u21 = @intCast(code_i);
                 try log.print("Freetype glyph: {u} 0x{x}\n", .{ g, g });
                 try log.print("\twidth:  {d} (1/64 px), {d} px\n", .{ metrics.width, @divFloor(metrics.width, 64) });
                 try log.print("\theight: {d} (1/64 px), {d} px\n", .{ metrics.height, @divFloor(metrics.height, 64) });
@@ -349,7 +354,6 @@ pub const Font = struct {
                 .advance_x = @as(f32, @floatFromInt(metrics.horiAdvance)) / 64,
                 .width = @as(f32, @floatFromInt(metrics.width)) / 64,
                 .height = @as(f32, @floatFromInt(metrics.height)) / 64,
-                .i = codepoint.i,
             };
             codepoint.* = glyph;
         }
