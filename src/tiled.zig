@@ -78,6 +78,7 @@ pub const TileMap = struct {
     pub const LayerClass = enum { //Todo remove this and replace with string
         entity,
         collision,
+        template,
         bg,
         entity_proto,
         component_proto,
@@ -147,6 +148,25 @@ pub const TileMap = struct {
             };
             return r;
         }
+
+        pub fn copy(self: *const Property, alloc: std.mem.Allocator) !Property {
+            return .{
+                .name = try alloc.dupe(u8, self.name),
+                .value = switch (self.value) {
+                    .string => |s| .{ .string = try alloc.dupe(u8, s) },
+                    .file => |s| .{ .file = try alloc.dupe(u8, s) },
+                    else => self.value,
+                },
+            };
+        }
+
+        pub fn deinit(self: *Property, alloc: std.mem.Allocator) void {
+            alloc.free(self.name);
+            switch (self.value) {
+                .string, .file => |s| alloc.free(s),
+                else => {},
+            }
+        }
     };
 
     pub const Object = struct {
@@ -160,6 +180,34 @@ pub const TileMap = struct {
         gid: ?u32 = null,
         id: ?usize = null,
         properties: ?[]Property = null,
+
+        pub fn copy(self: *const Object, alloc: std.mem.Allocator) !Object {
+            var ret = self.*;
+            ret.name = try alloc.dupe(u8, self.name);
+            if (self.type) |t|
+                ret.type = try alloc.dupe(u8, t);
+            if (self.properties) |p| {
+                ret.properties = try alloc.dupe(Property, p);
+                for (ret.properties.?) |*pp| {
+                    pp.* = try pp.copy(alloc);
+                }
+            }
+
+            return ret;
+        }
+
+        //Deinit the object if all allocated fields were owned by param alloc
+        pub fn deinit(self: *Object, alloc: std.mem.Allocator) void {
+            alloc.free(self.name);
+            if (self.type) |t|
+                alloc.free(t);
+            if (self.properties) |p| {
+                for (p) |*pp| {
+                    pp.deinit(alloc);
+                }
+                alloc.free(p);
+            }
+        }
     };
 
     pub const Layer = struct {

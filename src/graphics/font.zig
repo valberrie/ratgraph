@@ -41,6 +41,11 @@ pub const Font = struct {
         list: []const u21,
         range: [2]u21, //A range of codepoints (inclusive)
     };
+    pub const InitOptions = struct {
+        codepoints_to_load: []const CharMapEntry = &(CharMaps.Default),
+        pack_factor: f32 = 1.3,
+        debug_dir: ?Dir = null,
+    };
 
     ///Define common character sets
     pub const CharMaps = struct {
@@ -106,14 +111,13 @@ pub const Font = struct {
     }
 
     //TODO write a init function for stb_truetype
-    // pub fn initFromBuffer(alloc: std.mem.Allocator, buffer:[]const u8)!void{
-    // }
+    //If the hinting etc is as good as freetype, use stb instead, less linking and we can initilize from a buffer
+    //pub fn initFromBuffer(alloc: Alloc, buf:[]const u8, point_size: f32, dpi: f32, options:InitOptions)!Self{
+    //    var finfo :c.stbtt_fontinfo = undefined;
+    //    c.stbtt_InitFont(&finfo, buf, c.stbtt_GetFontOffsetForIndex(buf, 0));
+    //}
 
-    pub fn init(alloc: Alloc, dir: Dir, filename: []const u8, point_size: f32, dpi: f32, options: struct {
-        codepoints_to_load: []const CharMapEntry = &(CharMaps.Default),
-        pack_factor: f32 = 1.3,
-        debug_dir: ?Dir = null,
-    }) !Self {
+    pub fn init(alloc: Alloc, dir: Dir, filename: []const u8, point_size: f32, dpi: f32, options: InitOptions) !Self {
         const codepoints: []Glyph = blk: {
             var codepoint_list = std.ArrayList(Glyph).init(alloc);
             try codepoint_list.append(.{ .i = std.unicode.replacement_character });

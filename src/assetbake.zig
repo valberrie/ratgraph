@@ -196,6 +196,14 @@ pub const AssetMap = struct {
         return ret;
     }
 
+    pub fn getIdFromName(self: *Self, name: []const u8) ?u32 {
+        const id = self.name_id_map.get(name) orelse {
+            std.debug.print("Unkown asset {s}\n", .{name});
+            return null;
+        };
+        return id;
+    }
+
     pub fn getRectFromName(self: *Self, name: []const u8) ?graph.Rect {
         const id = self.name_id_map.get(name) orelse {
             std.debug.print("Unkown asset {s}\n", .{name});
