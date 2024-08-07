@@ -26,6 +26,7 @@ pub const ComponentCreateCallback = fn (user_ctx: anytype, component: anytype) v
 pub const FieldList = []const MapField;
 
 pub const ID_TYPE = u32;
+pub const NULLMARKER = sparseset.NullMarker(ID_TYPE);
 
 //TODO to preserve iterators:
 //deletions will create tombstones in dense rather than swapRemove
@@ -244,12 +245,17 @@ pub fn Registry(comptime field_names_l: FieldList) type {
                 //const childT = Fields[@intFromEnum(component_type)].ftype;
                 child_it: Ch.Iterator,
 
+                //Index into sparse, IE current entity id
+                i: ID_TYPE,
+
                 slept: *SleptT,
 
-                pub fn next(self: *@This()) ?Ch.Container {
+                pub fn next(self: *@This()) ?*childT {
                     while (self.child_it.next()) |item| {
-                        if (self.slept.getOpt(item.i) == null)
+                        if (self.slept.getOpt(self.child_it.i) == null) {
+                            self.i = self.child_it.i;
                             return item;
+                        }
                     }
                     return null;
                 }
@@ -301,11 +307,11 @@ pub fn Registry(comptime field_names_l: FieldList) type {
             }
         }
 
-        fn call_reset_callback(self: *Self, comptime component_type: Components) void {
+        fn call_reset_callback(self: *Self, comptime component_type: Components, dense: anytype, dense_lut: anytype) void {
             const fname = @tagName(component_type) ++ "reset";
             const data = @tagName(component_type) ++ "data";
             if (@TypeOf(@field(self.callbacks, fname)) != void) {
-                @field(self.callbacks, fname)(@field(self.callbacks, data));
+                @field(self.callbacks, fname)(@field(self.callbacks, data), dense, dense_lut);
             }
         }
 
@@ -351,7 +357,7 @@ pub fn Registry(comptime field_names_l: FieldList) type {
 
         pub fn destroyAll(self: *Self) !void {
             inline for (field_names_l, 0..) |field, i| {
-                self.call_reset_callback(@enumFromInt(i));
+                self.call_reset_callback(@enumFromInt(i), @field(self.data, field.name).dense.items, @field(self.data, field.name).dense_index_lut.items);
                 try @field(self.data, field.name).empty();
             }
             try self.entities.resize(0);
@@ -361,8 +367,8 @@ pub fn Registry(comptime field_names_l: FieldList) type {
             const ent = try self.getEntity(index);
             inline for (field_names_l, 0..) |field, i| {
                 if (ent.isSet(i)) {
-                    const d = (try @field(self.data, field.name).remove(index));
-                    self.call_destroy_callback(@enumFromInt(i), d, index);
+                    var d = (try @field(self.data, field.name).remove(index));
+                    self.call_destroy_callback(@enumFromInt(i), &d, index);
                 }
             }
             ent.* = Types.component_bit_set.initEmpty();
@@ -430,8 +436,8 @@ pub fn Registry(comptime field_names_l: FieldList) type {
             const ent = try self.getEntity(index);
             if (!ent.isSet(comp)) return error.componentNotAttached;
             ent.unset(comp);
-            const d = try @field(self.data, @tagName(component_type)).remove(index);
-            self.call_destroy_callback(component_type, d, index);
+            var d = try @field(self.data, @tagName(component_type)).remove(index);
+            self.call_destroy_callback(component_type, &d, index);
             return d;
         }
 
@@ -443,8 +449,8 @@ pub fn Registry(comptime field_names_l: FieldList) type {
             const ent = try self.getEntity(index);
             inline for (field_names_l, 0..) |field, i| {
                 if (ent.isSet(i) and !keeper_set.isSet(i)) {
-                    const d = (try @field(self.data, field.name).remove(index));
-                    self.call_destroy_callback(@enumFromInt(i), d, index);
+                    var d = (try @field(self.data, field.name).remove(index));
+                    self.call_destroy_callback(@enumFromInt(i), &d, index);
                 }
             }
             ent.* = keeper_set;
@@ -492,7 +498,7 @@ pub fn Registry(comptime field_names_l: FieldList) type {
         }
 
         pub fn iterator(self: *Self, comptime component_type: Components) Iterator(component_type) {
-            return .{ .child_it = @field(self.data, @tagName(component_type)).denseIterator(), .slept = &self.slept };
+            return .{ .child_it = @field(self.data, @tagName(component_type)).denseIterator(), .slept = &self.slept, .i = 0 };
         }
 
         pub fn sleepEntity(self: *Self, index: ID_TYPE) !void {

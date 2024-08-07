@@ -536,6 +536,8 @@ pub const ImmediateDrawingContext = struct {
     const Self = @This();
     const log = std.log.scoped(.ImmediateDrawingContext);
 
+    threadlocal var textFmtBuffer: [1024]u8 = undefined;
+
     pub const VtxFmt = struct {
         pub const Color_2D = packed struct { pos: Vec2f, z: u16, color: u32 };
         pub const Color_Texture_2D = packed struct { pos: Vec2f, uv: Vec2f, z: u16, color: u32 }; // 22 bytes
@@ -900,9 +902,12 @@ pub const ImmediateDrawingContext = struct {
     }
 
     pub fn textFmt(self: *Self, pos: Vec2f, comptime fmt: []const u8, args: anytype, font: *Font, pt_size: f32, color: u32) void {
-        var buf: [256]u8 = undefined;
-        var fbs = std.io.FixedBufferStream([]u8){ .pos = 0, .buffer = &buf };
-        fbs.writer().print(fmt, args) catch return;
+        var fbs = std.io.FixedBufferStream([]u8){ .pos = 0, .buffer = &textFmtBuffer };
+        fbs.writer().print(fmt, args) catch {
+            log.warn("string exceeded textFmt buffer", .{});
+            log.warn(fmt, args);
+            return;
+        };
         self.text(pos, fbs.getWritten(), font, pt_size, color);
     }
 

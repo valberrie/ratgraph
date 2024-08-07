@@ -5,18 +5,13 @@ pub fn container_struct(comptime t: type, comptime id: type) type {
     return struct { item: t, i: id = 0 };
 }
 
-pub fn SparseSet(comptime child_type: type, comptime index_type: type) type {
-    //if (!@hasField(child_type, "i")) {
-    //    @compileError("Child type must have a i index variable");
-    //} else {
-    //    const ch: child_type = undefined;
-    //    if (@TypeOf(ch.i) != index_type)
-    //        @compileError("Child type i variable type must index_type");
-    //}
+pub fn NullMarker(comptime index_type: type) index_type {
+    return std.math.maxInt(index_type);
+}
 
+pub fn SparseSet(comptime child_type: type, comptime index_type: type) type {
     return struct {
         const Self = @This();
-        pub const Container = container_struct(*child_type, index_type);
         const max_index = std.math.maxInt(index_type);
         const sparse_null_marker: index_type = max_index;
         const dense_null_marker: index_type = max_index;
@@ -25,9 +20,13 @@ pub fn SparseSet(comptime child_type: type, comptime index_type: type) type {
         pub const Iterator = struct {
             dense: *std.ArrayList(child_type), //Pointer so reallocation during iteration won't invalidate iterator
             dense_index_lut: *std.ArrayList(index_type),
+            //This is an index into dense
             index: usize,
 
-            pub fn next(self: *Iterator) ?Container {
+            //This is a sparse index
+            i: index_type,
+
+            pub fn next(self: *Iterator) ?*child_type {
                 defer self.index += 1;
                 if (self.index >= self.dense.items.len)
                     return null;
@@ -36,7 +35,9 @@ pub fn SparseSet(comptime child_type: type, comptime index_type: type) type {
                         return null;
                     }
                 }
-                return .{ .item = &self.dense.items[self.index], .i = self.dense_index_lut.items[self.index] };
+                self.i = self.dense_index_lut.items[self.index];
+                return &self.dense.items[self.index];
+                //return .{ .item = &self.dense.items[self.index], .i = self.dense_index_lut.items[self.index] };
             }
         };
 
@@ -66,7 +67,7 @@ pub fn SparseSet(comptime child_type: type, comptime index_type: type) type {
         dense_index_lut: std.ArrayList(index_type),
 
         pub fn denseIterator(self: *Self) Iterator {
-            return Iterator{ .dense = &self.dense, .index = 0, .dense_index_lut = &self.dense_index_lut };
+            return Iterator{ .dense = &self.dense, .index = 0, .dense_index_lut = &self.dense_index_lut, .i = 0 };
         }
 
         pub fn init(alloc: std.mem.Allocator) !Self {

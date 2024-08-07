@@ -62,6 +62,15 @@ pub fn build(b: *std.Build) void {
 
     const mode = b.standardOptimizeOption(.{});
 
+    const bake = b.addExecutable(.{
+        .name = "assetbake",
+        .root_source_file = b.path("src/assetbake.zig"),
+        .target = target,
+        .optimize = mode,
+    });
+    b.installArtifact(bake);
+    linkLibrary(b, &bake.root_module);
+
     const exe = b.addExecutable(.{
         .name = "the_engine",
         .root_source_file = b.path("src/main.zig"),
@@ -101,6 +110,7 @@ pub fn build(b: *std.Build) void {
 
     const zalgebra_module = zalgebra_dep.module("zalgebra");
     exe.root_module.addImport("zalgebra", zalgebra_module);
+    bake.root_module.addImport("zalgebra", zalgebra_module);
     unit_tests.root_module.addImport("zalgebra", zalgebra_module);
     m.addImport("zalgebra", zalgebra_module);
 

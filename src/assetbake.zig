@@ -2,6 +2,7 @@ const std = @import("std");
 const graph = @import("graphics.zig");
 const Rect = graph.Rect;
 const Tiled = @import("tiled.zig");
+const ArgUtil = graph.ArgGen;
 
 //TODO
 //Have a top level json file that specifies how asset map should be loaded.
@@ -208,6 +209,10 @@ pub const AssetMap = struct {
             return null;
         };
         return id;
+    }
+
+    pub fn getNameFromId(self: *Self, id: u32) []const u8 {
+        return self.id_name_lut.items[id].?;
     }
 
     pub fn getRectFromName(self: *Self, name: []const u8) ?graph.Rect {
@@ -427,4 +432,31 @@ pub fn assetBake(
         std.json.stringify(new_tsj, .{}, outfile.writer()) catch unreachable;
         outfile.close();
     }
+}
+
+pub fn main() !void {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.detectLeaks();
+    const alloc = gpa.allocator();
+    var args = try std.process.ArgIterator.initWithAllocator(alloc);
+    defer args.deinit();
+    const Arg = ArgUtil.Arg;
+
+    const cli_opts = try (ArgUtil.parseArgs(&.{
+        Arg("dir", .string, "The directory you want to process into a manifest"),
+        Arg("name", .string, "name of the artifacts"),
+    }, &args));
+
+    if (cli_opts.dir == null or cli_opts.name == null) {
+        std.debug.print("Args not provided. run --help\n", .{});
+        return;
+    }
+
+    try assetBake(
+        alloc,
+        std.fs.cwd(),
+        cli_opts.dir.?,
+        std.fs.cwd(),
+        cli_opts.name.?,
+    );
 }

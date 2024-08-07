@@ -178,6 +178,10 @@ pub const Rect = struct {
         return Rect.NewAny(self.x + self.w, self.y, -self.w, self.h);
     }
 
+    pub fn invY(self: Self) Self {
+        return Rect.NewAny(self.x, self.y + self.h, self.w, -self.h);
+    }
+
     pub fn replace(self: Self, x: ?f32, y: ?f32, w: ?f32, h: ?f32) Self {
         return .{
             .x = x orelse self.x,

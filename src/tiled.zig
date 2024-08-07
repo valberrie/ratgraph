@@ -458,30 +458,6 @@ pub fn rebakeTileset(
     outfile.close();
 }
 
-//given a struct and a base.sub.field string, return the byte offset of field
-pub fn getOffsetRecursive(comptime stype: type, path: []const u8, offset: usize) usize {
-    const info = @typeInfo(stype);
-    inline for (info.Struct.fields) |f| {
-        switch (@typeInfo(f.type)) {
-            .Int, .Float, .Bool => {
-                if (std.mem.eql(u8, path, f.name))
-                    return @offsetOf(stype, f.name) + offset;
-            },
-            .Struct => {
-                const first_dot = std.mem.indexOfScalar(u8, path, '.');
-                if (first_dot) |fd| {
-                    const name = path[0..fd];
-                    if (std.mem.eql(u8, name, f.name)) {
-                        return getOffsetRecursive(f.type, path[fd + 1 ..], @offsetOf(stype, f.name));
-                    }
-                }
-            },
-            else => {},
-        }
-    }
-    return 0;
-}
-
 pub fn setStructFromProperty(comptime stype: type, field_name: []const u8, ptr: *stype, name: []const u8, value: TileMap.PropertyValue) !void {
     const info = @typeInfo(stype);
     if (!std.mem.eql(u8, name, field_name) and info != .Struct)
@@ -498,9 +474,14 @@ pub fn setStructFromProperty(comptime stype: type, field_name: []const u8, ptr: 
             const sub_name = name[0 .. fd orelse name.len];
             if (name.len == 0)
                 return;
-            inline for (s.fields) |f| {
-                if (std.mem.eql(u8, sub_name, f.name)) {
-                    return setStructFromProperty(f.type, f.name, &@field(ptr, f.name), if (fd) |ff| name[ff + 1 ..] else name, value);
+            if (std.meta.hasFn(stype, "tiledPut")) {
+                try ptr.tiledPut(name, value.string);
+                return;
+            } else {
+                inline for (s.fields) |f| {
+                    if (std.mem.eql(u8, sub_name, f.name)) {
+                        return setStructFromProperty(f.type, f.name, &@field(ptr, f.name), if (fd) |ff| name[ff + 1 ..] else name, value);
+                    }
                 }
             }
             std.debug.print("{s} {s}\n", .{ field_name, name });
@@ -515,6 +496,7 @@ pub fn setStructFromProperty(comptime stype: type, field_name: []const u8, ptr: 
         },
         .Enum => |e| {
             inline for (e.fields) |ef| {
+                //TODO use that enumFromString from std
                 if (std.mem.eql(u8, ef.name, value.string)) {
                     ptr.* = @enumFromInt(ef.value);
                     return;

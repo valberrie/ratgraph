@@ -1,5 +1,5 @@
 const std = @import("std");
-const lua = @cImport({
+pub const lua = @cImport({
     @cInclude("lua.h");
     @cInclude("lauxlib.h");
     @cInclude("lualib.h");
@@ -32,6 +32,15 @@ pub fn clearAlloc(self: *Self) void {
     self.fba.reset();
 }
 
+pub fn loadBufferIntoFunction(self: *Self, buf: []const u8, fn_name: []const u8) void {
+    //lua.lua_pushcfunction(self.state, handleError);
+    _ = lua.luaL_loadbufferx(self.state, &buf[0], buf.len, "crass", null);
+    lua.lua_setglobal(self.state, zstring(fn_name));
+    //const err = lua.lua_pcallk(self.state, 0, 0, -2, 0, null);
+    //checkErrorTb(self.state, err);
+    //lua.lua_pop(self.state, 1); //pushCFunction
+}
+
 pub fn loadAndRunFile(self: *Self, filename: []const u8) void {
     lua.lua_pushcfunction(self.state, handleError);
 
@@ -42,14 +51,18 @@ pub fn loadAndRunFile(self: *Self, filename: []const u8) void {
     lua.lua_pop(self.state, 1); //pushCFunction
 }
 
-pub fn callLuaFunction(self: *Self, fn_name: [*c]const u8) !void {
+pub fn callLuaFunctionEx(self: *Self, fn_name: []const u8, nargs: c_int, nres: c_int) !void {
     lua.lua_pushcfunction(self.state, handleError);
-    _ = lua.lua_getglobal(self.state, fn_name);
-    const err = lua.lua_pcallk(self.state, 0, 0, -2, 0, null);
+    _ = lua.lua_getglobal(self.state, zstring(fn_name));
+    const err = lua.lua_pcallk(self.state, nargs, nres, -2, 0, null);
     checkErrorTb(self.state, err);
     lua.lua_pop(self.state, 1); //pushCFunction
     if (err != 0)
         return error.luaError;
+}
+
+pub fn callLuaFunction(self: *Self, fn_name: []const u8) !void {
+    self.callLuaFunctionEx(fn_name, 0, 0);
 }
 
 pub fn reg(self: *Self, name: [*c]const u8, fn_: ?*const fn (Ls) callconv(.C) c_int) void {
@@ -233,6 +246,17 @@ pub fn getGlobal(self: *Self, L: Ls, name: []const u8, comptime s: type) s {
 pub fn setGlobal(self: *Self, name: [*c]const u8, item: anytype) void {
     pushV(self.state, item);
     lua.lua_setglobal(self.state, name);
+}
+
+pub fn pushHashMap(L: Ls, hm: anytype) void {
+    lua.lua_newtable(L);
+    var it = hm.iterator();
+    while (it.next()) |item| {
+        std.debug.print("PUSHING {s} {s}\n", .{ item.key_ptr.*, item.value_ptr.* });
+        _ = lua.lua_pushstring(L, zstring(item.key_ptr.*));
+        pushV(L, @as([]const u8, item.value_ptr.*));
+        lua.lua_settable(L, -3);
+    }
 }
 
 pub fn pushV(L: Ls, s: anytype) void {
