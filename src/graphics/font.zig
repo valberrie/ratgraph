@@ -111,10 +111,42 @@ pub const Font = struct {
 
     //TODO write a init function for stb_truetype
     //If the hinting etc is as good as freetype, use stb instead, less linking and we can initilize from a buffer
-    //pub fn initFromBuffer(alloc: Alloc, buf:[]const u8, point_size: f32, dpi: f32, options:InitOptions)!Self{
-    //    var finfo :c.stbtt_fontinfo = undefined;
-    //    c.stbtt_InitFont(&finfo, buf, c.stbtt_GetFontOffsetForIndex(buf, 0));
-    //}
+    pub fn initFromBuffer(alloc: Alloc, buf: []const u8, point_size: f32, dpi: f32, options: InitOptions) !void {
+        const codepoints_i: []u21 = blk: {
+            var glyph_indices = std.ArrayList(u21).init(alloc);
+            try glyph_indices.append(std.unicode.replacement_character);
+            //try codepoint_list.append(.{ .i = std.unicode.replacement_character });
+            for (options.codepoints_to_load) |codepoint| {
+                switch (codepoint) {
+                    .list => |list| {
+                        for (list) |cp| {
+                            try glyph_indices.append(cp);
+                            //try codepoint_list.append(.{ .i = cp });
+                        }
+                    },
+                    .range => |range| {
+                        var i = range[0];
+                        while (i <= range[1]) : (i += 1) {
+                            try glyph_indices.append(i);
+                            //try codepoint_list.append(.{ .i = i });
+                        }
+                    },
+                    .unicode => |cp| {
+                        //try codepoint_list.append(.{ .i = cp });
+                        try glyph_indices.append(cp);
+                    },
+                }
+            }
+            break :blk try glyph_indices.toOwnedSlice();
+        };
+        _ = codepoints_i;
+        var finfo: c.stbtt_fontinfo = undefined;
+        _ = c.stbtt_InitFont(&finfo, @as([*c]const u8, @ptrCast(buf)), c.stbtt_GetFontOffsetForIndex(&buf[0], 0));
+        _ = dpi;
+        _ = point_size;
+
+        std.debug.print("num {d}\n", .{finfo.numGlyphs});
+    }
 
     pub fn init(alloc: Alloc, dir: Dir, filename: []const u8, point_size: f32, dpi: f32, options: InitOptions) !Self {
         const codepoints_i: []u21 = blk: {

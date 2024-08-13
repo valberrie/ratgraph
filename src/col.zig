@@ -1,4 +1,5 @@
 const std = @import("std");
+//TODO I WANT TO DESTROY THIS
 
 const newcol = @import("newcol.zig");
 pub const ColType = newcol.CollisionType(graph.Rect, graph.Vec2f);
