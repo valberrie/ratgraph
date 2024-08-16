@@ -186,6 +186,11 @@ pub fn CollisionType(comptime rect_type: type, comptime vector_type: type) type 
     };
 }
 
+//TODO
+//Remove  CollisionType and move code from col.zig into here.
+//Delete col3d and use ColCtx(3,f32)
+//add slide and bounce response types
+//Given two objects which response should we use?
 pub fn ColCtx(DIM: usize, FT: type) type {
     return struct {
         const V = [DIM]FT;
@@ -290,6 +295,7 @@ pub fn ColCtx(DIM: usize, FT: type) type {
                 ret.p[i] = r2.p[i] - r1.p[i] - r1.x[i];
                 ret.x[i] = r1.x[i] + r2.x[i];
             }
+            return ret;
         }
 
         pub fn lbClip(norm: V, p: FT, q: FT, ti1: *FT, ti2: *FT, n1: *V, n2: *V) bool {
@@ -445,8 +451,10 @@ test "containsPoint" {
     }, [_]f32{ 0.5, 0.5 }), true);
 }
 
-//Test cases
-//Each of the four quadrants
-//tunnel through, tunnel half, tunnel before
-//rect already intersecting no delta, delta
-//rect goes through corner
+test "minkowskyDiff" {
+    const a = TC.AABB{ .p = [_]f32{ 1, 1 }, .x = [_]f32{ 1, 1 } };
+    const b = TC.AABB{ .p = [_]f32{ 3, 3 }, .x = [_]f32{ 1, 1 } };
+    const e = TC.AABB{ .p = [_]f32{ 1, 1 }, .x = [_]f32{ 2, 2 } };
+
+    try ex(TC.minkowsky_diff(a, b), e);
+}

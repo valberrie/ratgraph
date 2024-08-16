@@ -982,7 +982,38 @@ pub fn cramers3D(a: V3f, b: V3f, c_: V3f, d: V3f) V3f {
     return V3f.new(x, y, z);
 }
 
+pub fn testMain() !void {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.detectLeaks();
+    const alloc = gpa.allocator();
+
+    var win = try graph.SDL.Window.createWindow("zig-game-engine", .{});
+    defer win.destroyWindow();
+    var draw = graph.ImmediateDrawingContext.init(alloc, win.getDpi());
+    defer draw.deinit();
+    const f = try std.fs.cwd().openFile("fonts/roboto.ttf", .{});
+    const sl = try f.reader().readAllAlloc(alloc, std.math.maxInt(usize));
+    var font = try graph.Font.initFromBuffer(alloc, sl, 200, .{});
+    alloc.free(sl);
+    defer font.deinit();
+
+    var font2 = try graph.Font.init(alloc, std.fs.cwd(), "fonts/roboto.ttf", 72, win.getDpi(), .{});
+    defer font2.deinit();
+
+    while (!win.should_exit) {
+        try draw.begin(0x00, win.screen_dimensions.toF());
+        win.pumpEvents();
+        draw.rect(graph.Rec(0, 0, 200, 200), 0xff0000ff);
+        draw.textPx(.{ .x = 0, .y = 0 }, "Hello Worldjj!", &font, 200, 0xffffffff);
+        draw.textPx(.{ .x = 0, .y = 200 }, "Hello Worldjj!", &font2, 72, 0xffffffff);
+        try draw.end(null);
+        win.swap();
+    }
+}
+
 pub fn main() !void {
+    if (true)
+        return try testMain();
     const cwd = std.fs.cwd();
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.detectLeaks();
@@ -1001,11 +1032,15 @@ pub fn main() !void {
 
     const Arg = graph.ArgGen.Arg;
     const args = try graph.ArgGen.parseArgs(&.{
-        Arg("model", .string, "model to load"),
+        Arg("gui", .flag, "run the gui instead"),
         Arg("texture", .string, "texture to load"),
         Arg("scale", .number, "scale the model"),
     }, &arg_it);
-    _ = args;
+
+    if (args.gui != null) {
+        try gui_app.main();
+        return;
+    }
 
     var win = try graph.SDL.Window.createWindow("zig-game-engine", .{});
     defer win.destroyWindow();

@@ -42,6 +42,7 @@ pub const Font = struct {
     };
     pub const InitOptions = struct {
         codepoints_to_load: []const CharMapEntry = &(CharMaps.Default),
+        padding_px: u32 = 2,
         pack_factor: f32 = 1.3,
         debug_dir: ?Dir = null,
     };
@@ -111,7 +112,8 @@ pub const Font = struct {
 
     //TODO write a init function for stb_truetype
     //If the hinting etc is as good as freetype, use stb instead, less linking and we can initilize from a buffer
-    pub fn initFromBuffer(alloc: Alloc, buf: []const u8, point_size: f32, dpi: f32, options: InitOptions) !void {
+    pub fn initFromBuffer(alloc: Alloc, buf: []const u8, pixel_size: f32, options: InitOptions) !Font {
+        const pad = options.padding_px;
         const codepoints_i: []u21 = blk: {
             var glyph_indices = std.ArrayList(u21).init(alloc);
             try glyph_indices.append(std.unicode.replacement_character);
@@ -139,13 +141,101 @@ pub const Font = struct {
             }
             break :blk try glyph_indices.toOwnedSlice();
         };
-        _ = codepoints_i;
         var finfo: c.stbtt_fontinfo = undefined;
         _ = c.stbtt_InitFont(&finfo, @as([*c]const u8, @ptrCast(buf)), c.stbtt_GetFontOffsetForIndex(&buf[0], 0));
-        _ = dpi;
-        _ = point_size;
+        //For each codepoint to load
+        //  render to a bitmap
+        //  store the metrics in glyph
+        //  do the pack
+        //  return
+        const dense_slice = try alloc.alloc(Glyph, codepoints_i.len);
+        var result = Font{
+            .height = 0,
+            .max_advance = 0,
+            .dpi = 0,
+            .glyph_set = try (SparseSet(Glyph, u21).fromOwnedDenseSlice(alloc, dense_slice, codepoints_i)),
+            .font_size = pixel_size,
+            .texture = .{ .id = 0, .w = 0, .h = 0 },
+            .ascent = 0,
+            .descent = 0,
+            .line_gap = 0,
+        };
+        errdefer result.glyph_set.deinit();
+        const SF = c.stbtt_ScaleForPixelHeight(&finfo, pixel_size);
 
+        {
+            var ascent: c_int = 0;
+            var descent: c_int = 0;
+            var line_gap: c_int = 0;
+            c.stbtt_GetFontVMetrics(&finfo, &ascent, &descent, &line_gap);
+
+            result.ascent = @as(f32, @floatFromInt(ascent)) * SF;
+            result.descent = @as(f32, @floatFromInt(descent)) * SF;
+            result.line_gap = @as(f32, @floatFromInt(line_gap)) * SF;
+            result.height = @intFromFloat(result.ascent - result.descent);
+            //result.max_advance = @as(f32, @floatFromInt(fr.size.*.metrics.max_advance)) / 64;
+        }
+
+        var pack_ctx = RectPack.init(alloc);
+        defer pack_ctx.deinit();
+
+        var bitmaps = std.ArrayList(Bitmap).init(alloc);
+        defer {
+            for (bitmaps.items) |*bitmap|
+                bitmap.deinit();
+            bitmaps.deinit();
+        }
+
+        for (result.glyph_set.dense.items, 0..) |*codepoint, c_i| {
+            const code_i = result.glyph_set.dense_index_lut.items[c_i];
+            var x: c_int = 0;
+            var y: c_int = 0;
+            var xf: c_int = 0;
+            var yf: c_int = 0;
+            c.stbtt_GetCodepointBitmapBox(&finfo, code_i, SF, SF, &x, &y, &xf, &yf);
+            if (xf - x > 0 and yf - y > 0) {
+                var bmp = try Bitmap.initBlank(alloc, xf - x, yf - y, .g_8);
+                c.stbtt_MakeCodepointBitmap(&finfo, &bmp.data.items[0], xf - x, yf - y, xf - x, SF, SF, code_i);
+                try bitmaps.append(bmp);
+                try pack_ctx.appendRect(code_i, bmp.w + pad * 2, bmp.h + pad * 2);
+            }
+
+            var adv_w: c_int = 0;
+            var left_side_bearing: c_int = 0;
+            c.stbtt_GetCodepointHMetrics(&finfo, code_i, &adv_w, &left_side_bearing);
+            const glyph = Glyph{
+                .tr = .{ .x = -1, .y = -1, .w = @floatFromInt(xf - x), .h = @floatFromInt(yf - y) },
+                .offset_x = @as(f32, @floatFromInt(x)),
+                .offset_y = -@as(f32, @floatFromInt(y)),
+                .advance_x = @as(f32, @floatFromInt(adv_w)) * SF,
+                .width = @floatFromInt(xf - x),
+                .height = @floatFromInt(yf - y),
+            };
+            codepoint.* = glyph;
+        }
+        const out_size = try pack_ctx.packOptimalSize();
+        var out_bmp = try Bitmap.initBlank(alloc, out_size.x, out_size.y, .g_8);
+        defer out_bmp.deinit();
+        const fp: f32 = @floatFromInt(pad);
+        for (pack_ctx.rects.items, 0..) |r, i| {
+            const gbmp = &bitmaps.items[i];
+            Bitmap.copySubR(1, &out_bmp, @as(u32, @intCast(r.x)) + pad, @as(u32, @intCast(r.y)) + pad, gbmp, 0, 0, gbmp.w, gbmp.h);
+
+            const g = try result.glyph_set.getPtr(@as(u21, @intCast(r.id)));
+            g.tr.x = @as(f32, @floatFromInt(r.x)) + fp;
+            g.tr.y = @as(f32, @floatFromInt(r.y)) + fp;
+        }
+
+        try out_bmp.writeToPngFile(std.fs.cwd(), "crass.png");
         std.debug.print("num {d}\n", .{finfo.numGlyphs});
+        result.texture = Texture.initFromBitmap(out_bmp, .{
+            .pixel_store_alignment = 1,
+            .internal_format = c.GL_RED,
+            .pixel_format = c.GL_RED,
+            .min_filter = c.GL_LINEAR,
+            .mag_filter = c.GL_LINEAR,
+        });
+        return result;
     }
 
     pub fn init(alloc: Alloc, dir: Dir, filename: []const u8, point_size: f32, dpi: f32, options: InitOptions) !Self {

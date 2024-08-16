@@ -3360,21 +3360,13 @@ pub fn main() anyerror!void {
     defer _ = gpa.detectLeaks();
     const alloc = gpa.allocator();
 
-    {
-        const f = try std.fs.cwd().openFile("fonts/roboto.ttf", .{});
-        const sl = try f.reader().readAllAlloc(alloc, std.math.maxInt(usize));
-        defer alloc.free(sl);
-        try graph.Font.initFromBuffer(alloc, sl, 12, 164, .{});
-        if (true)
-            return;
-    }
-
     var current_app: enum { keyboard_display, filebrowser, atlas_edit, gtest, lua_test, crass, game_menu } = .filebrowser;
     var arg_it = try std.process.ArgIterator.initWithAllocator(alloc);
     defer arg_it.deinit();
     const Arg = ArgUtil.Arg;
     const cli_opts = try (ArgUtil.parseArgs(&.{
         Arg("scale", .number, "The scale of the gui"),
+        Arg("gui", .flag, "just stupid"),
         Arg("wireframe", .flag, "draw in wireframe"),
         ArgUtil.ArgCustom("app", @TypeOf(current_app), "Which gui app to run"),
     }, &arg_it));
