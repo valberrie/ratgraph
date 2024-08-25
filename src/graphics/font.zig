@@ -109,8 +109,6 @@ pub const Font = struct {
 
     font_size: f32, //Native size in points
 
-    //TODO this should be a hashmap
-    //glyph_set: SparseSet(Glyph, u21),
     glyphs: std.AutoHashMap(u21, Glyph),
 
     //The units for all of these is pixels
@@ -635,7 +633,8 @@ pub const Font = struct {
     }
 
     pub fn nearestGlyphX(self: *Self, string: []const u8, size_px: f32, rel_coord: Vec2f) ?usize {
-        const scale = (size_px / self.dpi * 72) / self.font_size;
+        //const scale = (size_px / self.dpi * 72) / self.font_size;
+        const scale = size_px / self.font_size;
         //const scale = size_px / @as(f32, @floatFromInt(self.height));
 
         var x_bound: f32 = 0;
@@ -644,10 +643,7 @@ pub const Font = struct {
         var it = std.unicode.Utf8Iterator{ .bytes = string, .i = 0 };
         var char = it.nextCodepoint();
         while (char != null) : (char = it.nextCodepoint()) {
-            const glyph = self.glyph_set.get(char.?) catch |err|
-                switch (err) {
-                error.invalidIndex => self.glyph_set.get(std.unicode.replacement_character) catch unreachable,
-            };
+            const glyph = self.getGlyph(char.?);
             const xw = glyph.advance_x * scale;
             const yw = self.line_gap * scale;
 
@@ -682,7 +678,8 @@ pub const Font = struct {
     }
 
     pub fn textBounds(self: *Self, string: []const u8, size_px: anytype) Vec2f {
-        const scale = (lcast(f32, size_px) / self.dpi * 72) / self.font_size;
+        const scale = lcast(f32, size_px) / self.font_size;
+        //const scale = (lcast(f32, size_px) / self.dpi * 72) / self.font_size;
         //const scale = size_px / @as(f32, @floatFromInt(self.height));
         //const scale = size_px / self.font_size;
 
@@ -702,10 +699,7 @@ pub const Font = struct {
                 else => {},
             }
 
-            const glyph = self.glyph_set.get(char.?) catch |err|
-                switch (err) {
-                error.invalidIndex => self.glyph_set.get(std.unicode.replacement_character) catch unreachable,
-            };
+            const glyph = self.getGlyph(char.?);
 
             x_bound += (glyph.advance_x) * scale;
         }
@@ -820,6 +814,8 @@ pub const RectPack = struct {
     }
 };
 
+//TODO The loading functions tend to break when format is not rgb or rgba.
+//Stbi img load likes to segfault.
 pub const Bitmap = struct {
     const Self = @This();
     pub const ImageFormat = enum(usize) {

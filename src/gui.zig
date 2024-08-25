@@ -457,6 +457,7 @@ pub const RetainedState = struct {
             options: struct {
                 /// If set, only the listed characters will be inserted. Others will be silently ignored
                 restricted_charset: ?[]const u8 = null,
+                max_len: ?usize = null,
             },
         ) !void {
             const StaticData = struct {
@@ -469,6 +470,7 @@ pub const RetainedState = struct {
             }
 
             for (text_input) |new_char| {
+                var new_len: usize = tb.codepoints.items.len;
                 if (options.restricted_charset) |cset| {
                     restricted_blk: {
                         for (cset) |achar| {
@@ -480,6 +482,11 @@ pub const RetainedState = struct {
                 }
                 if (tb.head != tb.tail) {
                     try tb.deleteSelection();
+                    new_len = tb.codepoints.items.len;
+                }
+                if (options.max_len) |ml| {
+                    if (new_len >= ml)
+                        break;
                 }
                 try tb.codepoints.insert(@intCast(tb.head), new_char);
                 tb.head += 1;
@@ -518,6 +525,10 @@ pub const RetainedState = struct {
                         try tb.deleteSelection();
                         const clip = try getClipboard(tb.codepoints.allocator);
                         defer tb.codepoints.allocator.free(clip);
+                        if (options.max_len) |ml| { //If the paste will exceed bounds don't paste anything
+                            if (tb.codepoints.items.len + clip.len > ml)
+                                continue;
+                        }
                         try tb.codepoints.insertSlice(@intCast(tb.head), clip);
                         tb.head += @intCast(clip.len);
                         tb.tail = tb.head;
@@ -1707,6 +1718,7 @@ pub const Context = struct {
         //it is important to remember that the position and dimensions of rec are not located in screen space.
         const arec = self.getArea() orelse return null;
         const rec = if (is_horiz) arec else arec.swapAxis();
+        const handle_h = rec.h;
 
         if (lmax - lmin == 0)
             return null;
@@ -1721,8 +1733,8 @@ pub const Context = struct {
         };
 
         var handle: Rect = switch (orient) {
-            .horizontal => Rect.new(params.handle_offset_x + arec.x + (val - min) * scale, params.handle_offset_y + arec.y, params.handle_w, params.handle_h),
-            .vertical => Rect.new(params.handle_offset_y + arec.x, params.handle_offset_x + arec.y + (val - min) * scale, params.handle_h, params.handle_w),
+            .horizontal => Rect.new(params.handle_offset_x + arec.x + (val - min) * scale, params.handle_offset_y + arec.y, params.handle_w, handle_h),
+            .vertical => Rect.new(params.handle_offset_y + arec.x, params.handle_offset_x + arec.y + (val - min) * scale, handle_h, params.handle_w),
         };
 
         const clicked = self.clickWidget(handle);
@@ -1794,6 +1806,8 @@ pub const Context = struct {
         return .{ .area = area, .changed = changed };
     }
 
+    //This should take a generic structure that has on optional, resize function or something.
+    //The function can then support static or dynamic buffers
     pub fn textboxGeneric(self: *Self, contents: *std.ArrayList(u8), font: *Font, params: struct {
         text_inset: f32,
         restrict_chars_to: ?[]const u8 = null,
@@ -1850,6 +1864,66 @@ pub const Context = struct {
                 self.textbox_state.head = @intCast(cc);
         }
         ret.slice = contents.items;
+        return ret;
+    }
+
+    pub fn textboxGeneric2(self: *Self, contents: anytype, font: *Font, params: struct {
+        text_inset: f32,
+        restrict_chars_to: ?[]const u8 = null,
+    }) !?GenericWidget.Textbox {
+        const area = self.getArea() orelse return null;
+        const cw = self.clickWidgetEx(area, .{});
+        const click = cw.click;
+        const id = cw.id;
+        const trect = area.inset(params.text_inset);
+        const slice = contents.getSlice();
+        var ret = GenericWidget.Textbox{
+            .area = area,
+            .text_area = trect,
+            .caret = null,
+            .slice = slice,
+            .selection_pos_min = 0,
+            .selection_pos_max = 0,
+        };
+
+        if (self.isActiveTextinput(id)) {
+            if (self.keyState(.TAB) == .rising) {}
+            const tb = &self.textbox_state;
+            self.text_input_state.advanceStateActive();
+            try tb.handleEventsOpts(
+                self.text_input_state.buffer,
+                self.input_state,
+                .{ .restricted_charset = params.restrict_chars_to, .max_len = contents.getMaxLen() },
+            );
+            const sl = tb.getSlice();
+            const caret_x = font.textBounds(sl[0..@as(usize, @intCast(tb.head))], trect.h).x;
+            ret.caret = caret_x;
+            if (tb.head != tb.tail) {
+                const tail_x = font.textBounds(sl[0..@intCast(tb.tail)], trect.h).x;
+                ret.selection_pos_max = @max(caret_x, tail_x);
+                ret.selection_pos_min = @min(caret_x, tail_x);
+            }
+
+            if (!std.mem.eql(u8, sl, slice)) {
+                const l = try contents.setSlice(sl);
+                if (l > 0) {}
+            }
+        }
+        if (click == .click) {
+            if (!self.isActiveTextinput(id)) {
+                self.text_input_state.active_id = id;
+                try self.textbox_state.resetFmt("{s}", .{contents.getSlice()});
+            }
+            const cin = font.nearestGlyphX(self.textbox_state.getSlice(), trect.h, self.input_state.mouse_pos.sub(trect.pos()));
+            if (cin) |cc| {
+                self.textbox_state.setCaret(cc - 1);
+            }
+        } else if (click == .held and self.held_timer > 4) {
+            const cin = font.nearestGlyphX(self.textbox_state.getSlice(), trect.h, self.input_state.mouse_pos.sub(trect.pos()));
+            if (cin) |cc|
+                self.textbox_state.head = @intCast(cc);
+        }
+        ret.slice = contents.getSlice();
         return ret;
     }
 
@@ -2163,7 +2237,7 @@ pub const GuiDrawContext = struct {
             .text => |t| {
                 const p = t.pos.toF();
 
-                draw.textPx(p, t.string, t.font, t.size, cc(t.color));
+                draw.text(p, t.string, t.font, t.size, cc(t.color));
             },
             .line => |l| {
                 draw.line(l.a, l.b, cc(l.color));

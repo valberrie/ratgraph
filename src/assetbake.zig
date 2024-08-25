@@ -9,6 +9,21 @@ const ArgUtil = graph.ArgGen;
 //I want to be able to disable directories from being added to tiled tsj but still added to atlas
 //some images I want as a separate texture.
 //be able to specify texture settings?
+//
+//Ok so we have a top level assetbake_config.json
+//Actually Andrew Kelly's rucksack is way better.
+//Just load a my_package.json
+//my_package specifies which dirs to include and how to pack them.
+
+pub const PackageConfigJson = struct {
+    //my_path/*.png
+    //*/crasshunter/*.png
+
+    //Sections:
+    //textures
+    //Random files
+    //files
+};
 
 pub const AssetMap = struct {
     const Self = @This();
@@ -243,6 +258,11 @@ fn suffix(alloc: std.mem.Allocator, str: []const u8, _suffix: []const u8) ![]con
     return sl;
 }
 
+//This function walks a directory, adding png files to a single packed atlas, all other files get packed into a userdata.bin.
+//A manifest file describing the directory is created.
+//The main reason for its existence to is:
+//  A. assign assets ids so they can be used from Tiled.
+//  B. Make distribution and loading simpler. An application only needs to distribute, manifest.json, userdata.bin and atlas.png, rather than a directory. These files could be embedded in the binary using @embedFile()
 pub fn assetBake(
     alloc: std.mem.Allocator,
     dir: std.fs.Dir,

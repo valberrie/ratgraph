@@ -837,12 +837,8 @@ pub const ImmediateDrawingContext = struct {
         }) catch return;
     }
 
-    pub fn textPx(self: *Self, pos: Vec2f, str: []const u8, font: *Font, px_size: f32, col: u32) void {
-        self.text(pos, str, font, px_size, col);
-    }
-
-    pub fn text(self: *Self, pos: Vec2f, str: []const u8, font: *Font, pt_size: f32, col: u32) void {
-        const SF = (pt_size / font.font_size);
+    pub fn text(self: *Self, pos: Vec2f, str: []const u8, font: *Font, px_size: f32, col: u32) void {
+        const SF = (px_size / font.font_size);
         //const SF = (pxToPt(self.dpi, pt_size)) / font.font_size;
         const fac = 1;
         const x = pos.x;

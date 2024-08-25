@@ -542,8 +542,8 @@ pub const FileBrowser = struct {
     fn filepreview(self: *Self, wrap: *Os9Gui) !void {
         const gui = &wrap.gui;
         const area = gui.getArea() orelse return;
-        gui.draw9Slice(area, Os9Gui.inset9, wrap.texture, wrap.scale);
-        const na = area.inset(Os9Gui.inset9.w / 3);
+        gui.draw9Slice(area, wrap.style.getRect(.basic_inset), wrap.style.texture, wrap.scale);
+        const na = area.inset(wrap.style.getRect(.basic_inset).w / 3);
         if (self.file_preview) |fp| {
             gui.drawRectTextured(na, Color.White, fp.texture.rect(), fp.texture);
         }
@@ -687,8 +687,8 @@ pub const FileBrowser = struct {
         if (self.dialog_state != .none) {
             try gui.beginWindow(popup_area);
             defer gui.endWindow();
-            gui.draw9Slice(popup_area, Os9Gui.os9win, wrap.texture, wrap.scale);
-            gui.draw9Slice(popup_area.inset(6 * wrap.scale), Os9Gui.os9in, wrap.texture, wrap.scale);
+            gui.draw9Slice(popup_area, wrap.style.getRect(.window_outer_small), wrap.style.texture, wrap.scale);
+            gui.draw9Slice(popup_area.inset(6 * wrap.scale), Os9Gui.os9in, wrap.style.texture, wrap.scale);
             switch (self.dialog_state) {
                 .none => {},
                 .add_bookmark => {
@@ -735,9 +735,9 @@ pub const FileBrowser = struct {
 
         const left_side = left_side_outer.inset(6 * wrap.scale);
         const sep_bar = Rect.new(left_side.x + left_side.w, left_side.y, main_area.x - (left_side.x + left_side.w), left_side.h);
-        gui.draw9Slice(win_area, Os9Gui.os9win, wrap.texture, wrap.scale);
-        gui.draw9Slice(border_area, Os9Gui.os9in, wrap.texture, wrap.scale);
-        gui.draw9Border(left_side_outer, Os9Gui.os9line, wrap.texture, wrap.scale, 0, 0);
+        gui.draw9Slice(win_area, wrap.style.getRect(.window_outer_small), wrap.style.texture, wrap.scale);
+        gui.draw9Slice(border_area, Os9Gui.os9in, wrap.style.texture, wrap.scale);
+        gui.draw9Border(left_side_outer, Os9Gui.os9line, wrap.style.texture, wrap.scale, 0, 0);
 
         var unused: f32 = 0;
         _ = gui.draggable(sep_bar, .{ .x = 1, .y = 0 }, &(self.bar_pos.?), &unused, .{ .x_min = area.w / 8, .x_max = area.w - area.w / 8 });
@@ -771,7 +771,7 @@ pub const FileBrowser = struct {
                 const tr = blk: {
                     if (bookmark.err_msg != null) {
                         const d = rec.split(.vertical, rec.h);
-                        gui.drawRectTextured(d[0], Color.White, Os9Gui.win_warning, wrap.texture);
+                        gui.drawRectTextured(d[0], Color.White, Os9Gui.win_warning, wrap.style.texture);
                         break :blk d[1];
                     } else {
                         break :blk rec;
@@ -819,12 +819,12 @@ pub const FileBrowser = struct {
             }
         }
         {
-            gui.draw9Slice(main_area, Os9Gui.inset9, wrap.texture, wrap.scale);
-            const ima = main_area.inset(wrap.scale * Os9Gui.inset9.w / 3);
+            gui.draw9Slice(main_area, wrap.style.getRect(.basic_inset), wrap.style.texture, wrap.scale);
+            const ima = main_area.inset(wrap.scale * wrap.style.getRect(.basic_inset).w / 3);
             const root1 = ima.split(.horizontal, item_height);
             {
                 const fheader = root1[0];
-                gui.draw9Slice(fheader, Os9Gui.window9, wrap.texture, wrap.scale);
+                gui.draw9Slice(fheader, wrap.style.getRect(.err), wrap.style.texture, wrap.scale); //window9
                 _ = try gui.beginLayout(Gui.SubRectLayout, .{ .rect = fheader }, .{});
                 defer gui.endLayout();
                 const rec = gui.getArea() orelse return;
@@ -1108,8 +1108,8 @@ pub const KeyboardDisplay = struct {
         const area = border_area.inset(6 * wrap.scale);
         const keyboard = Ansi104;
 
-        gui.draw9Slice(win_area, Os9Gui.os9win, wrap.texture, wrap.scale);
-        gui.draw9Slice(border_area, Os9Gui.os9in, wrap.texture, wrap.scale);
+        gui.draw9Slice(win_area, wrap.style.getRect(.window_outer_small), wrap.style.texture, wrap.scale);
+        gui.draw9Slice(border_area, Os9Gui.os9in, wrap.style.texture, wrap.scale);
 
         const keyboard_width = blk: {
             var maxw: f32 = 0;
@@ -1137,8 +1137,8 @@ pub const KeyboardDisplay = struct {
                     switch (key.ktype) {
                         .key => {
                             const rr = Rect.new(r.x + x, r.y + y, ww, kh);
-                            gui.draw9Slice(rr.inset(3), Os9Gui.outset9, wrap.texture, wrap.scale);
-                            const tr = rr.inset(Os9Gui.outset9.w / 3 * wrap.scale + 3);
+                            gui.draw9Slice(rr.inset(3), wrap.style.getRect(.err), wrap.style.texture, wrap.scale);
+                            const tr = rr.inset(wrap.style.getRect(.err).w / 3 * wrap.scale + 3);
 
                             if (key.name) |n| {
                                 gui.drawTextFmt("{s}", .{n}, tr, 20 * wrap.scale, Color.Black, .{}, &wrap.font);
@@ -1473,15 +1473,15 @@ pub const AtlasEditor = struct {
         const area = border_area.inset(6 * wrap.scale);
         const w_id = gui.getId();
         _ = w_id;
-        gui.draw9Slice(win_area, Os9Gui.os9win, wrap.texture, wrap.scale);
-        gui.draw9Slice(border_area, Os9Gui.os9in, wrap.texture, wrap.scale);
+        gui.draw9Slice(win_area, wrap.style.getRect(.window_outer_small), wrap.style.texture, wrap.scale);
+        gui.draw9Slice(border_area, Os9Gui.os9in, wrap.style.texture, wrap.scale);
 
         const root = area.split(.vertical, area.w / 3);
         const inspector_rec = root[0];
         const canvas_outer = root[1];
         const canvas_b = canvas_outer.inset(6 * wrap.scale);
-        gui.draw9Slice(canvas_b, Os9Gui.inset9, wrap.texture, wrap.scale);
-        const canvas = canvas_b.inset(wrap.scale * Os9Gui.inset9.w / 3);
+        gui.draw9Slice(canvas_b, wrap.style.getRect(.basic_inset), wrap.style.texture, wrap.scale);
+        const canvas = canvas_b.inset(wrap.scale * wrap.style.getRect(.basic_inset).w / 3);
 
         const inspector_item_height = 30 * wrap.scale;
         _ = try gui.beginLayout(Gui.SubRectLayout, .{ .rect = canvas }, .{});
@@ -1680,7 +1680,7 @@ pub const AtlasEditor = struct {
                         self.new_ts_default = atlas.atlas_data.sets[self.atlas_index].tilesets[self.set_index];
                         self.new_ts_default.description = "";
                     }
-                    try wrap.enumDropdown(Mode, &self.mode);
+                    try wrap.enumCombo("Mode: {s}", .{@tagName(self.mode)}, &self.mode);
                     switch (self.mode) {
                         .copy_range => {
                             const max_index: f32 = @floatFromInt(atlas.atlas_data.sets[self.atlas_index].tilesets.len);
@@ -1750,6 +1750,92 @@ pub const AtlasEditor = struct {
     }
 };
 
+//GuiConfig
+//Given a directory:
+//Walk a folder called 9slice
+//load a file called colors.json
+//walk a folder called borders or something. One folder per drawable type
+//Create arrays for each that map enum values to atlas uvs or colors, whatever
+pub const GuiConfig = struct {
+    const Self = @This();
+    pub const Style9Slices = enum {
+        tab_border,
+        tab_active,
+        tab_inactive,
+        tab_header_bg,
+        radio,
+        radio_active,
+        button,
+        down_arrow,
+        combo_background,
+        combo_button,
+        slider_box,
+        slider_shuttle,
+        window,
+        window_outer,
+        window_outer_small,
+        err,
+        basic_inset,
+        window_inner,
+        inset,
+        os9line,
+        etc,
+        checkbox_empty,
+        checkbox_checked,
+    };
+
+    //Map Style9Slices to rects
+    nineSliceLut: std.ArrayList(Rect),
+    texture: graph.Texture,
+
+    pub fn init(alloc: std.mem.Allocator, dir: std.fs.Dir, path: []const u8) !Self {
+        try graph.AssetBake.assetBake(
+            alloc,
+            dir,
+            path,
+            dir,
+            "mani",
+        );
+        var manifest = try graph.AssetBake.AssetMap.initFromManifest(alloc, dir, "mani");
+        defer manifest.deinit();
+        var ret = Self{
+            .nineSliceLut = std.ArrayList(Rect).init(alloc),
+            .texture = try graph.AssetBake.AssetMap.initTextureFromManifest(alloc, dir, "mani"),
+        };
+        try ret.nineSliceLut.resize(@typeInfo(Style9Slices).Enum.fields.len);
+        var found = std.ArrayList(bool).init(alloc);
+        defer found.deinit();
+        try found.appendNTimes(false, ret.nineSliceLut.items.len);
+        for (manifest.id_name_lut.items, 0..) |l, id| {
+            if (l) |name| {
+                if (std.mem.startsWith(u8, name, "nineSlice/") and std.mem.endsWith(u8, name, ".png")) {
+                    const str = name["nineSlice/".len .. name.len - ".png".len];
+                    std.debug.print("iARCHCR CH {s}\n", .{str});
+                    if (std.meta.stringToEnum(Style9Slices, str)) |enum_v| {
+                        ret.nineSliceLut.items[@intFromEnum(enum_v)] = manifest.resource_rect_lut.items[id].?;
+                        found.items[@intFromEnum(enum_v)] = true;
+                    }
+                }
+            }
+        }
+        for (found.items, 0..) |f, i| {
+            if (!f) {
+                std.debug.print("WARNING key not found: {s}\n", .{@tagName(@as(Style9Slices, @enumFromInt(i)))});
+            }
+        }
+
+        return ret;
+    }
+
+    pub fn getRect(self: *Self, v: Style9Slices) Rect {
+        return self.nineSliceLut.items[@intFromEnum(v)];
+    }
+
+    pub fn deinit(self: *Self) void {
+        self.nineSliceLut.deinit();
+    }
+};
+
 // Widgets:
 // Button
 // Drop down
@@ -1767,6 +1853,63 @@ pub const AtlasEditor = struct {
 pub const Os9Gui = struct {
     const Self = @This();
 
+    pub const DynamicTextbox = struct {
+        arraylist: std.ArrayList(u8),
+
+        pub fn init(alloc: std.mem.Allocator) DynamicTextbox {
+            return .{ .arraylist = std.ArrayList(u8).init(alloc) };
+        }
+        pub fn deinit(self: *@This()) void {
+            self.arraylist.deinit();
+        }
+
+        pub fn getMaxLen(_: *@This()) ?usize {
+            return null;
+        }
+        pub fn getSlice(self: *@This()) []const u8 {
+            return self.arraylist.items;
+        }
+        pub fn setSlice(self: *@This(), slice: []const u8) !usize {
+            try self.arraylist.resize(slice.len);
+
+            @memcpy(self.arraylist.items, slice);
+            return 0;
+        }
+    };
+
+    pub const StaticTextbox = struct {
+        buf: []u8,
+        len: usize,
+
+        pub fn init(buffer: []u8) StaticTextbox {
+            return .{
+                .buf = buffer,
+                .len = 0,
+            };
+        }
+
+        pub fn getMaxLen(self: *@This()) ?usize {
+            return self.buf.len;
+        }
+
+        pub fn getSlice(self: *@This()) []const u8 {
+            return self.buf[0..self.len];
+        }
+
+        // Returns the length of omitted slice
+        pub fn setSlice(self: *@This(), slice: []const u8) !usize {
+            if (slice.len > self.buf.len) {
+                @memcpy(self.buf, slice[0..self.buf.len]);
+                self.len = self.buf.len;
+                return slice.len - self.len;
+            }
+
+            @memcpy(self.buf[0..slice.len], slice);
+            self.len = slice.len;
+            return 0;
+        }
+    };
+
     pub fn numberRangeToEnum(comptime numbers: []const i32) !type {
         var fields: [numbers.len]std.builtin.Type.EnumField = undefined;
         var buf: [10 * numbers.len]u8 = undefined;
@@ -1779,6 +1922,14 @@ pub const Os9Gui = struct {
         }
         return @Type(std.builtin.Type{ .Enum = .{ .tag_type = i32, .fields = &fields, .decls = &.{}, .is_exhaustive = true } });
     }
+
+    //Each field corresponds to a field.png
+
+    //Each field corresponds to a key in colors.json
+    pub const StyleColors = enum {
+        textbox_highlight,
+        textbox,
+    };
 
     const SampleEnum = enum {
         first_one,
@@ -1809,22 +1960,13 @@ pub const Os9Gui = struct {
     };
 
     //TODO remove all of these and use AssetMap instead
-    const border = itc(0xff);
-    const wbg = itc(0xaaaaaaff);
-    const shadow = itc(0x555555ff);
-    const light = itc(0xffffffff);
     const blue = itc(0xccccffff);
 
-    //Define the different 9slices in "texture"
-    const inset9 = Rec(0, 0, 6, 6);
-    const outset9 = Rec(0, 6, 6, 6);
-    const window9 = Rec(6, 6, 6, 6);
-    const title9 = Rec(6, 0, 6, 6);
-    const divider = Rec(12, 0, 1, 2);
+    //const window9 = Rec(6, 6, 6, 6);
 
     const text_disabled = itc(0x222222ff);
 
-    pub const os9win = Rec(0, 12, 6, 6);
+    //pub const os9win = Rec(0, 12, 6, 6);
     const os9in = Rec(6, 12, 6, 6);
     const os9line = Rec(0, 18, 6, 6);
     const os9drop = Rec(6, 18, 6, 6);
@@ -1847,7 +1989,6 @@ pub const Os9Gui = struct {
 
     const os9tabactive = Rec(116, 0, 9, 9);
     const os9tabinactive = Rec(107, 0, 9, 9);
-    const os9tabbord = Rec(89, 9, 2, 2);
 
     const os9tabborder = Rec(42, 24, 9, 9);
     const os9scrollinner = Rec(0, 44, 8, 8);
@@ -1858,10 +1999,11 @@ pub const Os9Gui = struct {
 
     const win_warning = Rec(0, 60, 32, 32);
 
+    //TODO remove lua crap?
     //lua specific state
     vlayout: ?*Gui.VerticalLayout = null,
 
-    texture: graph.Texture,
+    style: GuiConfig,
     scale: f32,
     gui: Gui.Context,
     gui_draw_ctx: Gui.GuiDrawContext,
@@ -1883,12 +2025,13 @@ pub const Os9Gui = struct {
         };
         return .{
             .gui = try Gui.Context.init(alloc),
+            .style = try GuiConfig.init(alloc, std.fs.cwd(), "asset/os9gui"),
             .gui_draw_ctx = try Gui.GuiDrawContext.init(alloc),
             .scale = scale,
-            .texture = try graph.Texture.initFromImgFile(alloc, asset_dir, "next_step.png", .{
-                .mag_filter = graph.c.GL_NEAREST,
-            }),
-            .font = try graph.Font.init(alloc, asset_dir, "fonts/roboto.ttf", 24, 163, .{}),
+            // .texture = try graph.Texture.initFromImgFile(alloc, asset_dir, "next_step.png", .{
+            //     .mag_filter = graph.c.GL_NEAREST,
+            // }),
+            .font = try graph.Font.init(alloc, asset_dir, "fonts/roboto.ttf", 64, 163, .{}),
             .icon_font = try graph.Font.init(
                 alloc,
                 asset_dir,
@@ -1903,9 +2046,9 @@ pub const Os9Gui = struct {
     }
 
     pub fn deinit(self: *Self) void {
+        self.style.deinit();
         self.gui.deinit();
         self.gui_draw_ctx.deinit();
-        self.texture.deinit();
         self.font.deinit();
         self.icon_font.deinit();
     }
@@ -1927,12 +2070,13 @@ pub const Os9Gui = struct {
     pub fn beginTlWindow(self: *Self, parea: Rect) !bool {
         try self.gui.beginWindow(parea);
         if (self.gui.getArea()) |win_area| {
-            const border_area = win_area.inset(6 * self.scale);
-            const area = border_area.inset(6 * self.scale);
+            const _br = self.style.getRect(.window);
+            const border_area = win_area.inset((_br.h / 3) * self.scale);
+            //const area = border_area.inset(6 * self.scale);
             self.gui.drawRectFilled(win_area, itc(0x222222ff));
-            self.gui.draw9Slice(win_area, Os9Gui.os9win, self.texture, self.scale);
-            self.gui.draw9Slice(border_area, Os9Gui.os9in, self.texture, self.scale);
-            _ = try self.gui.beginLayout(Gui.SubRectLayout, .{ .rect = area }, .{});
+            self.gui.draw9Slice(win_area, _br, self.style.texture, self.scale);
+            //self.gui.draw9Slice(border_area, Os9Gui.os9in, self.style.texture, self.scale);
+            _ = try self.gui.beginLayout(Gui.SubRectLayout, .{ .rect = border_area }, .{});
             return true;
         }
         self.gui.endWindow();
@@ -2057,7 +2201,7 @@ pub const Os9Gui = struct {
                     Rec(area.x, area.y + (area.h - os9hr.h * self.scale) / 2, area.w, os9hr.h * self.scale),
                     Color.White,
                     os9hr,
-                    self.texture,
+                    self.style.texture,
                 );
             }
         }
@@ -2085,19 +2229,24 @@ pub const Os9Gui = struct {
 
         _ = try self.beginH(fields.len);
         const bound = self.gui.getLayoutBounds() orelse return selected.*;
-        self.gui.drawRectTextured(bound.replace(
-            null,
-            bound.y + bound.h - self.scale * os9tabbord.h,
-            null,
-            self.scale * os9tabbord.h,
-        ), Color.White, os9tabbord, self.texture);
+        //const bord = self.style.getRect(.tab_border);
+        const bg = self.style.getRect(.tab_header_bg);
+        self.gui.draw9Slice(bound, bg, self.style.texture, self.scale);
+        //self.gui.drawRectTextured(bound.replace(
+        //    null,
+        //    bound.y + bound.h - self.scale * bord.h,
+        //    null,
+        //    self.scale * bord.h,
+        //), Color.White, bord, self.style.texture);
+        const active = self.style.getRect(.tab_active);
+        const inactive = self.style.getRect(.tab_inactive);
 
         inline for (fields) |f| {
             const d = self.gui.buttonGeneric();
             if (d.state == .click)
                 selected.* = @enumFromInt(f.value);
-            const _9s = if (f.value == @intFromEnum(selected.*)) os9tabactive else os9tabinactive;
-            self.gui.draw9Slice(d.area, _9s, self.texture, self.scale);
+            const _9s = if (f.value == @intFromEnum(selected.*)) active else inactive;
+            self.gui.draw9Slice(d.area, _9s, self.style.texture, self.scale);
             const tarea = d.area.inset(self.scale * (_9s.w / 3));
             self.gui.drawTextFmt("{s}", .{f.name}, tarea, tarea.h, Color.Black, .{ .justify = .center }, &self.font);
             //self.label("{s}", .{f.name});
@@ -2134,20 +2283,20 @@ pub const Os9Gui = struct {
                 Rec(area.x, area.y, sta.w * self.scale, area.h),
                 Color.White,
                 sta,
-                self.texture,
+                self.style.texture,
             );
             gui.drawRectTextured(
                 Rec(area.x + area.w - end.w * self.scale, area.y, end.w * self.scale, area.h),
                 Color.White,
                 end,
-                self.texture,
+                self.style.texture,
             );
             const mida = Rec(area.x + sta.w * self.scale, area.y, area.w - (end.w + sta.w) * self.scale, area.h);
             gui.drawRectTextured(
                 mida,
                 Color.White,
                 mid,
-                self.texture,
+                self.style.texture,
             );
             //const tbounds = self.font.textBounds(field.name);
             gui.drawText(field.name, mida.pos().add(.{ .x = 0, .y = 4 * self.scale }), mida.h - 4 * self.scale, Color.Black, &self.font);
@@ -2274,7 +2423,7 @@ pub const Os9Gui = struct {
         const num_lines = info.Struct.fields.len;
         const item_height = 35;
         const ar = self.gui.getArea() orelse return;
-        self.gui.draw9Slice(ar, inset9, self.texture, self.scale);
+        self.gui.draw9Slice(ar, self.style.getRect(.basic_inset), self.style.texture, self.scale);
         const in = ar.inset(3 * self.scale);
         _ = try self.gui.beginLayout(Gui.SubRectLayout, .{ .rect = in }, .{});
         defer self.gui.endLayout();
@@ -2438,13 +2587,13 @@ pub const Os9Gui = struct {
         const gui = &self.gui;
         const d = gui.buttonGeneric();
         const sl = switch (d.state) {
-            .none, .hover => os9btn,
-            .click, .held => inset9,
+            .none, .hover => self.style.getRect(.button),
+            .click, .held => self.style.getRect(.basic_inset),
             else => os9btn,
         };
         const sl1 = if (params.disabled) os9btn_disable else sl;
         const color = if (params.disabled) text_disabled else Color.Black;
-        gui.draw9Slice(d.area, sl1, self.texture, self.scale);
+        gui.draw9Slice(d.area, sl1, self.style.texture, self.scale);
         const texta = d.area.inset(3 * self.scale);
         gui.drawTextFmt(fmt, args, texta, texta.h, color, .{ .justify = .center }, &self.font);
 
@@ -2456,19 +2605,20 @@ pub const Os9Gui = struct {
     }) void {
         const gui = &self.gui;
         if (gui.sliderGeneric(pos, min, max, .{
-            .handle_offset_y = os9handleoffset * self.scale,
-            .handle_offset_x = os9handleoffset * self.scale,
+            .handle_offset_y = 0,
+            .handle_offset_x = 0,
             .handle_w = params.handle_w,
             .handle_h = os9scrollhandle.w * self.scale,
             .orientation = orientation,
         })) |d| {
-            gui.draw9Slice(d.area, os9scrollinner, self.texture, self.scale);
-            gui.drawRectTextured(
-                d.handle,
-                Color.White,
-                os9scrollhandle,
-                self.texture,
-            );
+            gui.draw9Slice(d.area, self.style.getRect(.slider_box), self.style.texture, self.scale);
+            gui.draw9Slice(d.handle, self.style.getRect(.slider_shuttle), self.style.texture, self.scale);
+            //gui.drawRectTextured(
+            //    d.handle,
+            //    Color.White,
+            //    self.style.getRect(.slider_shuttle),
+            //    self.style.texture,
+            //);
         }
     }
 
@@ -2481,13 +2631,16 @@ pub const Os9Gui = struct {
 
     pub fn slider(self: *Self, value: anytype, min: anytype, max: anytype) void {
         const gui = &self.gui;
+        const box = self.style.getRect(.slider_box);
+        const shuttle = self.style.getRect(.slider_shuttle);
         if (gui.sliderGeneric(value, min, max, .{
-            .handle_offset_x = 1 * self.scale,
-            .handle_offset_y = 1 * self.scale,
-            .handle_w = os9shuttle.w * self.scale,
-            .handle_h = os9shuttle.h * self.scale,
+            .handle_offset_x = 0,
+            .handle_offset_y = 0,
+            .handle_w = 16 * self.scale,
+            .handle_h = box.h * self.scale,
         })) |d| {
-            gui.draw9Slice(d.area, os9slider, self.texture, self.scale);
+            gui.draw9Slice(d.area, box, self.style.texture, self.scale);
+            const textb = d.area.inset(self.scale * box.h / 3);
             const diff: usize = @intFromFloat(max - min);
             if (diff <= 10 and @typeInfo(@typeInfo(@TypeOf(value)).Pointer.child) == .Int) {
                 const h = d.area.h - os9slider.h / 3 * 2;
@@ -2496,26 +2649,27 @@ pub const Os9Gui = struct {
                     gui.drawRectFilled(Rec(@as(f32, @floatFromInt(dist * i)) + d.area.x + os9shuttle.w * self.scale / 2, d.area.y + os9slider.h / 3, self.scale * 3, h), Color.Black);
                 }
             }
-            gui.draw9Slice(d.handle, os9shuttle, self.texture, self.scale);
+            gui.draw9Slice(d.handle, shuttle, self.style.texture, self.scale);
+            gui.drawTextFmt("{d:.2}", .{value.*}, textb, textb.h, itc(0xff), .{ .justify = .center }, &self.font);
+            //gui.draw9Slice(d.handle, os9shuttle, self.style.texture, self.scale);
         }
     }
 
     pub fn checkbox(self: *Self, label_: []const u8, checked: *bool) bool {
         const gui = &self.gui;
         if (gui.checkboxGeneric(checked)) |d| {
+            const cr = self.style.getRect(if (checked.*) .checkbox_checked else .checkbox_empty);
             const area = d.area;
 
-            const br = Rect.newV(area.pos(), .{ .x = 12 * self.scale, .y = 12 * self.scale });
+            const br = Rect.newV(area.pos(), .{ .x = @min(cr.w * self.scale, area.w), .y = @min(cr.h * self.scale, area.h) });
             gui.drawRectTextured(
                 br,
                 Color.White,
-                os9checkbox,
-                self.texture,
+                cr,
+                self.style.texture,
             );
             const tarea = Rec(br.farX(), area.y, area.w - br.farX(), area.h);
             gui.drawTextFmt("{s}", .{label_}, tarea, area.h, Color.Black, .{}, &self.font);
-            if (checked.*)
-                gui.drawRectTextured(br.addV(2 * self.scale, 0), Color.White, os9check, self.texture);
             return d.changed;
         }
         return false;
@@ -2536,12 +2690,12 @@ pub const Os9Gui = struct {
             const d = self.gui.buttonGeneric();
             if (d.state == .click)
                 enum_value.* = @enumFromInt(f.value);
+            const inactive = self.style.getRect(.radio);
             const tarea = Rec(d.area.x + d.area.h, d.area.y, d.area.w - d.area.h, d.area.h);
-            const rr = d.area.replace(null, null, d.area.h, null);
+            const rr = d.area.replace(null, null, @min(d.area.h, inactive.w * self.scale), @min(d.area.w, inactive.h * self.scale));
             self.gui.drawTextFmt("{s}", .{f.name}, tarea, tarea.h, Color.Black, .{ .justify = .left }, &self.font);
-            self.gui.drawRectFilled(rr, Color.White);
-            if (@intFromEnum(enum_value.*) == f.value)
-                self.gui.drawRectFilled(rr.inset(rr.w / 4), Color.Black);
+            const active = self.style.getRect(.radio_active);
+            self.gui.drawRectTextured(rr, Color.White, if (@intFromEnum(enum_value.*) == f.value) active else inactive, self.style.texture);
         }
         self.endL();
     }
@@ -2568,11 +2722,27 @@ pub const Os9Gui = struct {
         if (enum_info != .Enum) @compileError(invalid);
         const id = self.gui.getId();
 
-        if (self.buttonEx(fmt, args, .{})) {
-            self.drop_down = id;
-            self.drop_down_scroll = .{ .x = 0, .y = 0 };
-            return;
+        {
+            const d = self.gui.buttonGeneric();
+            const cb = self.style.getRect(.combo_background);
+            self.gui.draw9Slice(d.area, cb, self.style.texture, self.scale);
+            const texta = d.area.inset(cb.w / 3 * self.scale);
+            self.gui.drawTextFmt(fmt, args, texta, texta.h, itc(0xff), .{ .justify = .center }, &self.font);
+            const cbb = self.style.getRect(.combo_button);
+            const da = self.style.getRect(.down_arrow);
+            const cbbr = d.area.replace(d.area.x + d.area.w - cbb.w * self.scale, null, cbb.w * self.scale, null).centerR(da.w * self.scale, da.h * self.scale);
+            //const sp = d.area.split(.horizontal, @min(d.area.w, d.area.w - 16 * self.scale));
+            //const right = sp[1];
+            self.gui.drawRectTextured(cbbr, Color.White, da, self.style.texture);
+            //const icon_rect =
+
+            if (d.state == .click) {
+                self.drop_down = id;
+                self.drop_down_scroll = .{ .x = 0, .y = 0 };
+                return;
+            }
         }
+
         if (self.drop_down) |dd| {
             if (dd.eql(id)) {
                 const do_scroll = enum_info.Enum.fields.len > 5;
@@ -2585,14 +2755,21 @@ pub const Os9Gui = struct {
                     self.drop_down = null;
                     return;
                 }
-                try self.gui.beginWindow(dd_area);
-                defer self.gui.endWindow();
-                if (try self.beginVScroll(&self.drop_down_scroll, .{ .sw = dd_area.w })) |file_scroll| {
-                    defer self.endVScroll(file_scroll);
-                    inline for (enum_info.Enum.fields) |f| {
-                        if (self.buttonEx("{s}", .{f.name}, .{})) {
-                            enum_value.* = @enumFromInt(f.value);
-                            self.drop_down = null;
+                if (try self.beginTlWindow(dd_area)) {
+                    defer self.endTlWindow();
+
+                    const ar = self.gui.getArea().?;
+                    //self.gui.drawRectFilled(dd_area, Color.Red);
+                    //const ar = dd_area.inset(14 * self.scale);
+                    _ = try self.gui.beginLayout(Gui.SubRectLayout, .{ .rect = ar }, .{});
+                    defer self.gui.endLayout();
+                    if (try self.beginVScroll(&self.drop_down_scroll, .{ .sw = ar.w })) |file_scroll| {
+                        defer self.endVScroll(file_scroll);
+                        inline for (enum_info.Enum.fields) |f| {
+                            if (self.buttonEx("{s}", .{f.name}, .{})) {
+                                enum_value.* = @enumFromInt(f.value);
+                                self.drop_down = null;
+                            }
                         }
                     }
                 }
@@ -2600,43 +2777,11 @@ pub const Os9Gui = struct {
         }
     }
 
-    pub fn enumDropdown(self: *Self, comptime enumT: type, enum_val: *enumT) !void {
-        if (true)
-            return;
-        const gui = &self.gui;
-        if (try gui.enumDropdownGeneric(enumT, enum_val, .{
-            .max_items = 4,
-            .scroll_bar_w = os9scrollw * self.scale,
-            //.inset_scroll = 4 * self.scale,
-        })) |d| {
-            var dd = d;
-            if (d.popup_active) {
-                gui.drawRectFilled(d.area, Color.Black);
-                while (dd.next(enumT)) |field| {
-                    if (self.button(@tagName(field))) {
-                        dd.set(gui, enum_val, field);
-                    }
-                }
-                try d.endFieldList(gui);
-                self.scrollBar(dd.slider_ptr.?, d.slider_range.x, d.slider_range.y, .vertical, .{});
-            } else {
-                gui.draw9Slice(d.area, os9drop, self.texture, self.scale);
-                const text = d.area.inset(3 * self.scale);
-                gui.drawTextFmt("{s}", .{@tagName(enum_val.*)}, text, text.h, Color.Black, .{}, &self.font);
-                const ow = self.scale * os9drop.w / 3;
-                const oh = self.scale * os9drop.h / 3;
-                const btn_rec = Rec(d.area.x + d.area.w - ow - os9dropbtn.w * self.scale, d.area.y + oh, os9dropbtn.w * self.scale, os9dropbtn.h * self.scale);
-                gui.drawRectTextured(btn_rec, Color.White, os9dropbtn, self.texture);
-            }
-            d.end(gui);
-        }
-    }
-
     pub fn textboxNumber(self: *Self, number_ptr: anytype) !void {
         const gui = &self.gui;
         if (try gui.textboxNumberGeneric(number_ptr, &self.font, .{ .text_inset = self.scale * 3 })) |d| {
             const tr = d.text_area;
-            gui.draw9Slice(d.area, inset9, self.texture, self.scale);
+            gui.draw9Slice(d.area, self.style.getRect(.basic_inset), self.style.texture, self.scale);
             if (d.is_invalid)
                 gui.drawRectFilled(d.text_area, itc(0xff000086));
             gui.drawTextFmt("{s}", .{d.slice}, d.text_area, d.text_area.h, Color.Black, .{}, &self.font);
@@ -2656,6 +2801,40 @@ pub const Os9Gui = struct {
     //Option to treat an integer as decimal fixed point
     //floats in textboxes are messy
     //Support raw slices with alloc?
+    //Have support for static buffers
+    //
+    //Fix the drawing of highlighted. Alpha problems
+    //Support for "scrolling" the text if it is wider that the textbox
+    pub fn textbox2(self: *Self, tb: anytype, params: struct {
+        disabled: bool = false,
+        invalid: bool = false,
+    }) !void {
+        const gui = &self.gui;
+        if (params.disabled) {
+            const a = self.gui.getArea() orelse return;
+            const tr = a.inset(3 * self.scale);
+            gui.draw9Slice(a, self.style.getRect(.basic_inset), self.style.texture, self.scale);
+            gui.drawTextFmt("{s}", .{tb.getSlice()}, tr, tr.h, itc(0x00aa), .{}, &self.font);
+            gui.drawRectFilled(a, itc(0xffffff75));
+            return;
+        }
+        if (try gui.textboxGeneric2(tb, &self.font, .{ .text_inset = 3 * self.scale })) |d| {
+            const tr = d.text_area;
+            gui.draw9Slice(d.area, self.style.getRect(.basic_inset), self.style.texture, self.scale);
+            if (params.invalid)
+                gui.drawRectFilled(tr, itc(0xff0000ff));
+            gui.drawRectFilled(Rect.new(
+                d.selection_pos_min + d.text_area.x,
+                d.text_area.y,
+                d.selection_pos_max - d.selection_pos_min,
+                d.text_area.h,
+            ), itc(0x26c0efff));
+            gui.drawTextFmt("{s}", .{d.slice}, d.text_area, d.text_area.h, Color.Black, .{}, &self.font);
+            if (d.caret) |of| {
+                gui.drawRectFilled(Rect.new(of + tr.x, tr.y + 2, 3, tr.h - 4), Color.Black);
+            }
+        }
+    }
 
     pub fn textboxEx(self: *Self, contents: *std.ArrayList(u8), params: struct {
         disabled: bool = false,
@@ -2665,14 +2844,14 @@ pub const Os9Gui = struct {
         if (params.disabled) {
             const a = self.gui.getArea() orelse return;
             const tr = a.inset(3 * self.scale);
-            gui.draw9Slice(a, inset9, self.texture, self.scale);
+            gui.draw9Slice(a, self.style.getRect(.basic_inset), self.style.texture, self.scale);
             gui.drawTextFmt("{s}", .{contents.items}, tr, tr.h, itc(0x00aa), .{}, &self.font);
             gui.drawRectFilled(a, itc(0xffffff75));
             return;
         }
         if (try gui.textboxGeneric(contents, &self.font, .{ .text_inset = 3 * self.scale })) |d| {
             const tr = d.text_area;
-            gui.draw9Slice(d.area, inset9, self.texture, self.scale);
+            gui.draw9Slice(d.area, self.style.getRect(.basic_inset), self.style.texture, self.scale);
             if (params.invalid)
                 gui.drawRectFilled(tr, itc(0xff0000ff));
             gui.drawTextFmt("{s}", .{d.slice}, d.text_area, d.text_area.h, Color.Black, .{}, &self.font);
@@ -2770,7 +2949,7 @@ pub const GuiTest = struct {
         const gui = &wrap.gui;
         const scale = wrap.scale;
         const area = gui.getArea() orelse return;
-        gui.draw9Slice(area, Os9Gui.os9win, wrap.texture, scale);
+        gui.draw9Slice(area, wrap.style.getRect(.window_outer_small), wrap.style.texture, scale);
         const VLP = Gui.VerticalLayout{ .item_height = 20 * scale, .padding = .{ .bottom = 6 * scale } };
         var vl = try wrap.beginSubLayout(area.inset(6 * scale), Gui.VerticalLayout, VLP);
         defer wrap.endSubLayout();
@@ -2867,7 +3046,7 @@ pub const GuiTest = struct {
                     defer gui.endLayout();
                     if (try wrap.beginVScroll(&self.scroll, .{ .sw = gui.layout.last_requested_bounds.?.w / 2 })) |scroll| {
                         defer wrap.endVScroll(scroll);
-                        gui.draw9Slice(scroll.area, Os9Gui.inset9, wrap.texture, scale);
+                        gui.draw9Slice(scroll.area, wrap.style.getRect(.basic_inset), wrap.style.texture, scale);
                         var num_ommitted: usize = 0;
                         for (self.names.items, 0..) |n, i| {
                             if (std.mem.startsWith(u8, n.surname, self.filter.items)) {
@@ -3131,215 +3310,22 @@ pub const Lua = struct {
     }
 };
 
-// Resource packer.
-// Associate a zig struct with json
-// simple:
-// directory tree with a single manifest.json
-// this json can optionally add metadata to resources
-// Example metadata we need
-// defining animation
-// defining slot positions for mc
-// defining nine slices
-//
-// don't want the overhead of a union?
-//
-// simple imp:
-// given a directory generate an atlas of pngs and a hash_map mapping names to texture slice
-//
-// adding metadata to this model?
-
-//TODO
-//map the tiled ids to rectangles
-//no, just convert them.
-//store rects in arraylist
-//map maps to indicies for name lookups
-//convert all tiled ids to this index
-//still O(1) lookup but with some memory access
-//hash map?
-//sparse set?
-//TODO delete this struct, use assetbake.zig instead
-pub const AssetMap = struct {
-    const Self = @This();
-    const IDT = u32;
-    pub const FreeListItem = struct { start: u32, end: u32 };
-    pub const UserAssetBaked = struct {
-        pub const ChunkHeader = struct {
-            resource_name_length: u32,
-            resource_name: []const u8,
-            length_of_data: u32,
-            data: []const u8,
-        };
-    };
-    pub const BakedManifestJson = struct {
-        pub const IdRect = struct {
-            id: IDT,
-            x: u32,
-            y: u32,
-            w: u32,
-            h: u32,
-        };
-        //What we need to store
-        //path to the atlas.png
-        //an array mapping names to id
-        //array mapping ids to rects
-        name_id_map: std.json.ArrayHashMap(IDT),
-        rects: []IdRect,
-
-        //collected_json: std.json.ArrayHashMap()
-    };
-
-    fn createFreelist(alloc: std.mem.Allocator, old_map: ?*const std.json.ArrayHashMap(IDT)) !std.ArrayList(FreeListItem) {
-        var freelist = std.ArrayList(FreeListItem).init(alloc);
-
-        var sorted_ids = std.ArrayList(u32).init(alloc);
-        defer sorted_ids.deinit();
-        if (old_map) |ob| {
-            var it = ob.map.iterator();
-            while (it.next()) |item| {
-                try sorted_ids.append(item.value_ptr.*);
-            }
-            std.sort.heap(u32, sorted_ids.items, {}, std.sort.asc(u32));
-        }
-        var start: u32 = 0;
-        if (sorted_ids.items.len > 0) {
-            for (sorted_ids.items) |t| {
-                if (start == t) {
-                    start += 1;
-                    continue;
-                }
-                var end = start;
-                while (end < t) : (end += 1) {}
-                try freelist.append(.{ .start = start, .end = end });
-                start = t + 1;
-            }
-        }
-        try freelist.append(.{ .start = start, .end = std.math.maxInt(u32) });
-
-        return freelist;
-    }
-
-    sparse_id_rect: std.ArrayList(?Rect),
-
-    map: std.StringHashMap(Rect),
-    names: std.ArrayList([]const u8),
-    alloc: std.mem.Allocator,
-
-    texture: graph.Texture,
-
-    pub fn deinit(self: *Self) void {
-        for (self.names.items) |item| {
-            self.alloc.free(item);
-        }
-        self.names.deinit();
-        self.map.deinit();
-        self.sparse_id_rect.deinit();
-    }
-};
-
-//Instead of bringing in the tiled dependcy, do the id lifetime manegement here and output a json file
-//assetLoad should be renamed to assetBake
-
-pub fn assetLoad(alloc: std.mem.Allocator, dir: std.fs.Dir, sub_path: []const u8, context: anytype) !AssetMap {
-    var idir = try dir.openDir(sub_path, .{ .iterate = true });
-    defer idir.close();
-    var walker = try idir.walk(
-        alloc,
-    );
-    defer walker.deinit();
-
-    var ret = AssetMap{
-        .alloc = alloc,
-        .sparse_id_rect = std.ArrayList(?Rect).init(alloc),
-        .map = std.StringHashMap(Rect).init(alloc),
-        .names = std.ArrayList([]const u8).init(alloc),
-        .texture = undefined,
-    };
-
-    var bmps = std.ArrayList(graph.Bitmap).init(alloc);
-    defer {
-        for (bmps.items) |bmp| {
-            bmp.deinit();
-        }
-        bmps.deinit();
-    }
-
-    var rpack = graph.RectPack.init(alloc);
-    defer rpack.deinit();
-
-    var json_files = std.ArrayList(struct {
-        path: []u8, //allocated
-        basename: []const u8, //slice of path
-        dir_path: []u8, //slice of path
-    }).init(alloc);
-    defer {
-        for (json_files.items) |jf| {
-            alloc.free(jf.path);
-        }
-        json_files.deinit();
-    }
-
-    //First we walk the directory and all children, creating a list of images and a list of json files.
-    while (try walker.next()) |w| {
-        switch (w.kind) {
-            .file => {
-                if (std.mem.endsWith(u8, w.basename, ".png")) {
-                    const index = bmps.items.len;
-                    try bmps.append(try graph.Bitmap.initFromPngFile(alloc, w.dir, w.basename));
-                    try rpack.appendRect(index, bmps.items[index].w, bmps.items[index].h);
-                    //names has the same indicies as bmps
-                    const aname = try alloc.dupe(u8, w.path[0 .. w.path.len - ".png".len]);
-                    std.mem.replaceScalar(u8, aname, '\\', '/');
-                    try ret.names.append(aname);
-                } else if (std.mem.endsWith(u8, w.basename, ".json")) {
-                    const path = try alloc.dupe(u8, w.path);
-                    try json_files.append(.{
-                        .path = path,
-                        .dir_path = path[0 .. w.path.len - w.basename.len],
-                        .basename = path[w.path.len - w.basename.len ..],
-                    });
-                }
-            },
-            else => {},
-        }
-    }
-
-    //Pack all the rectangles and output to a file
-    const out_size = try rpack.packOptimalSize();
-    var out_bmp = try graph.Bitmap.initBlank(alloc, out_size.x, out_size.y, .rgba_8);
-    defer out_bmp.deinit();
-    for (rpack.rects.items) |rect| {
-        const i: usize = @intCast(rect.id);
-        const r = graph.Rec(rect.x, rect.y, rect.w, rect.h);
-        graph.Bitmap.copySubR(4, &out_bmp, @intCast(rect.x), @intCast(rect.y), &bmps.items[i], 0, 0, @intCast(rect.w), @intCast(rect.h));
-        try ret.map.put(ret.names.items[i], r);
-    }
-    try out_bmp.writeToPngFile(std.fs.cwd(), "testpack.png");
-    ret.texture = graph.Texture.initFromBitmap(out_bmp, .{ .mag_filter = graph.c.GL_NEAREST });
-
-    const ctype = @typeInfo(@TypeOf(context));
-    if (ctype == .Pointer) {
-        if (comptime std.meta.hasFn(ctype.Pointer.child, "parseJson")) {
-            for (json_files.items) |jf| {
-                var f = try idir.openFile(jf.path, .{});
-                defer f.close();
-                const s = try f.readToEndAlloc(alloc, std.math.maxInt(usize));
-                defer alloc.free(s);
-                std.mem.replaceScalar(u8, jf.dir_path, '\\', '/');
-                try context.parseJson(s, jf.dir_path, jf.basename, &ret);
-            }
-        }
-    }
-
-    return ret;
-}
-
 pub const TestConfig = struct {
+    tab: enum { ptable, other, math } = .ptable,
+    my_int: i32 = 0,
+    my_bool: bool = false,
     item_height: f32 = 30,
     scale: f32 = 0.5,
     win_inset: f32 = 24,
     padding: graph.Padding = graph.Padding.new(12, 0, 12, 12),
     filek: std.fs.File.Kind = .file,
 };
+//TODO I want to try to ship a working version of Os9gui.
+//ImmediateDrawingContext is a required part of the Gui draw process.
+//Force Sdl backend? Ideally not.
+//Asset loading. Embed a default font and style atlas. The library is already structered in a way that sortof allows for custom styling.
+//
+//TODO write a gui testbed, should showcase all the features, be easy to copy and paste working examples
 //current usage
 //ogui = Os9gui.init(alloc);
 //
@@ -3360,7 +3346,7 @@ pub fn main() anyerror!void {
     defer _ = gpa.detectLeaks();
     const alloc = gpa.allocator();
 
-    var current_app: enum { keyboard_display, filebrowser, atlas_edit, gtest, lua_test, crass, game_menu } = .filebrowser;
+    var current_app: enum { keyboard_display, filebrowser, atlas_edit, gtest, lua_test, crass, game_menu } = .crass;
     var arg_it = try std.process.ArgIterator.initWithAllocator(alloc);
     defer arg_it.deinit();
     const Arg = ArgUtil.Arg;
@@ -3374,7 +3360,7 @@ pub fn main() anyerror!void {
     if (cli_opts.app) |app|
         current_app = app;
 
-    const scale = if (cli_opts.scale) |s| s else 2.0;
+    const scale = if (cli_opts.scale) |s| s else 3.0;
     var win = try graph.SDL.Window.createWindow("My window", .{
         .double_buffer = true,
         .window_flags = &.{
@@ -3386,12 +3372,6 @@ pub fn main() anyerror!void {
     defer win.destroyWindow();
     var debug_dir = try std.fs.cwd().openDir("debug", .{});
     defer debug_dir.close();
-    var ass = try assetLoad(alloc, std.fs.cwd(), "asset/os9gui", {});
-    defer ass.deinit();
-    //const o_win = ass.map.get("window.png").?;
-    //const o_inwin = ass.map.get("window_inner.png").?;
-    //const o_bg = ass.map.get("bg.png").?;
-    //const o_tb = ass.map.get("tb2.png").?;
 
     graph.c.glLineWidth(1);
 
@@ -3429,6 +3409,11 @@ pub fn main() anyerror!void {
         break :blk std.fs.cwd();
     };
     //defer conf_dir.close();
+
+    var staticbuf: [16]u8 = undefined;
+    var statictb = Os9Gui.StaticTextbox.init(&staticbuf);
+    var dyn_tb = Os9Gui.DynamicTextbox.init(alloc);
+    defer dyn_tb.deinit();
 
     var fb = try FileBrowser.init(alloc, conf_dir);
     defer fb.deinit();
@@ -3506,8 +3491,8 @@ pub fn main() anyerror!void {
                     if (gui.getArea()) |win_area| {
                         const border_area = win_area.inset(6 * os9_ctx.scale);
                         const area = border_area.inset(6 * os9_ctx.scale);
-                        gui.draw9Slice(win_area, Os9Gui.os9win, os9_ctx.texture, os9_ctx.scale);
-                        gui.draw9Slice(border_area, Os9Gui.os9in, os9_ctx.texture, os9_ctx.scale);
+                        gui.draw9Slice(win_area, os9_ctx.style.getRect(.window_outer_small), os9_ctx.style.texture, os9_ctx.scale);
+                        gui.draw9Slice(border_area, Os9Gui.os9in, os9_ctx.style.texture, os9_ctx.scale);
                         _ = try gui.beginLayout(Gui.SubRectLayout, .{ .rect = area }, .{});
                         defer gui.endLayout();
 
@@ -3538,23 +3523,31 @@ pub fn main() anyerror!void {
                 .crass => {
                     const gui = &os9gui.gui;
                     if (gui.getArea()) |win_area| {
-                        const border_area = win_area.inset(6 * os9_ctx.scale);
-                        const area = border_area.inset(6 * os9_ctx.scale);
-                        gui.draw9Slice(win_area, Os9Gui.os9win, os9_ctx.texture, os9_ctx.scale);
-                        gui.draw9Slice(border_area, Os9Gui.os9in, os9_ctx.texture, os9_ctx.scale);
+                        const area = win_area.inset(6 * os9gui.scale);
                         _ = try gui.beginLayout(Gui.SubRectLayout, .{ .rect = area }, .{});
                         defer gui.endLayout();
-                        var vl = try gui.beginLayout(Gui.VerticalLayout, .{ .item_height = 40 }, .{});
-                        defer gui.endLayout();
+                        var vl = try os9gui.beginV();
+                        //var vl = try gui.beginLayout(Gui.VerticalLayout, .{ .item_height = 40 }, .{});
+                        defer os9gui.endL();
                         os9gui.slider(&tc.scale, 0.1, 4);
+                        os9gui.slider(&tc.my_int, -10, 10);
+                        try os9gui.radio(&tc.tab);
+
                         try os9gui.enumCombo("filek", .{}, &tc.filek);
                         try os9gui.textboxNumber(&tc.scale);
+                        _ = os9gui.checkbox("MY CHECK", &tc.my_bool);
                         try os9gui.textboxNumber(&tc.win_inset);
                         try os9gui.textbox(&my_str);
+                        try os9gui.textbox2(&statictb, .{});
+                        try os9gui.textbox2(&dyn_tb, .{});
                         vl.pushRemaining();
-                        try os9gui.propertyTable(&tc);
-                        //try os9gui.editProperty(Gui.Context, &gui, "gui", 0);
-                        //try os9gui.propertyTable(&gui);
+                        switch (try os9gui.beginTabs(&tc.tab)) {
+                            .ptable => {
+                                try os9gui.propertyTable(&tc);
+                            },
+                            else => {},
+                        }
+                        os9gui.endTabs();
                     }
                 },
                 .game_menu => try gamemenu.update(&os9gui),

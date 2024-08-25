@@ -88,6 +88,10 @@ pub const Rect = struct {
         return .{ .x = self.x + amount, .y = self.y + amount, .w = self.w - amount * 2, .h = self.h - amount * 2 };
     }
 
+    pub fn centerR(self: Self, w: f32, h: f32) Self {
+        return self.insetV((self.w - w) / 2, (self.h - h) / 2);
+    }
+
     pub fn insetV(self: Self, ax: f32, ay: f32) Self {
         return .{ .x = self.x + ax, .y = self.y + ay, .w = self.w - ax * 2, .h = self.h - ay * 2 };
     }

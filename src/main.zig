@@ -1051,8 +1051,6 @@ pub fn testMain() !void {
 }
 
 pub fn main() !void {
-    if (true)
-        return try testMain();
     const cwd = std.fs.cwd();
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.detectLeaks();
@@ -2318,9 +2316,10 @@ pub fn main() !void {
                 );
             };
 
-            //const win_rect = graph.Rec(0, 0, win.screen_dimensions.x, win.screen_dimensions.y).inset(@floatFromInt(@divTrunc(win.screen_dimensions.y, 3)));
             if (try os9gui.beginTlWindow(win_rect)) {
                 defer os9gui.endTlWindow();
+                _ = try os9gui.gui.beginLayout(Gui.SubRectLayout, .{ .rect = os9gui.gui.getArea().?.inset(6 * os9gui.scale) }, .{});
+                defer os9gui.gui.endLayout();
                 {
                     switch (try os9gui.beginTabs(&gcfg.tab)) {
                         .main => {
