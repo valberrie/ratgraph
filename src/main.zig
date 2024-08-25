@@ -991,21 +991,60 @@ pub fn testMain() !void {
     defer win.destroyWindow();
     var draw = graph.ImmediateDrawingContext.init(alloc, win.getDpi());
     defer draw.deinit();
-    const f = try std.fs.cwd().openFile("fonts/roboto.ttf", .{});
-    const sl = try f.reader().readAllAlloc(alloc, std.math.maxInt(usize));
-    var font = try graph.Font.initFromBuffer(alloc, sl, 200, .{});
-    alloc.free(sl);
+
+    const cp437 = try graph.Bitmap.initFromImageBuffer(alloc, @embedFile("font/cp437.png"));
+    var ff = try graph.Font.initFixed(alloc, cp437, .{
+        .sts = .{
+            .start = .{ .x = 0, .y = 0 },
+            .tw = 9,
+            .th = 16,
+            .pad = .{ .x = 0, .y = 0 },
+            .num = .{ .x = 32, .y = 8 },
+            .count = 32 * 8,
+        },
+        .codepoints_to_load = &[_]graph.Font.CharMapEntry{
+            .{ .list = &[_]u21{ 0, 0x263a, 0x263b, 0x2665, 0x2666, 0x2663, 0x2660, 0x2022, 0x25d8, 0x25cb, 0x25d9, 0x2642, 0x2640, 0x266a, 0x266b, 0x263c, 0x25ba, 0x25c4, 0x2195, 0x203C, 0x00b6, 0x00a7, 0x25ac, 0x21a8, 0x2191, 0x2193, 0x2192, 0x2190, 0x221f, 0x2194, 0x25b2, 0x25bc } },
+            //.{ .range = [2]u21{ 0, 31 } },
+            .{ .range = [2]u21{ ' ', '~' } },
+            //.{ .unicode = '@' },
+        },
+    });
+    defer ff.deinit();
+
+    cp437.deinit();
+
+    var font = try graph.Font.initFromBuffer(alloc, @embedFile("font/roboto.ttf"), 64, .{
+        .padding_px = 2,
+        .codepoints_to_load = &(graph.Font.CharMaps.Default ++ [_]graph.Font.CharMapEntry{
+            .{ .list = &[_]u21{ 0, 0x263a, 0x263b, 0x2665, 0x2666, 0x2663, 0x2660, 0x2022, 0x25d8, 0x25cb, 0x25d9, 0x2642, 0x2640, 0x266a, 0x266b, 0x263c, 0x25ba, 0x25c4, 0x2195, 0x203C, 0x00b6, 0x00a7, 0x25ac, 0x21a8, 0x2191, 0x2193, 0x2192, 0x2190, 0x221f, 0x2194, 0x25b2, 0x25bc } },
+        }),
+    });
     defer font.deinit();
 
-    var font2 = try graph.Font.init(alloc, std.fs.cwd(), "fonts/roboto.ttf", 72, win.getDpi(), .{});
+    //const sl = try std.fs.cwd().openFile("fonts/NotoColorEmoji.ttf", .{});
+    //const slice = try sl.reader().readAllAlloc(alloc, std.math.maxInt(usize));
+
+    //sl.close();
+    var font2 = try graph.Font.init(alloc, std.fs.cwd(), "fonts/roboto.ttf", 64, 163, .{
+        .debug_dir = try std.fs.cwd().openDir("debug", .{}),
+        //.codepoints_to_load = &[_]graph.Font.CharMapEntry{
+        //    .{ .unicode = 0x1f602 },
+        //},
+    });
+    //alloc.free(slice);
     defer font2.deinit();
 
     while (!win.should_exit) {
         try draw.begin(0x00, win.screen_dimensions.toF());
         win.pumpEvents();
-        draw.rect(graph.Rec(0, 0, 200, 200), 0xff0000ff);
-        draw.textPx(.{ .x = 0, .y = 0 }, "Hello Worldjj!", &font, 200, 0xffffffff);
-        draw.textPx(.{ .x = 0, .y = 200 }, "Hello Worldjj!", &font2, 72, 0xffffffff);
+        //draw.rect(graph.Rec(0, 0, 200, 40), 0xff0000ff);
+        draw.textPx(.{ .x = font.texture.rect().w, .y = 0 }, "Hello Worldjj! This is a test string of the test string\n new string line ☺☺☺ ♪♪", &ff, 64, 0xffffffff);
+        draw.textPx(.{ .x = font.texture.rect().w, .y = 400 }, "Hello Worldjj! This is a test string of the test string\n new string line ☺☺☺ ♪♪", &font, 64, 0xffffffff);
+        draw.textPx(.{ .x = font.texture.rect().w, .y = 600 }, "Hello Worldjj! This is a test string of the test string\n new string line ☺☺☺ ♪♪", &font, 80, 0xffffffff);
+        draw.textPx(.{ .x = font.texture.rect().w, .y = 700 }, "Hello Worldjj! This is a test string of the test string\n new string line ☺☺☺ ♪♪", &font, 20, 0xffffffff);
+        //draw.textPx(.{ .x = 0, .y = 200 }, "Hello Worldjj!", &font2, 12, 0xffffffff);
+        draw.textPx(.{ .x = font.texture.rect().w, .y = 800 }, "Hellow World😂", &font2, 64, 0xffffffff);
+        draw.rectTex(font.texture.rect(), font.texture.rect(), font.texture);
         try draw.end(null);
         win.swap();
     }

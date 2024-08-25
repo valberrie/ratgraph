@@ -870,21 +870,16 @@ pub const ImmediateDrawingContext = struct {
                 continue;
             }
 
-            const g = font.glyph_set.get(ch) catch |err|
-                switch (err) {
-                error.invalidIndex => font.glyph_set.get(std.unicode.replacement_character) catch unreachable,
-            };
-            const fpad = @as(f32, @floatFromInt(Font.padding)) / 2;
-            const pad = @as(f32, @floatFromInt(Font.padding));
+            const g = font.getGlyph(ch);
 
             const r = Rect{
-                .x = vx + (g.offset_x - fpad) * SF,
-                .y = vy - (g.offset_y + fpad) * SF,
-                .w = (pad + g.width) * SF,
-                .h = (pad + g.height) * SF,
+                .x = vx + (g.offset_x) * SF,
+                .y = vy - (g.offset_y) * SF,
+                .w = (g.width) * SF,
+                .h = (g.height) * SF,
             };
 
-            // try self.rect(r, 0xffffffff);
+            //self.rect(r, 0xffffffff);
 
             b.indicies.appendSlice(&genQuadIndices(@as(u32, @intCast(b.vertices.items.len)))) catch unreachable;
             const un = GL.normalizeTexRect(g.tr, font.texture.w, font.texture.h);
@@ -987,6 +982,7 @@ pub const ImmediateDrawingContext = struct {
         }) catch return;
     }
 
+    //TODO destroy this and use a font
     pub fn bitmapText(self: *Self, x: f32, y: f32, h: f32, str: []const u8, font: FixedBitmapFont, col: u32) void {
         const b = &(self.getBatch(.{
             .batch_kind = .color_tri_tex,

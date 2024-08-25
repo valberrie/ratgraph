@@ -22,7 +22,42 @@ pub const OptionalFileWriter = struct {
         }
     }
 };
+pub const SubTileset = struct {
+    const Self = @This();
 
+    description: []u8 = "",
+    start: Vec2i, //xy of first tile
+    tw: i32, //width of tile
+    th: i32,
+    pad: Vec2i, //xy spacing between tiles
+    num: Vec2i, //number of cols, rows
+    count: usize, //Total number of tiles, useful if last row is short
+
+    pub fn getTexRec(self: Self, index: usize) Rect {
+        const i: i32 = @intCast(index % self.count);
+        return Rec(
+            self.start.x + @mod(i, self.num.x) * (self.tw + self.pad.x),
+            self.start.y + @divFloor(i, self.num.x) * (self.th + self.pad.y),
+            self.tw,
+            self.th,
+        );
+    }
+
+    pub fn getBounds(self: Self) Rect {
+        return Rec(
+            self.start.x,
+            self.start.y,
+            self.num.x * (self.tw + self.pad.x),
+            self.num.y * (self.th + self.pad.y),
+        );
+    }
+};
+
+//TODO dynamic loading of fonts.
+//debug build, one glyph takes between 0.1 and .3 ms to pack
+//Don't rectangle pack, a 4k atlas of 64pixel high fonts can hold 4096 glyphs
+//dont keep a freelist, instead just a length
+//On calls to getGlyph, if the glyph does not exist, bake it. The only time this breaks is if a large amount of new glyphs show up at once, only stalls for one frame.
 pub const Font = struct {
     //TODO document all the glyph fields
     pub const Glyph = struct {
@@ -45,6 +80,11 @@ pub const Font = struct {
         padding_px: u32 = 2,
         pack_factor: f32 = 1.3,
         debug_dir: ?Dir = null,
+    };
+
+    pub const InitBitmapOptions = struct {
+        sts: SubTileset,
+        codepoints_to_load: []const CharMapEntry, //The codepoints this list expands to maps to indices in the SubtileSet
     };
 
     ///Define common character sets
@@ -70,10 +110,11 @@ pub const Font = struct {
     font_size: f32, //Native size in points
 
     //TODO this should be a hashmap
-    glyph_set: SparseSet(Glyph, u21),
+    //glyph_set: SparseSet(Glyph, u21),
+    glyphs: std.AutoHashMap(u21, Glyph),
 
     //The units for all of these is pixels
-    height: i32,
+    height: f32,
     ascent: f32, //Farthest the font ascends above baseline
     descent: f32, //Farthest the font descends below baseline
     line_gap: f32, //Distance between one rows descent and next rows ascent
@@ -110,8 +151,62 @@ pub const Font = struct {
         return error.freetype;
     }
 
-    //TODO write a init function for stb_truetype
-    //If the hinting etc is as good as freetype, use stb instead, less linking and we can initilize from a buffer
+    pub fn initFixed(alloc: Alloc, bmp: Bitmap, options: InitBitmapOptions) !Font {
+        const codepoints_i: []u21 = blk: {
+            var glyph_indices = std.ArrayList(u21).init(alloc);
+            //try codepoint_list.append(.{ .i = std.unicode.replacement_character });
+            for (options.codepoints_to_load) |codepoint| {
+                switch (codepoint) {
+                    .list => |list| {
+                        for (list) |cp| {
+                            try glyph_indices.append(cp);
+                            //try codepoint_list.append(.{ .i = cp });
+                        }
+                    },
+                    .range => |range| {
+                        var i = range[0];
+                        while (i <= range[1]) : (i += 1) {
+                            try glyph_indices.append(i);
+                            //try codepoint_list.append(.{ .i = i });
+                        }
+                    },
+                    .unicode => |cp| {
+                        //try codepoint_list.append(.{ .i = cp });
+                        try glyph_indices.append(cp);
+                    },
+                }
+            }
+            try glyph_indices.append(std.unicode.replacement_character);
+            break :blk try glyph_indices.toOwnedSlice();
+        };
+        defer alloc.free(codepoints_i);
+        //const dense_slice = try alloc.alloc(Glyph, codepoints_i.len);
+        var result = Font{
+            .height = @floatFromInt(options.sts.th),
+            .max_advance = @floatFromInt(options.sts.tw),
+            .dpi = 0,
+            .glyphs = std.AutoHashMap(u21, Glyph).init(alloc),
+            .font_size = @floatFromInt(options.sts.th),
+            .texture = .{ .id = 0, .w = 0, .h = 0 },
+            .ascent = 0,
+            .descent = 0,
+            .line_gap = @floatFromInt(options.sts.th),
+        };
+        for (codepoints_i, 0..) |item, i| {
+            try result.glyphs.put(
+                item,
+                Glyph{
+                    .width = @floatFromInt(options.sts.tw),
+                    .height = @floatFromInt(options.sts.th),
+                    .advance_x = @floatFromInt(options.sts.tw),
+                    .tr = options.sts.getTexRec(i),
+                },
+            );
+        }
+        result.texture = Texture.initFromBitmap(bmp, .{ .mag_filter = c.GL_NEAREST });
+        return result;
+    }
+
     pub fn initFromBuffer(alloc: Alloc, buf: []const u8, pixel_size: f32, options: InitOptions) !Font {
         const pad = options.padding_px;
         const codepoints_i: []u21 = blk: {
@@ -143,24 +238,28 @@ pub const Font = struct {
         };
         var finfo: c.stbtt_fontinfo = undefined;
         _ = c.stbtt_InitFont(&finfo, @as([*c]const u8, @ptrCast(buf)), c.stbtt_GetFontOffsetForIndex(&buf[0], 0));
+
+        var timer = try std.time.Timer.start();
         //For each codepoint to load
         //  render to a bitmap
         //  store the metrics in glyph
         //  do the pack
         //  return
-        const dense_slice = try alloc.alloc(Glyph, codepoints_i.len);
+        //const dense_slice = try alloc.alloc(Glyph, codepoints_i.len);
+        defer alloc.free(codepoints_i);
         var result = Font{
             .height = 0,
             .max_advance = 0,
             .dpi = 0,
-            .glyph_set = try (SparseSet(Glyph, u21).fromOwnedDenseSlice(alloc, dense_slice, codepoints_i)),
+            .glyphs = std.AutoHashMap(u21, Glyph).init(alloc),
+            //.glyph_set = try (SparseSet(Glyph, u21).fromOwnedDenseSlice(alloc, dense_slice, codepoints_i)),
             .font_size = pixel_size,
             .texture = .{ .id = 0, .w = 0, .h = 0 },
             .ascent = 0,
             .descent = 0,
             .line_gap = 0,
         };
-        errdefer result.glyph_set.deinit();
+        errdefer result.glyphs.deinit();
         const SF = c.stbtt_ScaleForPixelHeight(&finfo, pixel_size);
 
         {
@@ -171,14 +270,16 @@ pub const Font = struct {
 
             result.ascent = @as(f32, @floatFromInt(ascent)) * SF;
             result.descent = @as(f32, @floatFromInt(descent)) * SF;
-            result.line_gap = @as(f32, @floatFromInt(line_gap)) * SF;
-            result.height = @intFromFloat(result.ascent - result.descent);
+            result.height = result.ascent - result.descent;
+            result.line_gap = result.height + @as(f32, @floatFromInt(line_gap)) * SF;
             //result.max_advance = @as(f32, @floatFromInt(fr.size.*.metrics.max_advance)) / 64;
         }
 
         var pack_ctx = RectPack.init(alloc);
         defer pack_ctx.deinit();
 
+        var cop_lut = std.ArrayList(u21).init(alloc);
+        defer cop_lut.deinit();
         var bitmaps = std.ArrayList(Bitmap).init(alloc);
         defer {
             for (bitmaps.items) |*bitmap|
@@ -186,45 +287,52 @@ pub const Font = struct {
             bitmaps.deinit();
         }
 
-        for (result.glyph_set.dense.items, 0..) |*codepoint, c_i| {
-            const code_i = result.glyph_set.dense_index_lut.items[c_i];
+        for (codepoints_i) |code_i| {
+            if (c.stbtt_FindGlyphIndex(&finfo, code_i) == 0) {
+                std.debug.print("DOES NOT EXIST {u}\n", .{code_i});
+            }
             var x: c_int = 0;
             var y: c_int = 0;
             var xf: c_int = 0;
             var yf: c_int = 0;
             c.stbtt_GetCodepointBitmapBox(&finfo, code_i, SF, SF, &x, &y, &xf, &yf);
+            const w: f32 = @floatFromInt(xf - x);
+            const h: f32 = @floatFromInt(yf - y);
             if (xf - x > 0 and yf - y > 0) {
                 var bmp = try Bitmap.initBlank(alloc, xf - x, yf - y, .g_8);
                 c.stbtt_MakeCodepointBitmap(&finfo, &bmp.data.items[0], xf - x, yf - y, xf - x, SF, SF, code_i);
                 try bitmaps.append(bmp);
-                try pack_ctx.appendRect(code_i, bmp.w + pad * 2, bmp.h + pad * 2);
+                try cop_lut.append(code_i);
+                try pack_ctx.appendRect(bitmaps.items.len - 1, bmp.w + pad, bmp.h + pad);
             }
 
             var adv_w: c_int = 0;
             var left_side_bearing: c_int = 0;
             c.stbtt_GetCodepointHMetrics(&finfo, code_i, &adv_w, &left_side_bearing);
             const glyph = Glyph{
-                .tr = .{ .x = -1, .y = -1, .w = @floatFromInt(xf - x), .h = @floatFromInt(yf - y) },
-                .offset_x = @as(f32, @floatFromInt(x)),
+                .tr = .{ .x = -1, .y = -1, .w = w, .h = h },
+                .offset_x = @as(f32, @floatFromInt(left_side_bearing)) * SF,
                 .offset_y = -@as(f32, @floatFromInt(y)),
                 .advance_x = @as(f32, @floatFromInt(adv_w)) * SF,
-                .width = @floatFromInt(xf - x),
-                .height = @floatFromInt(yf - y),
+                .width = w,
+                .height = h,
             };
-            codepoint.* = glyph;
+            try result.glyphs.put(code_i, glyph);
         }
         const out_size = try pack_ctx.packOptimalSize();
         var out_bmp = try Bitmap.initBlank(alloc, out_size.x, out_size.y, .g_8);
         defer out_bmp.deinit();
-        const fp: f32 = @floatFromInt(pad);
-        for (pack_ctx.rects.items, 0..) |r, i| {
-            const gbmp = &bitmaps.items[i];
-            Bitmap.copySubR(1, &out_bmp, @as(u32, @intCast(r.x)) + pad, @as(u32, @intCast(r.y)) + pad, gbmp, 0, 0, gbmp.w, gbmp.h);
+        for (pack_ctx.rects.items) |r| {
+            const bmx = @as(u32, @intCast(r.x)) + pad;
+            const bmy = @as(u32, @intCast(r.y)) + pad;
+            const gbmp = &bitmaps.items[@intCast(r.id)];
+            Bitmap.copySubR(1, &out_bmp, bmx, bmy, gbmp, 0, 0, gbmp.w, gbmp.h);
 
-            const g = try result.glyph_set.getPtr(@as(u21, @intCast(r.id)));
-            g.tr.x = @as(f32, @floatFromInt(r.x)) + fp;
-            g.tr.y = @as(f32, @floatFromInt(r.y)) + fp;
+            const g = (result.glyphs.getPtr(@intCast(cop_lut.items[@intCast(r.id)]))).?;
+            g.tr.x = @floatFromInt(bmx);
+            g.tr.y = @floatFromInt(bmy);
         }
+        std.debug.print("took x ms {d}\n", .{@as(f32, @floatFromInt(timer.read() / pack_ctx.rects.items.len)) / std.time.ns_per_ms});
 
         try out_bmp.writeToPngFile(std.fs.cwd(), "crass.png");
         std.debug.print("num {d}\n", .{finfo.numGlyphs});
@@ -233,7 +341,7 @@ pub const Font = struct {
             .internal_format = c.GL_RED,
             .pixel_format = c.GL_RED,
             .min_filter = c.GL_LINEAR,
-            .mag_filter = c.GL_LINEAR,
+            .mag_filter = c.GL_NEAREST_MIPMAP_NEAREST,
         });
         return result;
     }
@@ -241,7 +349,6 @@ pub const Font = struct {
     pub fn init(alloc: Alloc, dir: Dir, filename: []const u8, point_size: f32, dpi: f32, options: InitOptions) !Self {
         const codepoints_i: []u21 = blk: {
             var glyph_indices = std.ArrayList(u21).init(alloc);
-            try glyph_indices.append(std.unicode.replacement_character);
             //try codepoint_list.append(.{ .i = std.unicode.replacement_character });
             for (options.codepoints_to_load) |codepoint| {
                 switch (codepoint) {
@@ -264,6 +371,7 @@ pub const Font = struct {
                     },
                 }
             }
+            try glyph_indices.append(std.unicode.replacement_character);
             break :blk try glyph_indices.toOwnedSlice();
         };
 
@@ -283,19 +391,21 @@ pub const Font = struct {
             });
             try log.print("px_size: {d}\n", .{point_size * (dpi / 72)});
         }
-        const dense_slice = try alloc.alloc(Glyph, codepoints_i.len);
+        //const dense_slice = try alloc.alloc(Glyph, codepoints_i.len);
+        defer alloc.free(codepoints_i);
         var result = Font{
             .height = 0,
             .dpi = dpi,
             .max_advance = 0,
-            .glyph_set = try (SparseSet(Glyph, u21).fromOwnedDenseSlice(alloc, dense_slice, codepoints_i)),
+            .glyphs = std.AutoHashMap(u21, Glyph).init(alloc),
+            //.glyph_set = try (SparseSet(Glyph, u21).fromOwnedDenseSlice(alloc, dense_slice, codepoints_i)),
             .font_size = point_size,
             .texture = .{ .id = 0, .w = 0, .h = 0 },
             .ascent = 0,
             .descent = 0,
             .line_gap = 0,
         };
-        errdefer result.glyph_set.deinit();
+        errdefer result.glyphs.deinit();
 
         //TODO switch to using a grid rather than rect packing
 
@@ -372,13 +482,14 @@ pub const Font = struct {
 
         try freetypeLogErr(
             stderr,
-            c.FT_Set_Char_Size(
-                face,
-                0,
-                @as(c_int, @intFromFloat(point_size)) * 64, //expects a size in 1/64 of points, font_size is in points
-                @intFromFloat(dpi),
-                @intFromFloat(dpi),
-            ),
+            c.FT_Set_Pixel_Sizes(face, 0, @intFromFloat(point_size)),
+            //c.FT_Set_Char_Size(
+            //    face,
+            //    0,
+            //    @as(c_int, @intFromFloat(point_size * 72 / dpi)) * 64, //expects a size in 1/64 of points, font_size is in points
+            //    @intFromFloat(dpi),
+            //    @intFromFloat(dpi),
+            //),
         );
 
         { //Logs all the glyphs in this font file
@@ -404,7 +515,7 @@ pub const Font = struct {
         result.descent = @as(f32, @floatFromInt(fr.size.*.metrics.descender)) / 64;
         result.max_advance = @as(f32, @floatFromInt(fr.size.*.metrics.max_advance)) / 64;
         result.line_gap = @as(f32, @floatFromInt(fr.size.*.metrics.height)) / 64;
-        result.height = @intFromFloat(result.ascent - result.descent);
+        result.height = result.ascent - result.descent;
         //result.line_gap = result.ascent;
 
         try log.print("Freetype face: ascender:  {d}px\n", .{result.ascent});
@@ -424,8 +535,7 @@ pub const Font = struct {
         }
 
         var timer = try std.time.Timer.start();
-        for (result.glyph_set.dense.items, 0..) |*codepoint, c_i| {
-            const code_i = result.glyph_set.dense_index_lut.items[c_i];
+        for (codepoints_i) |code_i| {
             const glyph_i = c.FT_Get_Char_Index(face, code_i);
             if (glyph_i == 0) {
                 //std.debug.print("Undefined char index: {d} {x}\n", .{ codepoint.i, codepoint.i });
@@ -477,15 +587,15 @@ pub const Font = struct {
                 .width = @as(f32, @floatFromInt(metrics.width)) / 64,
                 .height = @as(f32, @floatFromInt(metrics.height)) / 64,
             };
-            codepoint.* = glyph;
+            try result.glyphs.put(code_i, glyph);
         }
 
         const elapsed = timer.read();
-        try log.print("Rendered {d} glyphs in {d} ms, {d} ms avg\n", .{ result.glyph_set.dense.items.len, @as(f32, @floatFromInt(elapsed)) / std.time.ns_per_ms, @as(f32, @floatFromInt(elapsed)) / std.time.ns_per_ms / @as(f32, @floatFromInt(result.glyph_set.dense.items.len)) });
+        try log.print("Rendered {d} glyphs in {d} ms, {d} ms avg\n", .{ result.glyphs.count(), @as(f32, @floatFromInt(elapsed)) / std.time.ns_per_ms, @as(f32, @floatFromInt(elapsed)) / std.time.ns_per_ms / @as(f32, @floatFromInt(result.glyphs.count())) });
         //Each glyph takes up result.max_advance x result.line_gap + padding
         const w_c: i32 = @intFromFloat(@ceil(@sqrt(@as(f32, @floatFromInt(pack_ctx.rects.items.len)))));
         const g_width: i32 = @intFromFloat(result.max_advance);
-        const g_height = result.height;
+        const g_height: i32 = @intFromFloat(result.height);
         result.texture.w = w_c * (padding + @as(i32, @intFromFloat(result.max_advance)));
         result.texture.h = w_c * (padding + g_height);
         var texture_bitmap = try Bitmap.initBlank(alloc, result.texture.w, result.texture.h, .g_8);
@@ -499,7 +609,7 @@ pub const Font = struct {
             const gbmp = &bitmaps.items[i];
             const cx: u32 = @intCast(@mod(ii, w_ci) * (g_width + padding));
             const cy: u32 = @intCast(@divFloor(ii, w_ci) * (g_height + padding));
-            const g = try result.glyph_set.getPtr(@as(u21, @intCast(rect.id)));
+            const g = result.glyphs.getPtr(@as(u21, @intCast(rect.id))).?;
             g.tr.x = @floatFromInt(cx);
             g.tr.y = @floatFromInt(cy);
             Bitmap.copySubR(1, &texture_bitmap, cx, cy, gbmp, 0, 0, gbmp.w, gbmp.h);
@@ -517,8 +627,8 @@ pub const Font = struct {
             .pixel_store_alignment = 1,
             .internal_format = c.GL_RED,
             .pixel_format = c.GL_RED,
-            .min_filter = c.GL_LINEAR,
-            .mag_filter = c.GL_LINEAR,
+            .min_filter = c.GL_NEAREST,
+            .mag_filter = c.GL_NEAREST,
         });
 
         return result;
@@ -567,6 +677,10 @@ pub const Font = struct {
         return null;
     }
 
+    pub fn getGlyph(self: *Self, codepoint: u21) Glyph {
+        return self.glyphs.get(codepoint) orelse self.glyphs.get(std.unicode.replacement_character).?;
+    }
+
     pub fn textBounds(self: *Self, string: []const u8, size_px: anytype) Vec2f {
         const scale = (lcast(f32, size_px) / self.dpi * 72) / self.font_size;
         //const scale = size_px / @as(f32, @floatFromInt(self.height));
@@ -603,7 +717,7 @@ pub const Font = struct {
     }
 
     pub fn deinit(self: *Self) void {
-        self.glyph_set.deinit();
+        self.glyphs.deinit();
     }
 
     pub fn ptToPixel(self: *Self, pt: f32) f32 {
@@ -800,6 +914,7 @@ pub const Bitmap = struct {
             4 => .rgba_8,
             3 => .rgb_8,
             1 => .g_8,
+            2 => .ga_8,
             else => return error.unsupportedFormat,
         });
     }
