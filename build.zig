@@ -61,6 +61,7 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
 
     const mode = b.standardOptimizeOption(.{});
+    const build_gui = b.option(bool, "gui", "Build the gui test app") orelse false;
 
     const bake = b.addExecutable(.{
         .name = "assetbake",
@@ -73,7 +74,7 @@ pub fn build(b: *std.Build) void {
 
     const exe = b.addExecutable(.{
         .name = "the_engine",
-        .root_source_file = b.path("src/main.zig"),
+        .root_source_file = if (build_gui) b.path("src/gui_app.zig") else b.path("src/main.zig"),
         .target = target,
         .optimize = mode,
     });

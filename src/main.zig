@@ -1069,15 +1069,10 @@ pub fn main() !void {
 
     const Arg = graph.ArgGen.Arg;
     const args = try graph.ArgGen.parseArgs(&.{
-        Arg("gui", .flag, "run the gui instead"),
         Arg("texture", .string, "texture to load"),
         Arg("scale", .number, "scale the model"),
     }, &arg_it);
-
-    if (args.gui != null) {
-        try gui_app.main();
-        return;
-    }
+    _ = args;
 
     var win = try graph.SDL.Window.createWindow("zig-game-engine", .{});
     defer win.destroyWindow();
@@ -2411,7 +2406,7 @@ pub fn main() !void {
         //const rr = graph.Rec(0, 0, win.screen_dimensions.x, win.screen_dimensions.y);
         //const r2 = graph.Rec(0, 0, win.screen_dimensions.x, -win.screen_dimensions.y);
         //draw.rectTex(rr, r2, .{ .w = win.screen_dimensions.x, .h = win.screen_dimensions.y, .id = hdrbuffer.color });
-        {
+        if (false) {
             const num_verts = 10;
             const dtheta = 360 / num_verts;
             for (0..num_verts) |vi| {

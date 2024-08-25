@@ -1849,7 +1849,6 @@ pub const GuiConfig = struct {
 // TODO
 // tab to next textbox
 // better textboxes
-// Make the assets static fields
 pub const Os9Gui = struct {
     const Self = @This();
 
@@ -2164,7 +2163,8 @@ pub const Os9Gui = struct {
         })) |scroll| {
             const lrq = self.gui.layout.last_requested_bounds;
             return .{
-                .layout = try self.gui.beginLayout(Gui.VerticalLayout, .{ .item_height = 20 * scale }, .{}),
+                .layout = try self.beginV(),
+                //.layout = try self.gui.beginLayout(Gui.VerticalLayout, .{ .item_height = 20 * scale }, .{}),
                 .data = scroll,
                 .area = lrq orelse graph.Rec(0, 0, 0, 0),
             };
@@ -3352,7 +3352,6 @@ pub fn main() anyerror!void {
     const Arg = ArgUtil.Arg;
     const cli_opts = try (ArgUtil.parseArgs(&.{
         Arg("scale", .number, "The scale of the gui"),
-        Arg("gui", .flag, "just stupid"),
         Arg("wireframe", .flag, "draw in wireframe"),
         ArgUtil.ArgCustom("app", @TypeOf(current_app), "Which gui app to run"),
     }, &arg_it));
@@ -3444,6 +3443,7 @@ pub fn main() anyerror!void {
     win.centerWindow();
 
     var tc: TestConfig = .{};
+    var crass_scroll: graph.Vec2f = .{ .x = 0, .y = 0 };
 
     //END LUA
     win.pumpEvents();
@@ -3526,28 +3526,28 @@ pub fn main() anyerror!void {
                         const area = win_area.inset(6 * os9gui.scale);
                         _ = try gui.beginLayout(Gui.SubRectLayout, .{ .rect = area }, .{});
                         defer gui.endLayout();
-                        var vl = try os9gui.beginV();
-                        //var vl = try gui.beginLayout(Gui.VerticalLayout, .{ .item_height = 40 }, .{});
-                        defer os9gui.endL();
-                        os9gui.slider(&tc.scale, 0.1, 4);
-                        os9gui.slider(&tc.my_int, -10, 10);
-                        try os9gui.radio(&tc.tab);
+                        if (try os9gui.beginVScroll(&crass_scroll, .{ .sw = area.w })) |scr| {
+                            defer os9gui.endVScroll(scr);
+                            os9gui.slider(&tc.scale, 0.1, 4);
+                            os9gui.slider(&tc.my_int, -10, 10);
+                            try os9gui.radio(&tc.tab);
 
-                        try os9gui.enumCombo("filek", .{}, &tc.filek);
-                        try os9gui.textboxNumber(&tc.scale);
-                        _ = os9gui.checkbox("MY CHECK", &tc.my_bool);
-                        try os9gui.textboxNumber(&tc.win_inset);
-                        try os9gui.textbox(&my_str);
-                        try os9gui.textbox2(&statictb, .{});
-                        try os9gui.textbox2(&dyn_tb, .{});
-                        vl.pushRemaining();
-                        switch (try os9gui.beginTabs(&tc.tab)) {
-                            .ptable => {
-                                try os9gui.propertyTable(&tc);
-                            },
-                            else => {},
+                            try os9gui.enumCombo("filek", .{}, &tc.filek);
+                            try os9gui.textboxNumber(&tc.scale);
+                            _ = os9gui.checkbox("MY CHECK", &tc.my_bool);
+                            try os9gui.textboxNumber(&tc.win_inset);
+                            try os9gui.textbox(&my_str);
+                            try os9gui.textbox2(&statictb, .{});
+                            try os9gui.textbox2(&dyn_tb, .{});
+                            scr.layout.pushRemaining();
+                            switch (try os9gui.beginTabs(&tc.tab)) {
+                                .ptable => {
+                                    try os9gui.propertyTable(&tc);
+                                },
+                                else => {},
+                            }
+                            os9gui.endTabs();
                         }
-                        os9gui.endTabs();
                     }
                 },
                 .game_menu => try gamemenu.update(&os9gui),

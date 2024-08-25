@@ -5,9 +5,10 @@ A bunch of graphics code.
 
 * Some 3d rendering
 * Some 2d rendering
-* An imgui that looks like Mac OS 9
+* An imgui 
 
-Currently does not build on windows, only linux
+![Imgui](img/gui1.png)
+
 
 ## Depends on
 * [zalgebra](https://github.com/kooparse/zalgebra)

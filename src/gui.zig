@@ -1651,7 +1651,7 @@ pub const Context = struct {
         w.scroll_bounds = clipped_area;
         _ = try self.beginLayout(
             SubRectLayout,
-            .{ .rect = graph.Rec(area.x - offset.x, area.y - offset.y, opts.scroll_area_w, opts.scroll_area_h) },
+            .{ .rect = graph.Rec(area.x - offset.x, area.y - offset.y, if (!opts.horiz_scroll) area.w else opts.scroll_area_w, opts.scroll_area_h) },
             .{ .scissor = clipped_area },
         );
 
