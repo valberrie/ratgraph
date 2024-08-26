@@ -2,7 +2,6 @@ const std = @import("std");
 const graph = @import("graphics.zig");
 const Rect = graph.Rect;
 const Rec = graph.Rec;
-const itc = graph.itc;
 const Pad = graph.Padding;
 
 const lua = @cImport({
@@ -12,16 +11,16 @@ const lua = @cImport({
 });
 
 const ArgUtil = @import("arg_gen.zig");
-const Color = graph.CharColor;
+const Color = graph.Colori;
 //const Gui = @import("gui.zig");
 const Gui = graph.Gui;
 const Vec2f = graph.Vec2f;
 
-const bg1 = itc(0xff);
-const fg = itc(0xffffffff);
-const bg4 = itc(0xff);
-const bg2 = itc(0xff);
-const bg0 = itc(0xff);
+const bg1 = (0xff);
+const fg = (0xffffffff);
+const bg4 = (0xff);
+const bg2 = (0xff);
+const bg0 = (0xff);
 
 inline fn F(a: anytype) f32 {
     return std.math.lossyCast(f32, a);
@@ -549,7 +548,7 @@ pub const FileBrowser = struct {
         }
     }
 
-    fn fileItem(self: *Self, wrap: *Os9Gui, entry: DirEntry, index: usize, columns: []const FileColumn, bg: ?Color) !bool {
+    fn fileItem(self: *Self, wrap: *Os9Gui, entry: DirEntry, index: usize, columns: []const FileColumn, bg: ?u32) !bool {
         const gui = &wrap.gui;
         const rec = gui.getArea() orelse return false;
         const pada = 4;
@@ -558,7 +557,7 @@ pub const FileBrowser = struct {
         }
         var cx: f32 = 0;
         if (index == self.selected)
-            gui.drawRectFilled(rec, Os9Gui.blue);
+            gui.drawRectFilled(rec, wrap.style.config.colors.text_highlight);
         for (columns) |col| {
             const r = graph.Rec(pada + rec.x + cx, rec.y, col.width - pada, rec.h);
             defer cx += col.width; //defer so continue; still applies width
@@ -763,11 +762,11 @@ pub const FileBrowser = struct {
                 const rec = gui.getArea() orelse break;
                 if (self.selected_bookmark) |sb| {
                     if (sb == i)
-                        gui.drawRectFilled(rec, Os9Gui.blue);
+                        gui.drawRectFilled(rec, wrap.style.config.colors.text_highlight);
                 }
                 //const vpad = rec.h * 0.1;
                 //const tpos = graph.Vec2f.new(rec.x, rec.y + vpad);
-                const color = if (bookmark.err_msg != null) Color.Red else Color.Black;
+                const color: u32 = if (bookmark.err_msg != null) Color.Red else Color.Black;
                 const tr = blk: {
                     if (bookmark.err_msg != null) {
                         const d = rec.split(.vertical, rec.h);
@@ -875,7 +874,7 @@ pub const FileBrowser = struct {
             if (try wrap.beginVScroll(&self.file_scroll, .{})) |file_scroll| {
                 defer wrap.endVScroll(file_scroll);
                 for (self.entries.items, 0..) |entry, i| {
-                    const bgfile_color = itc(0xeeeeeeff);
+                    const bgfile_color = 0xeeeeeeff;
                     if (try self.fileItem(wrap, entry, i, &self.columns, if (i % 2 != 0) bgfile_color else null))
                         break;
                 }
@@ -1149,8 +1148,8 @@ pub const KeyboardDisplay = struct {
                     x += ww;
                 }
             }
-            //gui.drawRectMultiColor(r, [_]Color{ itc(0xffffffff), itc(0xff0000ff), itc(0x00ff00ff), itc(0x0000ffff) });
-            //gui.drawRectMultiColor(r, [_]Color{ itc(0x888888ff), itc(0x222222ff), itc(0x222222ff), itc(0x888888ff) });
+            //gui.drawRectMultiColor(r, [_]Color{ (0xffffffff), itc(0xff0000ff), itc(0x00ff00ff), itc(0x0000ffff) });
+            //gui.drawRectMultiColor(r, [_]Color{ (0x888888ff), itc(0x222222ff), itc(0x222222ff), itc(0x888888ff) });
             var unused: f32 = 0;
             _ = gui.draggable(r, .{ .x = 1 / r.w, .y = 0 }, &(self.w_perc), &unused, .{ .x_min = 0.1, .x_max = 0.9 });
             { //SplitPlan
@@ -1334,7 +1333,7 @@ pub const MapEditor = struct {
                 }
                 {
                     gui.scissor(canvas);
-                    gui.drawRectFilled(canvas, itc(0xffffffff));
+                    gui.drawRectFilled(canvas, (0xffffffff));
                     gui.drawSetCamera(.{ .set_camera = .{ .win_area = canvas } });
                     cam.screen_area = canvas;
                     {
@@ -1509,17 +1508,17 @@ pub const AtlasEditor = struct {
                 }
             }
             {
-                gui.drawRectFilled(canvas, itc(0xffffffff));
+                gui.drawRectFilled(canvas, (0xffffffff));
                 gui.drawSetCamera(.{ .set_camera = .{ .screen_area = canvas, .cam_area = cam.cam_area } });
                 cam.screen_area = canvas;
                 {
-                    gui.drawRectTextured(tex.rect(), itc(0xffffffff), tex.rect(), tex);
+                    gui.drawRectTextured(tex.rect(), (0xffffffff), tex.rect(), tex);
 
                     for (atlas.atlas_data.sets[self.atlas_index].tilesets, 0..) |tset, set_i| {
-                        //gui.drawRectFilled(tset.getBounds(), itc(0xffffff11));
-                        const color = if (set_i == self.set_index) Color.Gold else Color.Green;
+                        //gui.drawRectFilled(tset.getBounds(), (0xffffff11));
+                        const color: u32 = if (set_i == self.set_index) Color.Gold else Color.Green;
                         if (set_i != self.set_index and self.draw_unfocused_overlay) {
-                            gui.drawRectFilled(tset.getBounds(), itc(0xffffffff));
+                            gui.drawRectFilled(tset.getBounds(), (0xffffffff));
                         } else {
                             for (0..tset.count) |i| {
                                 if (i >= tset.num.x * tset.num.y)
@@ -1630,7 +1629,7 @@ pub const AtlasEditor = struct {
                         }
                         for (set.tilesets, 0..) |ts, tsi| {
                             const rec = gui.getArea() orelse continue;
-                            var col = Color.Black;
+                            var col: u32 = Color.Black;
                             if (self.mode == .copy_range) {
                                 if (self.atlas_index == si and tsi < self.copy_range_range_end and tsi >= self.copy_range_range_start) {
                                     col = Color.Green;
@@ -1750,14 +1749,65 @@ pub const AtlasEditor = struct {
     }
 };
 
-//GuiConfig
-//Given a directory:
-//Walk a folder called 9slice
-//load a file called colors.json
-//walk a folder called borders or something. One folder per drawable type
-//Create arrays for each that map enum values to atlas uvs or colors, whatever
 pub const GuiConfig = struct {
     const Self = @This();
+    pub const ConfigJson = struct {
+        default_item_h: f32 = 20,
+        default_v_pad: graph.Padding = .{},
+        pixel_per_line: f32 = 20,
+        color_picker_size: Vec2f = .{ .x = 600, .y = 300 },
+        property_table_item_h: f32 = 20,
+
+        colors: struct {
+            pub const ColorWrap = struct {
+                child: u32,
+
+                pub fn jsonParse(alloc: std.mem.Allocator, source: anytype, options: std.json.ParseOptions) !@This() {
+                    const str = try std.json.innerParse([]const u8, alloc, source, options);
+                    const int = try std.fmt.parseInt(u32, str, 0);
+                    return .{ .child = int };
+                }
+            };
+            button_text: u32 = 0xff,
+            text_highlight: u32 = 0xccccffff,
+
+            fn createWrapperType() type {
+                const ch: @This() = .{};
+                const info = @typeInfo(@This());
+                var fields: [info.Struct.fields.len]std.builtin.Type.StructField = undefined;
+                inline for (info.Struct.fields, 0..) |field, i| {
+                    if (field.type != u32)
+                        @compileError("color not an int");
+                    const default = ColorWrap{ .child = @field(ch, field.name) };
+                    fields[i] = .{
+                        .name = field.name,
+                        .type = ColorWrap,
+                        .default_value = &default,
+                        .is_comptime = false,
+                        .alignment = @alignOf(ColorWrap),
+                    };
+                }
+
+                return @Type(std.builtin.Type{ .Struct = .{
+                    .layout = .auto,
+                    .fields = &fields,
+                    .decls = &.{},
+                    .is_tuple = false,
+                } });
+            }
+            const JT = createWrapperType();
+
+            pub fn jsonParse(alloc: std.mem.Allocator, source: anytype, options: std.json.ParseOptions) !@This() {
+                const wrap = try std.json.innerParse(JT, alloc, source, options);
+                var ret: @This() = .{};
+                inline for (@typeInfo(@This()).Struct.fields) |f| {
+                    @field(ret, f.name) = @field(wrap, f.name).child;
+                }
+                return ret;
+            }
+        } = .{},
+    };
+
     pub const Style9Slices = enum {
         tab_border,
         tab_active,
@@ -1766,6 +1816,8 @@ pub const GuiConfig = struct {
         radio,
         radio_active,
         button,
+        button_disabled,
+        button_clicked,
         down_arrow,
         combo_background,
         combo_button,
@@ -1777,15 +1829,13 @@ pub const GuiConfig = struct {
         err,
         basic_inset,
         window_inner,
-        inset,
-        os9line,
-        etc,
         checkbox_empty,
         checkbox_checked,
     };
 
     //Map Style9Slices to rects
     nineSliceLut: std.ArrayList(Rect),
+    config: ConfigJson = .{},
     texture: graph.Texture,
 
     pub fn init(alloc: std.mem.Allocator, dir: std.fs.Dir, path: []const u8) !Self {
@@ -1802,6 +1852,7 @@ pub const GuiConfig = struct {
             .nineSliceLut = std.ArrayList(Rect).init(alloc),
             .texture = try graph.AssetBake.AssetMap.initTextureFromManifest(alloc, dir, "mani"),
         };
+        errdefer ret.deinit();
         try ret.nineSliceLut.resize(@typeInfo(Style9Slices).Enum.fields.len);
         var found = std.ArrayList(bool).init(alloc);
         defer found.deinit();
@@ -1810,7 +1861,6 @@ pub const GuiConfig = struct {
             if (l) |name| {
                 if (std.mem.startsWith(u8, name, "nineSlice/") and std.mem.endsWith(u8, name, ".png")) {
                     const str = name["nineSlice/".len .. name.len - ".png".len];
-                    std.debug.print("iARCHCR CH {s}\n", .{str});
                     if (std.meta.stringToEnum(Style9Slices, str)) |enum_v| {
                         ret.nineSliceLut.items[@intFromEnum(enum_v)] = manifest.resource_rect_lut.items[id].?;
                         found.items[@intFromEnum(enum_v)] = true;
@@ -1822,6 +1872,22 @@ pub const GuiConfig = struct {
             if (!f) {
                 std.debug.print("WARNING key not found: {s}\n", .{@tagName(@as(Style9Slices, @enumFromInt(i)))});
             }
+        }
+
+        var user = try manifest.loadUserResources();
+        defer user.deinit();
+        if (user.name_map.get("gui_config.json")) |conf| {
+            const j = std.json.parseFromSlice(ConfigJson, alloc, conf, .{}) catch |err| switch (err) {
+                error.UnknownField => {
+                    std.debug.print("Encountered unknown field when parsing gui_config.json\n", .{});
+                    return err;
+                },
+                else => return err,
+            };
+            defer j.deinit();
+            ret.config = j.value;
+        } else {
+            std.debug.print("COULD NOT FIND GUI CONFIG\n", .{});
         }
 
         return ret;
@@ -1922,14 +1988,6 @@ pub const Os9Gui = struct {
         return @Type(std.builtin.Type{ .Enum = .{ .tag_type = i32, .fields = &fields, .decls = &.{}, .is_exhaustive = true } });
     }
 
-    //Each field corresponds to a field.png
-
-    //Each field corresponds to a key in colors.json
-    pub const StyleColors = enum {
-        textbox_highlight,
-        textbox,
-    };
-
     const SampleEnum = enum {
         first_one,
         val1,
@@ -1959,41 +2017,21 @@ pub const Os9Gui = struct {
     };
 
     //TODO remove all of these and use AssetMap instead
-    const blue = itc(0xccccffff);
 
     //const window9 = Rec(6, 6, 6, 6);
 
-    const text_disabled = itc(0x222222ff);
+    const text_disabled = (0x222222ff);
 
     //pub const os9win = Rec(0, 12, 6, 6);
     const os9in = Rec(6, 12, 6, 6);
     const os9line = Rec(0, 18, 6, 6);
-    const os9drop = Rec(6, 18, 6, 6);
     const os9btn = Rec(12, 0, 12, 12);
     const os9btn_disable = Rec(26, 37, 12, 12);
-    const os9nurl = Rec(24, 0, 6, 12);
-    const os9dropbtn = Rec(31, 0, 20, 16);
     const os9slider = Rec(0, 24, 3, 3);
     const os9shuttle = Rec(0, 30, 19, 14);
-    const os9checkbox = Rec(12, 12, 12, 12);
-    const os9check = Rec(24, 24, 12, 12);
 
-    const os9tabstart = Rec(55, 0, 11, 21);
-    const os9tabend = Rec(72, 0, 11, 21);
-    const os9tabmid = Rec(66, 0, 6, 21);
-
-    const os9tabstart_active = Rec(55, 24, 11, 21);
-    const os9tabend_active = Rec(72, 24, 11, 21);
-    const os9tabmid_active = Rec(66, 24, 6, 21);
-
-    const os9tabactive = Rec(116, 0, 9, 9);
-    const os9tabinactive = Rec(107, 0, 9, 9);
-
-    const os9tabborder = Rec(42, 24, 9, 9);
-    const os9scrollinner = Rec(0, 44, 8, 8);
     const os9scrollhandle = Rec(9, 44, 14, 15);
     const os9scrollw = 16;
-    const os9handleoffset = 1;
     const os9hr = Rec(88, 0, 1, 2);
 
     const win_warning = Rec(0, 60, 32, 32);
@@ -2072,7 +2110,6 @@ pub const Os9Gui = struct {
             const _br = self.style.getRect(.window);
             const border_area = win_area.inset((_br.h / 3) * self.scale);
             //const area = border_area.inset(6 * self.scale);
-            self.gui.drawRectFilled(win_area, itc(0x222222ff));
             self.gui.draw9Slice(win_area, _br, self.style.texture, self.scale);
             //self.gui.draw9Slice(border_area, Os9Gui.os9in, self.style.texture, self.scale);
             _ = try self.gui.beginLayout(Gui.SubRectLayout, .{ .rect = border_area }, .{});
@@ -2087,7 +2124,7 @@ pub const Os9Gui = struct {
     }
 
     pub fn beginV(self: *Self) !*Gui.VerticalLayout {
-        const VLP = Gui.VerticalLayout{ .item_height = 20 * self.scale, .padding = .{ .bottom = 6 * self.scale } };
+        const VLP = Gui.VerticalLayout{ .item_height = self.style.config.default_item_h * self.scale, .padding = self.style.config.default_v_pad.scale(self.scale) };
         return try self.gui.beginLayout(Gui.VerticalLayout, VLP, .{});
     }
 
@@ -2134,12 +2171,11 @@ pub const Os9Gui = struct {
     pub fn endScroll(self: *Self, d: anytype, omax: f32) void {
         const max = omax - d.area.h;
         const sd = d.scroll;
-        const w = self.gui.getWindow();
         if (max > 0) {
-            if (self.gui.mouse_grab_id == null and !self.gui.scroll_claimed_mouse and w.scroll_bounds.?.containsPoint(self.gui.input_state.mouse_pos)) {
-                self.gui.scroll_claimed_mouse = true;
-                const pixel_per_line = 20 * self.scale;
-                sd.offset.y = std.math.clamp(sd.offset.y + self.gui.input_state.mouse_wheel_delta * -pixel_per_line * 3, 0, max);
+            if (self.gui.getMouseWheelDelta()) |del| {
+                //if (self.gui.mouse_grab_id == null and !self.gui.scroll_claimed_mouse and w.scroll_bounds.?.containsPoint(self.gui.input_state.mouse_pos) and self.gui.window_index_grabbed_mouse == self.gui.window_index.?) {
+                const pixel_per_line = self.style.config.pixel_per_line * self.scale;
+                sd.offset.y = std.math.clamp(sd.offset.y + del * -pixel_per_line * 3, 0, max);
             }
         }
         self.gui.endLayout();
@@ -2175,12 +2211,11 @@ pub const Os9Gui = struct {
     pub fn endVScroll(self: *Self, scroll_data: Gui.Context.VLayoutScrollData) void {
         const sd = scroll_data.data;
         const max = scroll_data.layout.current_h - scroll_data.area.h;
-        const w = self.gui.getWindow();
         if (max > 0) {
-            if (self.gui.mouse_grab_id == null and !self.gui.scroll_claimed_mouse and w.scroll_bounds.?.containsPoint(self.gui.input_state.mouse_pos)) {
-                self.gui.scroll_claimed_mouse = true;
-                const pixel_per_line = 20 * self.scale;
-                sd.offset.y = std.math.clamp(sd.offset.y + self.gui.input_state.mouse_wheel_delta * -pixel_per_line * 3, 0, max);
+            if (self.gui.getMouseWheelDelta()) |del| {
+                //if (self.gui.mouse_grab_id == null and !self.gui.scroll_claimed_mouse and w.scroll_bounds.?.containsPoint(self.gui.input_state.mouse_pos)) {
+                const pixel_per_line = self.style.config.pixel_per_line * self.scale;
+                sd.offset.y = std.math.clamp(sd.offset.y + del * -pixel_per_line * 3, 0, max);
             }
         }
         self.gui.endLayout();
@@ -2264,149 +2299,157 @@ pub const Os9Gui = struct {
         self.endL();
     }
 
-    pub fn tabs_(self: *Self, comptime list_type: type, selected: *list_type) !list_type {
-        const gui = &self.gui;
-        const info = @typeInfo(list_type);
-        const fields = info.Enum.fields;
-        _ = try gui.beginLayout(Gui.HorizLayout, .{ .count = fields.len, .paddingh = 0 }, .{});
-        defer gui.endLayout();
-        inline for (fields) |field| {
-            const active = @as(info.Enum.tag_type, @intFromEnum(selected.*)) == field.value;
-            const area = gui.getArea() orelse return selected.*;
-            const click = gui.clickWidget(area);
-            if (click == .click)
-                selected.* = @as(list_type, @enumFromInt(field.value));
-            const sta = if (active) os9tabstart_active else os9tabstart;
-            const end = if (active) os9tabend_active else os9tabend;
-            const mid = if (active) os9tabmid_active else os9tabmid;
-            gui.drawRectTextured(
-                Rec(area.x, area.y, sta.w * self.scale, area.h),
-                Color.White,
-                sta,
-                self.style.texture,
-            );
-            gui.drawRectTextured(
-                Rec(area.x + area.w - end.w * self.scale, area.y, end.w * self.scale, area.h),
-                Color.White,
-                end,
-                self.style.texture,
-            );
-            const mida = Rec(area.x + sta.w * self.scale, area.y, area.w - (end.w + sta.w) * self.scale, area.h);
-            gui.drawRectTextured(
-                mida,
-                Color.White,
-                mid,
-                self.style.texture,
-            );
-            //const tbounds = self.font.textBounds(field.name);
-            gui.drawText(field.name, mida.pos().add(.{ .x = 0, .y = 4 * self.scale }), mida.h - 4 * self.scale, Color.Black, &self.font);
-
-            //if (self.buttonEx(.{
-            //    .name = field.name,
-            //})) {
-            //    selected.* = @as(list_type, @enumFromInt(field.value));
-            //}
-        }
-
-        return selected.*;
-    }
-
     pub fn colorPicker(self: *Self, color: *graph.Hsva) !void {
         if (self.gui.getArea()) |area| {
             _ = try self.gui.beginLayout(Gui.SubRectLayout, .{ .rect = area }, .{});
             defer self.gui.endLayout();
             const scr = try self.gui.storeLayoutData(bool, false, "popped_");
-            self.gui.drawRectFilled(area, color.toCharColor());
+            self.gui.drawRectFilled(area, color.toInt());
             const d = self.gui.buttonGeneric();
             if (d.state == .click)
                 scr.* = true;
             if (scr.*) {
-                const r = Rec(d.area.x, d.area.y, 300 * self.scale, 300 * self.scale);
+                const sz = self.style.config.color_picker_size;
+                const r = Rec(d.area.x, d.area.y, sz.x * self.scale, sz.y * self.scale);
                 if (!(d.state == .click) and self.gui.input_state.mouse_left_clicked and !self.gui.isCursorInRect(r) and self.gui.window_index_grabbed_mouse == self.gui.window_index.?)
                     scr.* = false;
                 if (try self.beginTlWindow(r)) {
                     defer self.endTlWindow();
-                    const ar = self.gui.getArea() orelse return;
-                    const pad = self.scale * 5;
-                    const slider_w = 40 * self.scale;
-                    const sv_area = Rec(ar.x, ar.y, ar.w - (slider_w + pad) * 1, ar.h);
-                    const hs = 15;
-                    var sv_handle = Rect.new(sv_area.x + color.s * sv_area.w - hs / 2, sv_area.y + (1.0 - color.v) * sv_area.h - hs / 2, hs, hs);
-                    const clicked = self.gui.clickWidgetEx(sv_handle, .{ .teleport_area = sv_area }).click;
-                    const mpos = self.gui.input_state.mouse_pos;
-                    switch (clicked) {
-                        .click, .held => {
-                            const mdel = self.gui.input_state.mouse_delta;
+                    _ = try self.beginH(2);
+                    defer self.endL();
+                    {
+                        const ar = self.gui.getArea() orelse return;
+                        const pad = self.scale * 5;
+                        const slider_w = 40 * self.scale;
+                        const sv_area = Rec(ar.x, ar.y, ar.w - (slider_w + pad) * 1, ar.h);
+                        const hs = 15;
+                        var sv_handle = Rect.new(sv_area.x + color.s * sv_area.w - hs / 2, sv_area.y + (1.0 - color.v) * sv_area.h - hs / 2, hs, hs);
+                        const clicked = self.gui.clickWidgetEx(sv_handle, .{ .teleport_area = sv_area }).click;
+                        const mpos = self.gui.input_state.mouse_pos;
+                        switch (clicked) {
+                            .click, .held => {
+                                const mdel = self.gui.input_state.mouse_delta;
 
-                            color.s += mdel.x / sv_area.w;
-                            color.v += -mdel.y / sv_area.h;
+                                color.s += mdel.x / sv_area.w;
+                                color.v += -mdel.y / sv_area.h;
 
-                            color.s = std.math.clamp(color.s, 0, 1);
-                            color.v = std.math.clamp(color.v, 0, 1);
+                                color.s = std.math.clamp(color.s, 0, 1);
+                                color.v = std.math.clamp(color.v, 0, 1);
 
-                            if (mpos.x > sv_area.x + sv_area.w)
-                                color.s = 1.0;
-                            if (mpos.x < sv_area.x)
-                                color.s = 0.0;
+                                if (mpos.x > sv_area.x + sv_area.w)
+                                    color.s = 1.0;
+                                if (mpos.x < sv_area.x)
+                                    color.s = 0.0;
 
-                            if (mpos.y > sv_area.y + sv_area.h)
-                                color.v = 0.0;
-                            if (mpos.y < sv_area.y)
-                                color.v = 1.0;
-                        },
-                        .click_teleport => {
-                            color.s = (mpos.x - sv_area.x) / sv_area.w;
-                            color.v = (1.0 - (mpos.y - sv_area.y) / sv_area.h);
-                            color.s = std.math.clamp(color.s, 0, 1);
-                            color.v = std.math.clamp(color.v, 0, 1);
-                        },
+                                if (mpos.y > sv_area.y + sv_area.h)
+                                    color.v = 0.0;
+                                if (mpos.y < sv_area.y)
+                                    color.v = 1.0;
+                            },
+                            .click_teleport => {
+                                color.s = (mpos.x - sv_area.x) / sv_area.w;
+                                color.v = (1.0 - (mpos.y - sv_area.y) / sv_area.h);
+                                color.s = std.math.clamp(color.s, 0, 1);
+                                color.v = std.math.clamp(color.v, 0, 1);
+                            },
 
-                        else => {},
-                    }
-                    sv_handle = Rect.new(sv_area.x + color.s * sv_area.w - hs / 2, sv_area.y + (1.0 - color.v) * sv_area.h - hs / 2, hs, hs);
-                    const h_area = Rec(sv_area.x + sv_area.w + pad, ar.y, slider_w, ar.h);
-                    const hue_handle_height = 15;
-                    var hue_handle = Rect.new(h_area.x, h_area.y + h_area.h * color.h / 360.0 - hue_handle_height / 2, h_area.w, hue_handle_height);
-                    const hue_clicked = self.gui.clickWidgetEx(hue_handle, .{ .teleport_area = h_area }).click;
-                    switch (hue_clicked) {
-                        .click, .held => {
-                            const mdel = self.gui.input_state.mouse_delta;
-                            color.h += 360 * mdel.y / h_area.h;
-                            color.h = std.math.clamp(color.h, 0, 360);
-
-                            if (self.gui.input_state.mouse_pos.y > h_area.y + h_area.h)
-                                color.h = 360.0;
-                            if (self.gui.input_state.mouse_pos.y < h_area.y)
-                                color.h = 0.0;
-                        },
-                        .click_teleport => {
-                            color.h = (mpos.y - h_area.y) / h_area.h * 360.0;
-                        },
-                        else => {},
-                    }
-                    hue_handle = Rect.new(h_area.x, h_area.y + h_area.h * color.h / 360.0 - hue_handle_height / 2, h_area.w, hue_handle_height);
-                    //Ported from Nuklear
-                    { //Hue slider
-                        const Col = graph.CharColor.new;
-                        const hue_colors: [7]Color = .{ Col(255, 0, 0, 255), Col(255, 255, 0, 255), Col(0, 255, 0, 255), Col(0, 255, 255, 255), Col(0, 0, 255, 255), Col(255, 0, 255, 255), Col(255, 0, 0, 255) };
-                        var i: u32 = 0;
-                        while (i < 6) : (i += 1) {
-                            const fi = @as(f32, @floatFromInt(i));
-                            self.gui.drawRectMultiColor(Rect.new(h_area.x, h_area.y + fi * h_area.h / 6.0, h_area.w, h_area.h / 6.0), .{
-                                hue_colors[i], // 1
-                                hue_colors[i + 1], //3
-                                hue_colors[i + 1], //4
-                                hue_colors[i], //2
-                            });
+                            else => {},
                         }
+                        sv_handle = Rect.new(sv_area.x + color.s * sv_area.w - hs / 2, sv_area.y + (1.0 - color.v) * sv_area.h - hs / 2, hs, hs);
+                        const h_area = Rec(sv_area.x + sv_area.w + pad, ar.y, slider_w, ar.h);
+                        const hue_handle_height = 15;
+                        var hue_handle = Rect.new(h_area.x, h_area.y + h_area.h * color.h / 360.0 - hue_handle_height / 2, h_area.w, hue_handle_height);
+                        const hue_clicked = self.gui.clickWidgetEx(hue_handle, .{ .teleport_area = h_area }).click;
+                        switch (hue_clicked) {
+                            .click, .held => {
+                                const mdel = self.gui.input_state.mouse_delta;
+                                color.h += 360 * mdel.y / h_area.h;
+                                color.h = std.math.clamp(color.h, 0, 360);
+
+                                if (self.gui.input_state.mouse_pos.y > h_area.y + h_area.h)
+                                    color.h = 360.0;
+                                if (self.gui.input_state.mouse_pos.y < h_area.y)
+                                    color.h = 0.0;
+                            },
+                            .click_teleport => {
+                                color.h = (mpos.y - h_area.y) / h_area.h * 360.0;
+                            },
+                            else => {},
+                        }
+                        hue_handle = Rect.new(h_area.x, h_area.y + h_area.h * color.h / 360.0 - hue_handle_height / 2, h_area.w, hue_handle_height);
+                        //Ported from Nuklear
+                        { //Hue slider
+                            //const hue_colors: [7]u32 = .{ Col(255, 0, 0, 255), Col(255, 255, 0, 255), Col(0, 255, 0, 255), Col(0, 255, 255, 255), Col(0, 0, 255, 255), Col(255, 0, 255, 255), Col(255, 0, 0, 255) };
+                            const hue_colors: [7]u32 = .{ 0xff0000ff, 0xffff00ff, 0x00ff00ff, 0x00ffffff, 0xffff, 0xff00ffff, 0xff0000ff };
+                            var i: u32 = 0;
+                            while (i < 6) : (i += 1) {
+                                const fi = @as(f32, @floatFromInt(i));
+                                self.gui.drawRectMultiColor(Rect.new(h_area.x, h_area.y + fi * h_area.h / 6.0, h_area.w, h_area.h / 6.0), .{
+                                    hue_colors[i], // 1
+                                    hue_colors[i + 1], //3
+                                    hue_colors[i + 1], //4
+                                    hue_colors[i], //2
+                                });
+                            }
+                        }
+                        const temp = (graph.Hsva{ .h = color.h, .s = 1, .v = 1, .a = 1 }).toInt();
+                        const black_trans = 0;
+                        self.gui.drawRectMultiColor(sv_area, .{ Color.Black, Color.Black, Color.Black, Color.Black });
+                        self.gui.drawRectMultiColor(sv_area, .{ Color.White, Color.White, temp, temp });
+                        self.gui.drawRectMultiColor(sv_area, .{ black_trans, Color.Black, Color.Black, black_trans });
+                        self.gui.drawRectFilled(sv_handle, Color.Black);
+                        self.gui.drawRectFilled(hue_handle, Color.Black);
                     }
-                    const temp = (graph.Hsva{ .h = color.h, .s = 1, .v = 1, .a = 1 }).toCharColor();
-                    const black_trans = Color{ .r = 0, .g = 0, .b = 0, .a = 0 };
-                    self.gui.drawRectMultiColor(sv_area, .{ Color.Black, Color.Black, Color.Black, Color.Black });
-                    self.gui.drawRectMultiColor(sv_area, .{ Color.White, Color.White, temp, temp });
-                    self.gui.drawRectMultiColor(sv_area, .{ black_trans, Color.Black, Color.Black, black_trans });
-                    self.gui.drawRectFilled(sv_handle, Color.Black);
-                    self.gui.drawRectFilled(hue_handle, Color.Black);
+
+                    {
+                        var vl = try self.beginV();
+                        defer self.endL();
+                        {
+                            _ = try self.beginH(3);
+                            defer self.endL();
+                            self.label("Hue", .{});
+                            self.slider(&color.h, 0, 360);
+                            try self.textboxNumber(&color.h);
+                        }
+                        {
+                            _ = try self.beginH(3);
+                            defer self.endL();
+                            self.label("Saturation", .{});
+                            self.slider(&color.s, 0, 1);
+                            try self.textboxNumber(&color.s);
+                        }
+                        {
+                            _ = try self.beginH(3);
+                            defer self.endL();
+                            self.label("Value", .{});
+                            self.slider(&color.v, 0, 1);
+                            try self.textboxNumber(&color.v);
+                        }
+                        {
+                            _ = try self.beginH(3);
+                            defer self.endL();
+                            self.label("Alpha", .{});
+                            self.slider(&color.a, 0, 1);
+                            try self.textboxNumber(&color.v);
+                        }
+                        {
+                            var buf: [16]u8 = undefined;
+                            var sb = StaticTextbox.init(&buf);
+                            try self.textbox2(&sb, .{});
+                            if (sb.len > 0) {
+                                _ = blk: {
+                                    const newcolor = graph.Hsva.fromInt((std.fmt.parseInt(u32, buf[0..sb.len], 0) catch |err| switch (err) {
+                                        else => break :blk,
+                                    } << 8) | 0xff);
+                                    color.* = newcolor;
+                                };
+                            }
+                        }
+                        vl.pushRemaining();
+                        const ar3 = self.gui.getArea() orelse return;
+                        self.gui.drawRectFilled(ar3, 0xff);
+                        self.gui.drawRectFilled(ar3, color.toInt());
+                    }
                 }
             }
         }
@@ -2421,7 +2464,7 @@ pub const Os9Gui = struct {
         const info = @typeInfo(ptype);
         if (info != .Struct) @compileError(invalid);
         const num_lines = info.Struct.fields.len;
-        const item_height = 35;
+        const item_height = self.scale * self.style.config.property_table_item_h;
         const ar = self.gui.getArea() orelse return;
         self.gui.draw9Slice(ar, self.style.getRect(.basic_inset), self.style.texture, self.scale);
         const in = ar.inset(3 * self.scale);
@@ -2448,7 +2491,7 @@ pub const Os9Gui = struct {
             //_ = try self.gui.beginLayout(Gui.VerticalLayout, .{ .item_height = 35 }, .{});
             if (self.gui.layout.last_requested_bounds) |lrq| {
                 const lx = lrq.w / 2 + lrq.x;
-                self.gui.drawLine(.{ .x = lx, .y = lrq.y }, .{ .x = lx, .y = lrq.y + lrq.h }, itc(0xff));
+                self.gui.drawLine(.{ .x = lx, .y = lrq.y }, .{ .x = lx, .y = lrq.y + lrq.h }, (0xff));
                 inline for (info.Struct.fields) |f| {
                     self.label("{s}, {s}", .{ f.name, @typeName(f.type) });
                     try self.editProperty(f.type, &@field(to_edit, f.name), f.name, 0);
@@ -2457,11 +2500,10 @@ pub const Os9Gui = struct {
             self.gui.endLayout();
         }
         if (do_scroll) {
-            const w = self.gui.getWindow();
-            if (self.gui.mouse_grab_id == null and !self.gui.scroll_claimed_mouse and w.scroll_bounds.?.containsPoint(self.gui.input_state.mouse_pos)) {
-                self.gui.scroll_claimed_mouse = true;
-                const pixel_per_line = 20 * self.scale;
-                scr.y = std.math.clamp(scr.y + self.gui.input_state.mouse_wheel_delta * -pixel_per_line * 3, 0, 1000);
+            if (self.gui.getMouseWheelDelta()) |del| {
+                //if (self.gui.mouse_grab_id == null and !self.gui.scroll_claimed_mouse and w.scroll_bounds.?.containsPoint(self.gui.input_state.mouse_pos)) {
+                const pixel_per_line = self.style.config.pixel_per_line * self.scale;
+                scr.y = std.math.clamp(scr.y + del * -pixel_per_line * 3, 0, 1000);
             }
             self.gui.endScroll();
             if (sd.?.scroll.vertical_slider_area) |va| {
@@ -2587,12 +2629,13 @@ pub const Os9Gui = struct {
         const gui = &self.gui;
         const d = gui.buttonGeneric();
         const sl = switch (d.state) {
-            .none, .hover => self.style.getRect(.button),
-            .click, .held => self.style.getRect(.basic_inset),
+            .none, .hover, .hover_no_focus => self.style.getRect(.button),
+            .click, .held => self.style.getRect(.button_clicked),
             else => os9btn,
         };
-        const sl1 = if (params.disabled) os9btn_disable else sl;
-        const color = if (params.disabled) text_disabled else Color.Black;
+        const disable = self.style.getRect(.button_disabled);
+        const sl1 = if (params.disabled) disable else sl;
+        const color = if (params.disabled) text_disabled else (self.style.config.colors.button_text);
         gui.draw9Slice(d.area, sl1, self.style.texture, self.scale);
         const texta = d.area.inset(3 * self.scale);
         gui.drawTextFmt(fmt, args, texta, texta.h, color, .{ .justify = .center }, &self.font);
@@ -2650,7 +2693,7 @@ pub const Os9Gui = struct {
                 }
             }
             gui.draw9Slice(d.handle, shuttle, self.style.texture, self.scale);
-            gui.drawTextFmt("{d:.2}", .{value.*}, textb, textb.h, itc(0xff), .{ .justify = .center }, &self.font);
+            gui.drawTextFmt("{d:.2}", .{value.*}, textb, textb.h, (0xff), .{ .justify = .center }, &self.font);
             //gui.draw9Slice(d.handle, os9shuttle, self.style.texture, self.scale);
         }
     }
@@ -2727,7 +2770,7 @@ pub const Os9Gui = struct {
             const cb = self.style.getRect(.combo_background);
             self.gui.draw9Slice(d.area, cb, self.style.texture, self.scale);
             const texta = d.area.inset(cb.w / 3 * self.scale);
-            self.gui.drawTextFmt(fmt, args, texta, texta.h, itc(0xff), .{ .justify = .center }, &self.font);
+            self.gui.drawTextFmt(fmt, args, texta, texta.h, 0xff, .{ .justify = .center }, &self.font);
             const cbb = self.style.getRect(.combo_button);
             const da = self.style.getRect(.down_arrow);
             const cbbr = d.area.replace(d.area.x + d.area.w - cbb.w * self.scale, null, cbb.w * self.scale, null).centerR(da.w * self.scale, da.h * self.scale);
@@ -2763,8 +2806,8 @@ pub const Os9Gui = struct {
                     //const ar = dd_area.inset(14 * self.scale);
                     _ = try self.gui.beginLayout(Gui.SubRectLayout, .{ .rect = ar }, .{});
                     defer self.gui.endLayout();
-                    if (try self.beginVScroll(&self.drop_down_scroll, .{ .sw = ar.w })) |file_scroll| {
-                        defer self.endVScroll(file_scroll);
+                    if (try self.beginScroll(&self.drop_down_scroll, .{ .sw = ar.w }, Gui.VerticalLayout{ .item_height = 20 * self.scale })) |file_scroll| {
+                        defer self.endScroll(file_scroll, file_scroll.child.current_h);
                         inline for (enum_info.Enum.fields) |f| {
                             if (self.buttonEx("{s}", .{f.name}, .{})) {
                                 enum_value.* = @enumFromInt(f.value);
@@ -2783,14 +2826,14 @@ pub const Os9Gui = struct {
             const tr = d.text_area;
             gui.draw9Slice(d.area, self.style.getRect(.basic_inset), self.style.texture, self.scale);
             if (d.is_invalid)
-                gui.drawRectFilled(d.text_area, itc(0xff000086));
+                gui.drawRectFilled(d.text_area, 0xff000086);
             gui.drawTextFmt("{s}", .{d.slice}, d.text_area, d.text_area.h, Color.Black, .{}, &self.font);
             gui.drawRectFilled(Rect.new(
                 d.selection_pos_min + d.text_area.x,
                 d.text_area.y,
                 d.selection_pos_max - d.selection_pos_min,
                 d.text_area.h,
-            ), itc(0x0000ff55));
+            ), 0x0000ff55);
             if (d.caret) |of| {
                 gui.drawRectFilled(Rect.new(of + tr.x, tr.y + 2, 3, tr.h - 4), Color.Black);
             }
@@ -2814,21 +2857,21 @@ pub const Os9Gui = struct {
             const a = self.gui.getArea() orelse return;
             const tr = a.inset(3 * self.scale);
             gui.draw9Slice(a, self.style.getRect(.basic_inset), self.style.texture, self.scale);
-            gui.drawTextFmt("{s}", .{tb.getSlice()}, tr, tr.h, itc(0x00aa), .{}, &self.font);
-            gui.drawRectFilled(a, itc(0xffffff75));
+            gui.drawTextFmt("{s}", .{tb.getSlice()}, tr, tr.h, 0x00aa, .{}, &self.font);
+            gui.drawRectFilled(a, 0xffffff75);
             return;
         }
         if (try gui.textboxGeneric2(tb, &self.font, .{ .text_inset = 3 * self.scale })) |d| {
             const tr = d.text_area;
             gui.draw9Slice(d.area, self.style.getRect(.basic_inset), self.style.texture, self.scale);
             if (params.invalid)
-                gui.drawRectFilled(tr, itc(0xff0000ff));
+                gui.drawRectFilled(tr, 0xff0000ff);
             gui.drawRectFilled(Rect.new(
                 d.selection_pos_min + d.text_area.x,
                 d.text_area.y,
                 d.selection_pos_max - d.selection_pos_min,
                 d.text_area.h,
-            ), itc(0x26c0efff));
+            ), self.style.config.colors.text_highlight);
             gui.drawTextFmt("{s}", .{d.slice}, d.text_area, d.text_area.h, Color.Black, .{}, &self.font);
             if (d.caret) |of| {
                 gui.drawRectFilled(Rect.new(of + tr.x, tr.y + 2, 3, tr.h - 4), Color.Black);
@@ -2845,22 +2888,22 @@ pub const Os9Gui = struct {
             const a = self.gui.getArea() orelse return;
             const tr = a.inset(3 * self.scale);
             gui.draw9Slice(a, self.style.getRect(.basic_inset), self.style.texture, self.scale);
-            gui.drawTextFmt("{s}", .{contents.items}, tr, tr.h, itc(0x00aa), .{}, &self.font);
-            gui.drawRectFilled(a, itc(0xffffff75));
+            gui.drawTextFmt("{s}", .{contents.items}, tr, tr.h, 0x00aa, .{}, &self.font);
+            gui.drawRectFilled(a, 0xffffff75);
             return;
         }
         if (try gui.textboxGeneric(contents, &self.font, .{ .text_inset = 3 * self.scale })) |d| {
             const tr = d.text_area;
             gui.draw9Slice(d.area, self.style.getRect(.basic_inset), self.style.texture, self.scale);
             if (params.invalid)
-                gui.drawRectFilled(tr, itc(0xff0000ff));
+                gui.drawRectFilled(tr, 0xff0000ff);
             gui.drawTextFmt("{s}", .{d.slice}, d.text_area, d.text_area.h, Color.Black, .{}, &self.font);
             gui.drawRectFilled(Rect.new(
                 d.selection_pos_min + d.text_area.x,
                 d.text_area.y,
                 d.selection_pos_max - d.selection_pos_min,
                 d.text_area.h,
-            ), itc(0x0000ff55));
+            ), 0x0000ff55);
             if (d.caret) |of| {
                 gui.drawRectFilled(Rect.new(of + tr.x, tr.y + 2, 3, tr.h - 4), Color.Black);
             }
@@ -3003,7 +3046,7 @@ pub const GuiTest = struct {
                     const a = gui.getArea() orelse break :blk;
                     gui.drawRectFilled(
                         graph.Rec(a.x, a.y, a.w * @as(f32, @floatFromInt(tt)) / @as(f32, @floatFromInt(self.max_time)), a.h),
-                        itc(0x44ff),
+                        0x44ff,
                     );
                 }
                 wrap.label("time: {d:.1}s", .{@as(f32, @floatFromInt(tt / std.time.ns_per_ms)) / 1000});
@@ -3062,7 +3105,7 @@ pub const GuiTest = struct {
                                 }
                                 if (self.selected_index) |si| {
                                     if (si == i)
-                                        gui.drawRectFilled(lr, itc(0xff22));
+                                        gui.drawRectFilled(lr, 0xff22);
                                 }
                             } else {
                                 num_ommitted += 1;
@@ -3313,6 +3356,7 @@ pub const Lua = struct {
 pub const TestConfig = struct {
     tab: enum { ptable, other, math } = .ptable,
     my_int: i32 = 0,
+    my_color: graph.Hsva = graph.Hsva.fromInt(0xef8825ff),
     my_bool: bool = false,
     item_height: f32 = 30,
     scale: f32 = 0.5,
@@ -3346,7 +3390,7 @@ pub fn main() anyerror!void {
     defer _ = gpa.detectLeaks();
     const alloc = gpa.allocator();
 
-    var current_app: enum { keyboard_display, filebrowser, atlas_edit, gtest, lua_test, crass, game_menu } = .crass;
+    var current_app: enum { keyboard_display, filebrowser, atlas_edit, gtest, crass, game_menu } = .crass;
     var arg_it = try std.process.ArgIterator.initWithAllocator(alloc);
     defer arg_it.deinit();
     const Arg = ArgUtil.Arg;
@@ -3359,7 +3403,7 @@ pub fn main() anyerror!void {
     if (cli_opts.app) |app|
         current_app = app;
 
-    const scale = if (cli_opts.scale) |s| s else 3.0;
+    const scale = if (cli_opts.scale) |s| s else 2.0;
     var win = try graph.SDL.Window.createWindow("My window", .{
         .double_buffer = true,
         .window_flags = &.{
@@ -3484,22 +3528,8 @@ pub fn main() anyerror!void {
         if (try os9gui.beginTlWindow(win_rect)) {
             defer os9gui.endTlWindow();
 
-            switch (current_app) {
+            switch (try os9gui.beginTabs(&current_app)) {
                 .keyboard_display => try kbd.update(&os9gui),
-                .lua_test => {
-                    const gui = &os9gui.gui;
-                    if (gui.getArea()) |win_area| {
-                        const border_area = win_area.inset(6 * os9_ctx.scale);
-                        const area = border_area.inset(6 * os9_ctx.scale);
-                        gui.draw9Slice(win_area, os9_ctx.style.getRect(.window_outer_small), os9_ctx.style.texture, os9_ctx.scale);
-                        gui.draw9Slice(border_area, Os9Gui.os9in, os9_ctx.style.texture, os9_ctx.scale);
-                        _ = try gui.beginLayout(Gui.SubRectLayout, .{ .rect = area }, .{});
-                        defer gui.endLayout();
-
-                        _ = lua.lua_getglobal(L, "docrap");
-                        Lua.checkError(L, lua.lua_pcallk(L, 0, 0, 0, 0, null));
-                    }
-                },
                 //.lua_test => try luaTest(alloc: std.mem.Allocator),
                 .atlas_edit => {
                     try atlas_editor.update(&os9gui);
@@ -3530,7 +3560,9 @@ pub fn main() anyerror!void {
                             defer os9gui.endVScroll(scr);
                             os9gui.slider(&tc.scale, 0.1, 4);
                             os9gui.slider(&tc.my_int, -10, 10);
+                            try os9gui.textboxNumber(&tc.my_int);
                             try os9gui.radio(&tc.tab);
+                            try os9gui.colorPicker(&tc.my_color);
 
                             try os9gui.enumCombo("filek", .{}, &tc.filek);
                             try os9gui.textboxNumber(&tc.scale);
@@ -3552,6 +3584,7 @@ pub fn main() anyerror!void {
                 },
                 .game_menu => try gamemenu.update(&os9gui),
             }
+            os9gui.endTabs();
             //if(false){
             //try gui.beginWindow(graph.Rec(0, 0, 1000, 1000));
             //    defer gui.endWindow();

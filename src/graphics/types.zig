@@ -446,158 +446,149 @@ pub const Camera3D = struct {
 };
 
 pub const Colori = struct {
-    pub const White = 0xffffffff;
-    pub const Black = 0x000000ff;
-    pub const Gray = 0x808080ff;
-    pub const DarkGray = 0xA9A9A9ff;
-    pub const Purple = 0x800080ff;
-    pub const Blue = 0x0000FFff;
-    pub const Red = 0xFF0000ff;
-    pub const Orange = 0xFFA500ff;
+    pub const DarkGreen: u32 = (0x006400ff);
+    pub const Green: u32 = (0x008000ff);
+    pub const DarkOliveGreen: u32 = (0x556B2Fff);
+    pub const ForestGreen: u32 = (0x228B22ff);
+    pub const SeaGreen: u32 = (0x2E8B57ff);
+    pub const Olive: u32 = (0x808000ff);
+    pub const OliveDrab: u32 = (0x6B8E23ff);
+    pub const MediumSeaGreen: u32 = (0x3CB371ff);
+    pub const LimeGreen: u32 = (0x32CD32ff);
+    pub const Lime: u32 = (0x00FF00ff);
+    pub const SpringGreen: u32 = (0x00FF7Fff);
+    pub const MediumSpringGreen: u32 = (0x00FA9Aff);
+    pub const DarkSeaGreen: u32 = (0x8FBC8Fff);
+    pub const MediumAquamarine: u32 = (0x66CDAAff);
+    pub const YellowGreen: u32 = (0x9ACD32ff);
+    pub const LawnGreen: u32 = (0x7CFC00ff);
+    pub const Chartreuse: u32 = (0x7FFF00ff);
+    pub const LightGreen: u32 = (0x90EE90ff);
+    pub const GreenYellow: u32 = (0xADFF2Fff);
+    pub const PaleGreen: u32 = (0x98FB98ff);
+    pub const MistyRose: u32 = (0xFFE4E1ff);
+    pub const AntiqueWhite: u32 = (0xFAEBD7ff);
+    pub const Linen: u32 = (0xFAF0E6ff);
+    pub const Beige: u32 = (0xF5F5DCff);
+    pub const WhiteSmoke: u32 = (0xF5F5F5ff);
+    pub const LavenderBlush: u32 = (0xFFF0F5ff);
+    pub const OldLace: u32 = (0xFDF5E6ff);
+    pub const AliceBlue: u32 = (0xF0F8FFff);
+    pub const Seashell: u32 = (0xFFF5EEff);
+    pub const GhostWhite: u32 = (0xF8F8FFff);
+    pub const Honeydew: u32 = (0xF0FFF0ff);
+    pub const FloralWhite: u32 = (0xFFFAF0ff);
+    pub const Azure: u32 = (0xF0FFFFff);
+    pub const MintCream: u32 = (0xF5FFFAff);
+    pub const Snow: u32 = (0xFFFAFAff);
+    pub const Ivory: u32 = (0xFFFFF0ff);
+    pub const White: u32 = (0xFFFFFFff);
+    pub const Black: u32 = (0x000000ff);
+    pub const DarkSlateGray: u32 = (0x2F4F4Fff);
+    pub const DimGray: u32 = (0x696969ff);
+    pub const SlateGray: u32 = (0x708090ff);
+    pub const Gray: u32 = (0x808080ff);
+    pub const LightSlateGray: u32 = (0x778899ff);
+    pub const DarkGray: u32 = (0xA9A9A9ff);
+    pub const Silver: u32 = (0xC0C0C0ff);
+    pub const LightGray: u32 = (0xD3D3D3ff);
+    pub const Gainsboro: u32 = (0xDCDCDCff);
+    pub const Indigo: u32 = (0x4B0082ff);
+    pub const Purple: u32 = (0x800080ff);
+    pub const DarkMagenta: u32 = (0x8B008Bff);
+    pub const DarkViolet: u32 = (0x9400D3ff);
+    pub const DarkSlateBlue: u32 = (0x483D8Bff);
+    pub const BlueViolet: u32 = (0x8A2BE2ff);
+    pub const DarkOrchid: u32 = (0x9932CCff);
+    pub const Fuchsia: u32 = (0xFF00FFff);
+    pub const Magenta: u32 = (0xFF00FFff);
+    pub const SlateBlue: u32 = (0x6A5ACDff);
+    pub const MediumSlateBlue: u32 = (0x7B68EEff);
+    pub const MediumOrchid: u32 = (0xBA55D3ff);
+    pub const MediumPurple: u32 = (0x9370DBff);
+    pub const Orchid: u32 = (0xDA70D6ff);
+    pub const Violet: u32 = (0xEE82EEff);
+    pub const Plum: u32 = (0xDDA0DDff);
+    pub const Thistle: u32 = (0xD8BFD8ff);
+    pub const Lavender: u32 = (0xE6E6FAff);
+    pub const MidnightBlue: u32 = (0x191970ff);
+    pub const Navy: u32 = (0x000080ff);
+    pub const DarkBlue: u32 = (0x00008Bff);
+    pub const MediumBlue: u32 = (0x0000CDff);
+    pub const Blue: u32 = (0x0000FFff);
+    pub const RoyalBlue: u32 = (0x4169E1ff);
+    pub const SteelBlue: u32 = (0x4682B4ff);
+    pub const DodgerBlue: u32 = (0x1E90FFff);
+    pub const DeepSkyBlue: u32 = (0x00BFFFff);
+    pub const CornflowerBlue: u32 = (0x6495EDff);
+    pub const SkyBlue: u32 = (0x87CEEBff);
+    pub const LightSkyBlue: u32 = (0x87CEFAff);
+    pub const LightSteelBlue: u32 = (0xB0C4DEff);
+    pub const LightBlue: u32 = (0xADD8E6ff);
+    pub const PowderBlue: u32 = (0xB0E0E6ff);
+    pub const Teal: u32 = (0x008080ff);
+    pub const DarkCyan: u32 = (0x008B8Bff);
+    pub const LightSeaGreen: u32 = (0x20B2AAff);
+    pub const CadetBlue: u32 = (0x5F9EA0ff);
+    pub const DarkTurquoise: u32 = (0x00CED1ff);
+    pub const MediumTurquoise: u32 = (0x48D1CCff);
+    pub const Turquoise: u32 = (0x40E0D0ff);
+    pub const Aqua: u32 = (0x00FFFFff);
+    pub const Cyan: u32 = (0x00FFFFff);
+    pub const Aquamarine: u32 = (0x7FFFD4ff);
+    pub const PaleTurquoise: u32 = (0xAFEEEEff);
+    pub const LightCyan: u32 = (0xE0FFFFff);
+    pub const MediumVioletRed: u32 = (0xC71585ff);
+    pub const DeepPink: u32 = (0xFF1493ff);
+    pub const PaleVioletRed: u32 = (0xDB7093ff);
+    pub const HotPink: u32 = (0xFF69B4ff);
+    pub const LightPink: u32 = (0xFFB6C1ff);
+    pub const Pink: u32 = (0xFFC0CBff);
+    pub const DarkRed: u32 = (0x8B0000ff);
+    pub const Red: u32 = (0xFF0000ff);
+    pub const Firebrick: u32 = (0xB22222ff);
+    pub const Crimson: u32 = (0xDC143Cff);
+    pub const IndianRed: u32 = (0xCD5C5Cff);
+    pub const LightCoral: u32 = (0xF08080ff);
+    pub const Salmon: u32 = (0xFA8072ff);
+    pub const DarkSalmon: u32 = (0xE9967Aff);
+    pub const LightSalmon: u32 = (0xFFA07Aff);
+    pub const OrangeRed: u32 = (0xFF4500ff);
+    pub const Tomato: u32 = (0xFF6347ff);
+    pub const DarkOrange: u32 = (0xFF8C00ff);
+    pub const Coral: u32 = (0xFF7F50ff);
+    pub const Orange: u32 = (0xFFA500ff);
+    pub const DarkKhaki: u32 = (0xBDB76Bff);
+    pub const Gold: u32 = (0xFFD700ff);
+    pub const Khaki: u32 = (0xF0E68Cff);
+    pub const PeachPuff: u32 = (0xFFDAB9ff);
+    pub const Yellow: u32 = (0xFFFF00ff);
+    pub const PaleGoldenrod: u32 = (0xEEE8AAff);
+    pub const Moccasin: u32 = (0xFFE4B5ff);
+    pub const PapayaWhip: u32 = (0xFFEFD5ff);
+    pub const LightGoldenrodYellow: u32 = (0xFAFAD2ff);
+    pub const LemonChiffon: u32 = (0xFFFACDff);
+    pub const LightYellow: u32 = (0xFFFFE0ff);
+    pub const Maroon: u32 = (0x800000ff);
+    pub const Brown: u32 = (0xA52A2Aff);
+    pub const SaddleBrown: u32 = (0x8B4513ff);
+    pub const Sienna: u32 = (0xA0522Dff);
+    pub const Chocolate: u32 = (0xD2691Eff);
+    pub const DarkGoldenrod: u32 = (0xB8860Bff);
+    pub const Peru: u32 = (0xCD853Fff);
+    pub const RosyBrown: u32 = (0xBC8F8Fff);
+    pub const Goldenrod: u32 = (0xDAA520ff);
+    pub const SandyBrown: u32 = (0xF4A460ff);
+    pub const Tan: u32 = (0xD2B48Cff);
+    pub const Burlywood: u32 = (0xDEB887ff);
+    pub const Wheat: u32 = (0xF5DEB3ff);
+    pub const NavajoWhite: u32 = (0xFFDEADff);
+    pub const Bisque: u32 = (0xFFE4C4ff);
+    pub const BlanchedAlmond: u32 = (0xFFEBCDff);
+    pub const Cornsilk: u32 = (0xFFF8DCff);
 };
 
 pub const CharColor = struct {
-    pub const DarkGreen = itc(0x006400ff);
-    pub const Green = itc(0x008000ff);
-    pub const DarkOliveGreen = itc(0x556B2Fff);
-    pub const ForestGreen = itc(0x228B22ff);
-    pub const SeaGreen = itc(0x2E8B57ff);
-    pub const Olive = itc(0x808000ff);
-    pub const OliveDrab = itc(0x6B8E23ff);
-    pub const MediumSeaGreen = itc(0x3CB371ff);
-    pub const LimeGreen = itc(0x32CD32ff);
-    pub const Lime = itc(0x00FF00ff);
-    pub const SpringGreen = itc(0x00FF7Fff);
-    pub const MediumSpringGreen = itc(0x00FA9Aff);
-    pub const DarkSeaGreen = itc(0x8FBC8Fff);
-    pub const MediumAquamarine = itc(0x66CDAAff);
-    pub const YellowGreen = itc(0x9ACD32ff);
-    pub const LawnGreen = itc(0x7CFC00ff);
-    pub const Chartreuse = itc(0x7FFF00ff);
-    pub const LightGreen = itc(0x90EE90ff);
-    pub const GreenYellow = itc(0xADFF2Fff);
-    pub const PaleGreen = itc(0x98FB98ff);
-    pub const MistyRose = itc(0xFFE4E1ff);
-    pub const AntiqueWhite = itc(0xFAEBD7ff);
-    pub const Linen = itc(0xFAF0E6ff);
-    pub const Beige = itc(0xF5F5DCff);
-    pub const WhiteSmoke = itc(0xF5F5F5ff);
-    pub const LavenderBlush = itc(0xFFF0F5ff);
-    pub const OldLace = itc(0xFDF5E6ff);
-    pub const AliceBlue = itc(0xF0F8FFff);
-    pub const Seashell = itc(0xFFF5EEff);
-    pub const GhostWhite = itc(0xF8F8FFff);
-    pub const Honeydew = itc(0xF0FFF0ff);
-    pub const FloralWhite = itc(0xFFFAF0ff);
-    pub const Azure = itc(0xF0FFFFff);
-    pub const MintCream = itc(0xF5FFFAff);
-    pub const Snow = itc(0xFFFAFAff);
-    pub const Ivory = itc(0xFFFFF0ff);
-    pub const White = itc(0xFFFFFFff);
-    pub const Black = itc(0x000000ff);
-    pub const DarkSlateGray = itc(0x2F4F4Fff);
-    pub const DimGray = itc(0x696969ff);
-    pub const SlateGray = itc(0x708090ff);
-    pub const Gray = itc(0x808080ff);
-    pub const LightSlateGray = itc(0x778899ff);
-    pub const DarkGray = itc(0xA9A9A9ff);
-    pub const Silver = itc(0xC0C0C0ff);
-    pub const LightGray = itc(0xD3D3D3ff);
-    pub const Gainsboro = itc(0xDCDCDCff);
-    pub const Indigo = itc(0x4B0082ff);
-    pub const Purple = itc(0x800080ff);
-    pub const DarkMagenta = itc(0x8B008Bff);
-    pub const DarkViolet = itc(0x9400D3ff);
-    pub const DarkSlateBlue = itc(0x483D8Bff);
-    pub const BlueViolet = itc(0x8A2BE2ff);
-    pub const DarkOrchid = itc(0x9932CCff);
-    pub const Fuchsia = itc(0xFF00FFff);
-    pub const Magenta = itc(0xFF00FFff);
-    pub const SlateBlue = itc(0x6A5ACDff);
-    pub const MediumSlateBlue = itc(0x7B68EEff);
-    pub const MediumOrchid = itc(0xBA55D3ff);
-    pub const MediumPurple = itc(0x9370DBff);
-    pub const Orchid = itc(0xDA70D6ff);
-    pub const Violet = itc(0xEE82EEff);
-    pub const Plum = itc(0xDDA0DDff);
-    pub const Thistle = itc(0xD8BFD8ff);
-    pub const Lavender = itc(0xE6E6FAff);
-    pub const MidnightBlue = itc(0x191970ff);
-    pub const Navy = itc(0x000080ff);
-    pub const DarkBlue = itc(0x00008Bff);
-    pub const MediumBlue = itc(0x0000CDff);
-    pub const Blue = itc(0x0000FFff);
-    pub const RoyalBlue = itc(0x4169E1ff);
-    pub const SteelBlue = itc(0x4682B4ff);
-    pub const DodgerBlue = itc(0x1E90FFff);
-    pub const DeepSkyBlue = itc(0x00BFFFff);
-    pub const CornflowerBlue = itc(0x6495EDff);
-    pub const SkyBlue = itc(0x87CEEBff);
-    pub const LightSkyBlue = itc(0x87CEFAff);
-    pub const LightSteelBlue = itc(0xB0C4DEff);
-    pub const LightBlue = itc(0xADD8E6ff);
-    pub const PowderBlue = itc(0xB0E0E6ff);
-    pub const Teal = itc(0x008080ff);
-    pub const DarkCyan = itc(0x008B8Bff);
-    pub const LightSeaGreen = itc(0x20B2AAff);
-    pub const CadetBlue = itc(0x5F9EA0ff);
-    pub const DarkTurquoise = itc(0x00CED1ff);
-    pub const MediumTurquoise = itc(0x48D1CCff);
-    pub const Turquoise = itc(0x40E0D0ff);
-    pub const Aqua = itc(0x00FFFFff);
-    pub const Cyan = itc(0x00FFFFff);
-    pub const Aquamarine = itc(0x7FFFD4ff);
-    pub const PaleTurquoise = itc(0xAFEEEEff);
-    pub const LightCyan = itc(0xE0FFFFff);
-    pub const MediumVioletRed = itc(0xC71585ff);
-    pub const DeepPink = itc(0xFF1493ff);
-    pub const PaleVioletRed = itc(0xDB7093ff);
-    pub const HotPink = itc(0xFF69B4ff);
-    pub const LightPink = itc(0xFFB6C1ff);
-    pub const Pink = itc(0xFFC0CBff);
-    pub const DarkRed = itc(0x8B0000ff);
-    pub const Red = itc(0xFF0000ff);
-    pub const Firebrick = itc(0xB22222ff);
-    pub const Crimson = itc(0xDC143Cff);
-    pub const IndianRed = itc(0xCD5C5Cff);
-    pub const LightCoral = itc(0xF08080ff);
-    pub const Salmon = itc(0xFA8072ff);
-    pub const DarkSalmon = itc(0xE9967Aff);
-    pub const LightSalmon = itc(0xFFA07Aff);
-    pub const OrangeRed = itc(0xFF4500ff);
-    pub const Tomato = itc(0xFF6347ff);
-    pub const DarkOrange = itc(0xFF8C00ff);
-    pub const Coral = itc(0xFF7F50ff);
-    pub const Orange = itc(0xFFA500ff);
-    pub const DarkKhaki = itc(0xBDB76Bff);
-    pub const Gold = itc(0xFFD700ff);
-    pub const Khaki = itc(0xF0E68Cff);
-    pub const PeachPuff = itc(0xFFDAB9ff);
-    pub const Yellow = itc(0xFFFF00ff);
-    pub const PaleGoldenrod = itc(0xEEE8AAff);
-    pub const Moccasin = itc(0xFFE4B5ff);
-    pub const PapayaWhip = itc(0xFFEFD5ff);
-    pub const LightGoldenrodYellow = itc(0xFAFAD2ff);
-    pub const LemonChiffon = itc(0xFFFACDff);
-    pub const LightYellow = itc(0xFFFFE0ff);
-    pub const Maroon = itc(0x800000ff);
-    pub const Brown = itc(0xA52A2Aff);
-    pub const SaddleBrown = itc(0x8B4513ff);
-    pub const Sienna = itc(0xA0522Dff);
-    pub const Chocolate = itc(0xD2691Eff);
-    pub const DarkGoldenrod = itc(0xB8860Bff);
-    pub const Peru = itc(0xCD853Fff);
-    pub const RosyBrown = itc(0xBC8F8Fff);
-    pub const Goldenrod = itc(0xDAA520ff);
-    pub const SandyBrown = itc(0xF4A460ff);
-    pub const Tan = itc(0xD2B48Cff);
-    pub const Burlywood = itc(0xDEB887ff);
-    pub const Wheat = itc(0xF5DEB3ff);
-    pub const NavajoWhite = itc(0xFFDEADff);
-    pub const Bisque = itc(0xFFE4C4ff);
-    pub const BlanchedAlmond = itc(0xFFEBCDff);
-    pub const Cornsilk = itc(0xFFF8DCff);
-
     r: u8,
     g: u8,
     b: u8,
@@ -631,17 +622,17 @@ pub const Hsva = struct {
         return colorToHsva(intToColor(int));
     }
 
-    pub fn toInt(self: Hsva) u32 {
-        return charColorToInt(self.toCharColor());
+    pub fn toFloat(hsva: Hsva) Color {
+        return intToColorF(hsva.toInt());
     }
 
-    pub fn toCharColor(hsva: Hsva) CharColor {
+    pub fn toInt(hsva: Hsva) u32 {
         //HSV
         //S is the x axis
         //V is the y axis
-        const H = hsva.h;
-        const S = hsva.s;
-        const V = hsva.v;
+        const H = @min(hsva.h, 360);
+        const S = @min(hsva.s, 1);
+        const V = @min(hsva.v, 1);
 
         const C = V * S;
         const hp = (@mod(H, 360)) / 60.0;
@@ -657,22 +648,13 @@ pub const Hsva = struct {
         };
         const M = V - C;
 
-        return CharColor.new(
-            @as(u8, @intFromFloat((M + rgb1.data[0]) * 255)),
-            @as(u8, @intFromFloat((M + rgb1.data[1]) * 255)),
-            @as(u8, @intFromFloat((M + rgb1.data[2]) * 255)),
-            @as(u8, @intFromFloat(hsva.a * 255)),
-        );
+        return (@as(u32, @intFromFloat((M + rgb1.data[0]) * 255)) << 24) |
+            (@as(u32, @intFromFloat((M + rgb1.data[1]) * 255))) << 16 |
+            (@as(u32, @intFromFloat((M + rgb1.data[2]) * 255))) << 8 |
+            (@as(u32, @intFromFloat(hsva.a * 255)));
     }
 };
 
-pub fn contrastColor(color: CharColor) CharColor {
-    var hsva = colorToHsva(color);
-    hsva.h = @mod(hsva.h + 180, 360);
-    //hsva.v = 1;
-    hsva.v = @mod(hsva.v + 0.5, 1);
-    return hsvaToColor(hsva);
-}
 pub fn colorToHsva(color: CharColor) Hsva {
     const fl = color.toFloat();
     const max = @max(fl[0], fl[1], fl[2]);

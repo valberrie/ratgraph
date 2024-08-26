@@ -1884,7 +1884,7 @@ pub fn main() !void {
                 graph.GL.passUniform(sh1, "gamma", gamma);
                 graph.GL.passUniform(sh1, "light_dir", light_dir);
                 graph.GL.passUniform(sh1, "screenSize", win.screen_dimensions);
-                graph.GL.passUniform(sh1, "light_color", sun_color.toCharColor().toFloat());
+                graph.GL.passUniform(sh1, "light_color", sun_color.toFloat());
                 graph.GL.passUniform(sh1, "cascadePlaneDistances[0]", @as(f32, planes[0]));
                 graph.GL.passUniform(sh1, "cascadePlaneDistances[1]", @as(f32, planes[1]));
                 graph.GL.passUniform(sh1, "cascadePlaneDistances[2]", @as(f32, planes[2]));
@@ -1908,7 +1908,7 @@ pub fn main() !void {
                 graph.GL.passUniform(sh, "gamma", gamma);
                 graph.GL.passUniform(sh, "light_dir", light_dir);
                 graph.GL.passUniform(sh, "screenSize", win.screen_dimensions);
-                graph.GL.passUniform(sh, "light_color", sun_color.toCharColor().toFloat());
+                graph.GL.passUniform(sh, "light_color", sun_color.toFloat());
                 graph.GL.passUniform(sh, "draw_debug", gcfg.draw_lighting_spheres);
 
                 graph.GL.passUniform(sh, "cam_view", third_cam.getViewMatrix());
@@ -2390,7 +2390,7 @@ pub fn main() !void {
                         },
                         .info => {
                             if (os9gui.gui.getArea()) |area| {
-                                os9gui.gui.drawTextFmt("This is the game", .{}, area, 20 * os9gui.scale, graph.CharColor.Black, .{ .justify = .left }, &os9gui.font);
+                                os9gui.gui.drawTextFmt("This is the game", .{}, area, 20 * os9gui.scale, graph.Colori.Black, .{ .justify = .left }, &os9gui.font);
                             }
                         },
                         else => {},

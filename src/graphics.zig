@@ -33,7 +33,6 @@ pub const Font = FontUtil.Font;
 pub const Texture = FontUtil.Texture;
 pub const Bitmap = FontUtil.Bitmap;
 pub const RectPack = FontUtil.RectPack;
-pub const CharColor = ptypes.CharColor;
 pub const Hsva = ptypes.Hsva;
 pub const Colori = ptypes.Colori;
 pub const itc = ptypes.itc;
@@ -1177,6 +1176,10 @@ pub const Padding = struct {
 
     pub fn new(t: f32, b: f32, l: f32, r: f32) Self {
         return .{ .top = t, .bottom = b, .left = l, .right = r };
+    }
+
+    pub fn scale(self: Self, f: f32) Self {
+        return .{ .top = self.top * f, .bottom = self.bottom * f, .left = self.left * f, .right = self.right * f };
     }
 
     pub fn vertical(self: Self) f32 {

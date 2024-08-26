@@ -19,32 +19,9 @@ const Vec2i = struct {
 
 const Rect = graph.Rect;
 //TODO 86 this
-const SRect = struct {
-    const Self = @This();
-    pub fn scale(self: Self, amount: i16) Self {
-        return .{ .x = self.x + amount, .y = self.y + amount, .w = self.w - amount * 2, .h = self.h - amount * 2 };
-    }
-
-    pub fn new(x: i16, y: i16, w: i16, h: i16) Self {
-        return .{ .x = x, .y = y, .w = w, .h = h };
-    }
-
-    pub fn toF32(self: Self) graph.Rect {
-        return .{ .x = @as(f32, @floatFromInt(self.x)), .y = @as(f32, @floatFromInt(self.y)), .w = @as(f32, @floatFromInt(self.w)), .h = @as(f32, @floatFromInt(self.h)) };
-    }
-
-    pub fn pos(self: Self) Vec2i {
-        return .{ .x = self.x, .y = self.y };
-    }
-
-    x: i16,
-    y: i16,
-    w: i16,
-    h: i16,
-};
 
 const Hsva = graph.Hsva;
-const Color = graph.CharColor;
+const Color = u32;
 const Colori = graph.Colori;
 const itc = graph.itc;
 
@@ -69,30 +46,30 @@ pub const DrawCommand = union(enum) {
 
     rect_filled: struct {
         r: Rect,
-        color: Color,
+        color: u32,
     },
 
     rect_textured: struct {
         r: Rect,
-        color: Color,
+        color: u32,
         uv: Rect,
         texture: graph.Texture,
     },
 
     rect_outline: struct {
         r: Rect,
-        color: Color,
+        color: u32,
     },
 
     rect_filled_multi_color: struct {
         r: Rect,
-        colors: [4]Color,
+        colors: [4]u32,
     },
 
     line: struct {
         a: Vec2f,
         b: Vec2f,
-        color: Color,
+        color: u32,
     },
 
     text: struct {
@@ -100,7 +77,7 @@ pub const DrawCommand = union(enum) {
         pos: Vec2i,
         size: f32,
         string: []const u8,
-        color: Color,
+        color: u32,
     },
 
     scissor: struct {
@@ -639,8 +616,8 @@ pub fn hashW(hasher: anytype, key: anytype, comptime strat: std.hash.Strategy) v
         .Optional => if (key) |k| hashW(hasher, k, strat),
         .Float => {
             const f = if (std.math.isFinite(key)) key else 0 * 10;
-            const ff = if (@abs(f) >= std.math.maxInt(i32)) std.math.maxInt(i32) else f;
-            std.hash.autoHashStrat(hasher, @as(i32, @intFromFloat(ff)), strat);
+            const ff: i32 = if (@abs(f) >= std.math.maxInt(i32)) std.math.maxInt(i32) else @intFromFloat(f);
+            std.hash.autoHashStrat(hasher, ff, strat);
         },
         .Int, .Bool => std.hash.autoHashStrat(hasher, key, strat),
         else => @compileError("can't hash " ++ @typeName(Key)),
@@ -950,9 +927,10 @@ pub const Context = struct {
     pub const WidgetId = struct {
         layout_hash: u64,
         index: u32,
+        window_index: usize,
 
         pub fn eql(a: WidgetId, b: WidgetId) bool {
-            return (a.layout_hash == b.layout_hash and a.index == b.index);
+            return (a.layout_hash == b.layout_hash and a.index == b.index and a.window_index == b.window_index);
         }
     };
 
@@ -1019,6 +997,8 @@ pub const Context = struct {
     window_stack_nodes: [32]WindowStackT.Node = undefined,
 
     window_stack: WindowStackT = .{},
+
+    // Whatever window the mouse occupies has exclusive access to the pointer
     window_index_grabbed_mouse: ?usize = null,
 
     dirty_draw_depth: ?u32 = null,
@@ -1056,6 +1036,7 @@ pub const Context = struct {
     held_timer: u64 = 0,
     last_clicked: ?WidgetId = null,
 
+    // This field
     scroll_claimed_mouse: bool = false,
 
     pub fn scratchPrint(self: *Self, comptime fmt: []const u8, args: anytype) []const u8 {
@@ -1120,9 +1101,9 @@ pub const Context = struct {
                         }
                         const bounds = font.textBounds(message, size);
                         const mp = self.input_state.mouse_pos;
-                        ts.command_list.append(.{ .rect_filled = .{ .r = Rect.newV(mp, bounds), .color = Color.Gray } }) catch unreachable;
+                        ts.command_list.append(.{ .rect_filled = .{ .r = Rect.newV(mp, bounds), .color = Colori.Gray } }) catch unreachable;
                         ts.command_list.append(.{
-                            .text = .{ .string = message, .pos = mp.toI(i16, Vec2i), .size = size, .color = Color.White, .font = font },
+                            .text = .{ .string = message, .pos = mp.toI(i16, Vec2i), .size = size, .color = Colori.White, .font = font },
                         }) catch unreachable;
                     }
                 } else {
@@ -1138,7 +1119,7 @@ pub const Context = struct {
     pub fn getId(self: *Self) WidgetId {
         if (self.current_layout_cache_data) |ld| {
             ld.widget_index += 1;
-            return .{ .layout_hash = ld.hash, .index = ld.widget_index };
+            return .{ .layout_hash = ld.hash, .index = ld.widget_index, .window_index = self.window_index.? };
         }
         std.debug.panic("getId called without a layout set!", .{});
     }
@@ -1259,6 +1240,16 @@ pub const Context = struct {
 
     pub fn clickWidget(self: *Self, rec: Rect) ClickState {
         return self.clickWidgetEx(rec, .{}).click;
+    }
+
+    pub fn getMouseWheelDelta(self: *Self) ?f32 {
+        const w = self.getWindow();
+        const sb = if (w.scroll_bounds) |s| s else w.area;
+        if (self.mouse_grab_id == null and !self.scroll_claimed_mouse and sb.containsPoint(self.input_state.mouse_pos) and self.window_index_grabbed_mouse orelse 1000 == self.window_index.?) {
+            self.scroll_claimed_mouse = true;
+            return self.input_state.mouse_wheel_delta;
+        }
+        return null;
     }
 
     pub fn clickWidgetEx(self: *Self, rec: Rect, opts: struct {
@@ -1474,7 +1465,7 @@ pub const Context = struct {
         self.current_layout_cache_data = w.layout_cache.getCacheDataPtr();
     }
 
-    pub fn beginLayout(self: *Self, comptime Layout_T: type, layout_data: Layout_T, opts: struct { bg: Color = itc(0x222222ff), scissor: ?Rect = null }) !*Layout_T {
+    pub fn beginLayout(self: *Self, comptime Layout_T: type, layout_data: Layout_T, opts: struct { bg: u32 = 0x222222ff, scissor: ?Rect = null }) !*Layout_T {
         const new_layout = try self.frame_alloc.create(Layout_T);
         new_layout.* = layout_data;
 
@@ -1530,34 +1521,34 @@ pub const Context = struct {
         self.draw(cam);
     }
 
-    pub fn drawText(self: *Self, string: []const u8, pos: Vec2f, size: f32, color: Color, font: *Font) void {
+    pub fn drawText(self: *Self, string: []const u8, pos: Vec2f, size: f32, color: u32, font: *Font) void {
         self.draw(.{ .text = .{ .string = self.storeString(string), .pos = pos.toI(i16, Vec2i), .size = size, .color = color, .font = font } });
     }
 
-    pub fn drawIcon(self: *Self, icon: u21, pos: Vec2f, size: f32, color: Color, font: *Font) void {
+    pub fn drawIcon(self: *Self, icon: u21, pos: Vec2f, size: f32, color: u32, font: *Font) void {
         var out: [4]u8 = undefined;
         const count = std.unicode.utf8Encode(icon, &out) catch unreachable;
         self.draw(.{ .text = .{ .string = self.storeString(out[0..count]), .pos = pos.toI(i16, Vec2i), .size = size, .color = color, .font = font } });
     }
 
-    pub fn drawLine(self: *Self, a: Vec2f, b: Vec2f, color: Color) void {
+    pub fn drawLine(self: *Self, a: Vec2f, b: Vec2f, color: u32) void {
         self.draw(.{ .line = .{ .a = a, .b = b, .color = color } });
     }
 
-    pub fn drawRectFilled(self: *Self, r: Rect, color: Color) void {
+    pub fn drawRectFilled(self: *Self, r: Rect, color: u32) void {
         self.draw(.{ .rect_filled = .{ .r = r, .color = color } });
     }
 
-    pub fn drawRectOutline(self: *Self, r: Rect, color: Color) void {
+    pub fn drawRectOutline(self: *Self, r: Rect, color: u32) void {
         self.draw(.{ .rect_outline = .{ .r = r, .color = color } });
     }
 
-    pub fn drawRectTextured(self: *Self, r: Rect, color: Color, uv: Rect, t: graph.Texture) void {
+    pub fn drawRectTextured(self: *Self, r: Rect, color: u32, uv: Rect, t: graph.Texture) void {
         self.draw(.{ .rect_textured = .{ .r = r, .color = color, .uv = uv, .texture = t } });
     }
 
     //Colors are wound ccw, starting at top left
-    pub fn drawRectMultiColor(self: *Self, r: Rect, colors: [4]Color) void {
+    pub fn drawRectMultiColor(self: *Self, r: Rect, colors: [4]u32) void {
         self.draw(.{ .rect_filled_multi_color = .{ .r = r, .colors = colors } });
     }
 
@@ -1587,7 +1578,7 @@ pub const Context = struct {
         args: anytype,
         area: Rect,
         size: f32,
-        color: Color,
+        color: u32,
         opts: struct { justify: Justify = .left },
         font: *Font,
     ) void {
@@ -1760,14 +1751,15 @@ pub const Context = struct {
             (if (is_horiz) handle.x else handle.y) = params.handle_offset_x + rec.x + (val - lmin) * scale;
         }
 
-        if (self.mouse_grab_id == null and !self.scroll_claimed_mouse and arec.containsPoint(self.input_state.mouse_pos)) {
-            self.scroll_claimed_mouse = true;
-            switch (number_t) {
-                .float => {},
-                .int, .uint => {
-                    val += self.input_state.mouse_wheel_delta;
-                    val = std.math.clamp(val, lmin, lmax);
-                },
+        if (arec.containsPoint(self.input_state.mouse_pos)) {
+            if (self.getMouseWheelDelta()) |del| {
+                switch (number_t) {
+                    .float => {},
+                    .int, .uint => {
+                        val += del;
+                        val = std.math.clamp(val, lmin, lmax);
+                    },
+                }
             }
         }
 
@@ -1963,8 +1955,8 @@ pub const Context = struct {
         if (self.isActiveTextinput(id)) {
             const tb = &self.textbox_state;
             const charset = switch (number_t) {
-                .int => "-0123456789",
-                .uint => "0123456789",
+                .int => "-0123456789xabcdefABCDEF",
+                .uint => "0123456789xabcdefABCDEF",
                 .float => "ainf.-0123456789",
             };
             self.text_input_state.advanceStateActive();
@@ -1989,7 +1981,7 @@ pub const Context = struct {
                         ret.is_invalid = true;
                         break :blk number_ptr.*;
                     },
-                    .uint, .int => std.fmt.parseInt(number_type, sl, 10) catch blk: {
+                    .uint, .int => std.fmt.parseInt(number_type, sl, 0) catch blk: {
                         ret.is_invalid = true;
                         break :blk number_ptr.*;
                     },
@@ -2150,6 +2142,7 @@ pub const GuiDrawContext = struct {
         for (self.window_fbs.items[0..gui.this_frame_num_windows], 0..) |fb, i| {
             draw.zindex = old_zindex + @as(u16, @intCast(gui.windows.items[i].depth));
             const tr = fb.texture.rect();
+            draw.rect(gui.windows.items[i].area, 0xff);
             draw.rectTex(
                 gui.windows.items[i].area,
                 graph.Rec(0, 0, tr.w, -tr.h),
@@ -2229,28 +2222,27 @@ pub const GuiDrawContext = struct {
     }
 
     pub fn drawCommand(self: *Self, command: DrawCommand, draw: *graph.ImmediateDrawingContext) !void {
-        const cc = graph.ptypes.charColorToInt;
         switch (command) {
             .rect_filled => |rf| {
-                draw.rect(rf.r, cc(rf.color));
+                draw.rect(rf.r, (rf.color));
             },
             .text => |t| {
                 const p = t.pos.toF();
 
-                draw.text(p, t.string, t.font, t.size, cc(t.color));
+                draw.text(p, t.string, t.font, t.size, (t.color));
             },
             .line => |l| {
-                draw.line(l.a, l.b, cc(l.color));
+                draw.line(l.a, l.b, (l.color));
             },
             .rect_textured => |t| {
-                draw.rectTexTint(t.r, t.uv, cc(t.color), t.texture);
+                draw.rectTexTint(t.r, t.uv, (t.color), t.texture);
             },
             .rect_outline => |rl| {
                 const r = rl.r;
-                draw.line(r.topL(), r.topR(), cc(rl.color));
-                draw.line(r.topR(), r.botR(), cc(rl.color));
-                draw.line(r.botR(), r.botL(), cc(rl.color));
-                draw.line(r.botL(), r.topL(), cc(rl.color));
+                draw.line(r.topL(), r.topR(), (rl.color));
+                draw.line(r.topR(), r.botR(), (rl.color));
+                draw.line(r.botR(), r.botL(), (rl.color));
+                draw.line(r.botL(), r.topL(), (rl.color));
             },
             .set_camera => |sc| {
                 try draw.flush(self.camera_bounds, null); //Flush old camera
@@ -2296,7 +2288,7 @@ pub const GuiDrawContext = struct {
                 //ctx.drawRectCol(rf.r, rf.colors);
                 var cols: [4]u32 = undefined;
                 for (rf.colors, 0..) |col, i| {
-                    cols[i] = graph.ptypes.charColorToInt(col);
+                    cols[i] = col;
                 }
                 draw.rectVertexColors(rf.r, &cols);
             },
