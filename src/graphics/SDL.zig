@@ -81,6 +81,14 @@ pub const Window = struct {
     pub const KeyStateT = [c.SDL_NUM_SCANCODES]ButtonState;
     pub const EmptyKeyState: KeyStateT = [_]ButtonState{.low} ** c.SDL_NUM_SCANCODES;
 
+    pub const ChildWindow = struct {
+        win: *c.SDL_Window,
+
+        pub fn deinit(self: *@This()) void {
+            c.SDL_DestroyWindow(self.win);
+        }
+    };
+
     win: *c.SDL_Window,
     ctx: *anyopaque,
 
@@ -227,6 +235,23 @@ pub const Window = struct {
         };
         ret.pumpEvents();
         return ret;
+    }
+
+    pub fn createChildWindow(self: *Self, title: [*c]const u8, w: i32, h: i32) !ChildWindow {
+        _ = self;
+        const win = c.SDL_CreateWindow(
+            title,
+            c.SDL_WINDOWPOS_UNDEFINED,
+            c.SDL_WINDOWPOS_UNDEFINED,
+            w,
+            h,
+            @as(u32, c.SDL_WINDOW_OPENGL | c.SDL_WINDOW_RESIZABLE),
+        ) orelse {
+            sdlLogErr();
+            return error.SDLWindowInit;
+        };
+        errdefer c.SDL_DestroyWindow(win);
+        return .{ .win = win };
     }
 
     pub fn destroyWindow(self: Self) void {

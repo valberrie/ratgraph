@@ -1180,238 +1180,6 @@ pub const KeyboardDisplay = struct {
     }
 };
 
-pub const MapEditor = struct {
-    const Self = @This();
-
-    pub fn floorPos(v: graph.Vec2f, ts: f32) graph.Vec2f {
-        return .{ .x = @floor(v.x / ts) * ts, .y = @floor(v.y / ts) * ts };
-    }
-
-    pub const AreaIt = struct {
-        w: usize,
-        h: usize,
-        bounds: graph.Rect,
-
-        index: usize = 0,
-        ts: f32,
-
-        pub fn init(a: graph.Vec2f, b: graph.Vec2f, ts: anytype) AreaIt {
-            const fts = std.math.lossyCast(f32, ts);
-            const at = floorPos(a, fts);
-            const bt = floorPos(b, fts);
-            const w = at.x - bt.x;
-            const h = at.y - bt.y;
-            const bounds = graph.Rec(if (w > 0) bt.x else at.x, if (h > 0) bt.y else at.y, @abs(w) + ts, @abs(h) + ts);
-            const wp: usize = @intFromFloat(@floor(@abs(w) / fts) + 1);
-            const hp: usize = @intFromFloat(@floor(@abs(h) / fts) + 1);
-
-            return .{ .bounds = bounds, .w = wp, .h = hp, .ts = fts };
-        }
-
-        pub fn next(self: *@This()) ?graph.Rect {
-            defer self.index += 1;
-            if (self.index >= self.w * self.h) return null;
-
-            const fy: f32 = @floatFromInt(@divFloor(self.index, self.w));
-            const fx: f32 = @floatFromInt(@mod(self.index, self.w));
-
-            return graph.Rec(self.bounds.x + fx * self.ts, self.bounds.y + fy * self.ts, self.ts, self.ts);
-        }
-    };
-
-    pub const Tool = enum {
-        pencil,
-        erasor,
-    };
-
-    alloc: std.mem.Allocator,
-    loaded_map: ?*graph.MarioData.Map = null,
-    atlas: ?graph.BakedAtlas = null,
-    layer_index: usize = 0,
-    canvas_cam: ?graph.Camera2D = null,
-    inspector_scroll: graph.Vec2f = .{ .x = 0, .y = 0 },
-
-    draw_ref_img: bool = true,
-
-    tool: Tool = .pencil,
-
-    tile_index: usize = 0,
-    set_index: usize = 0,
-
-    last_placed_pos: ?graph.Vec2f = null,
-
-    pub fn init(alloc: std.mem.Allocator) Self {
-        return .{ .alloc = alloc };
-    }
-
-    pub fn deinit(self: *Self) void {
-        _ = self;
-    }
-
-    pub fn update(self: *Self, gui: *Gui.Context) !void {
-        const inspector_item_height = 30;
-        const area = gui.getArea() orelse return;
-        _ = try gui.beginLayout(Gui.SubRectLayout, .{ .rect = area }, .{});
-        defer gui.endLayout();
-        const inspector_rec = graph.Rec(area.x, area.y, area.w / 3, area.h);
-        const canvas = graph.Rec(area.x + inspector_rec.w, area.y, area.w - inspector_rec.w, area.h);
-        { //Inspector
-            _ = try gui.beginLayout(Gui.SubRectLayout, .{ .rect = inspector_rec }, .{});
-            defer gui.endLayout();
-            if (try gui.beginVLayoutScroll(&self.inspector_scroll, .{ .item_height = inspector_item_height })) |inspector_scroll| {
-                {
-                    const items = [_]struct { tool: Tool, icon: Icons }{.{ .tool = .pencil, .icon = .erasor }};
-                    _ = try gui.beginLayout(Gui.HorizLayout, .{ .count = items.len }, .{});
-                    defer gui.endLayout();
-                    const pp = gui.getArea() orelse return;
-                    _ = pp;
-                    //gui.drawIcon(Icons.get(.erasor), pp.pos(), pp.h, Color.White,&wrap.icon_font);
-                }
-                _ = try gui.tabs(Tool, &self.tool);
-                if (self.loaded_map) |map| {
-                    const atlas = self.atlas orelse return;
-                    if (gui.button("New Layer")) {
-                        try map.appendLayer();
-                    }
-
-                    for (map.layers.items, 0..) |_, li| {
-                        if (gui.button("l")) {
-                            self.layer_index = li;
-                        }
-                    }
-
-                    inspector_scroll.layout.pushHeight(inspector_item_height * 40);
-                    const tile_area = gui.getArea() orelse return;
-                    gui.drawRectTextured(tile_area, Color.White, atlas.texture.rect(), atlas.texture);
-                    var cam = graph.Camera2D{ .cam_area = atlas.texture.rect(), .screen_area = tile_area };
-                    for (atlas.tilesets.items, 0..) |ts, ts_i| {
-                        for (0..ts.count) |i| {
-                            const r = atlas.getTexRec(ts_i, i);
-                            const wr = cam.toWorld(r);
-                            if ((gui.clickWidget(wr, .{})) == .click) {
-                                self.set_index = ts_i;
-                                self.tile_index = i;
-                            }
-                        }
-                    }
-                    gui.drawRectOutline(cam.toWorld(atlas.getTexRec(self.set_index, self.tile_index)), Color.White);
-                    inspector_scroll.layout.pushHeight(gui.propertyTableHeight(graph.Rect));
-                    try gui.propertyTable(graph.Rect, &map.ref_img_pos);
-                    gui.checkbox("Draw ref img", &self.draw_ref_img);
-                }
-                if (gui.button("next tile")) {
-                    self.tile_index += 1;
-                }
-                gui.textLabel("Ref img path");
-                //try gui.text
-
-                try gui.endVLayoutScroll(inspector_scroll);
-            }
-        }
-        {
-            _ = try gui.beginLayout(Gui.SubRectLayout, .{ .rect = canvas }, .{});
-            if (self.loaded_map) |map| {
-                const atlas = self.atlas orelse return;
-                var cam = blk: {
-                    if (self.canvas_cam) |*cam| {
-                        break :blk cam;
-                    } else {
-                        self.canvas_cam = .{ .cam_area = graph.Rec(0, 0, 400, 400), .screen_area = canvas };
-                        break :blk &self.canvas_cam.?;
-                    }
-                };
-                if (gui.mouse_grabbed_by_hash == null and canvas.containsPoint(gui.input_state.mouse_pos)) {
-                    {
-                        const zf = 0.1;
-                        const md = gui.input_state.mouse_wheel_delta;
-                        cam.zoom(zf * md, gui.input_state.mouse_pos);
-
-                        if (gui.input_state.mouse_wheel_down) {
-                            cam.pan(gui.input_state.mouse_delta);
-                        }
-                    }
-                }
-                {
-                    gui.scissor(canvas);
-                    gui.drawRectFilled(canvas, (0xffffffff));
-                    gui.drawSetCamera(.{ .set_camera = .{ .win_area = canvas } });
-                    cam.screen_area = canvas;
-                    {
-                        gui.drawLine(.{ .x = 0, .y = std.math.maxInt(i32) }, .{ .x = 0, .y = -std.math.maxInt(i32) }, Color.Black);
-                        gui.drawLine(.{ .y = 0, .x = std.math.maxInt(i32) }, .{ .y = 0, .x = -std.math.maxInt(i32) }, Color.Black);
-                        if (map.ref_img_texture != null and self.draw_ref_img) {
-                            gui.drawRectTextured(map.ref_img_pos, Color.White, map.ref_img_texture.?.rect(), map.ref_img_texture.?);
-                        }
-                        for (map.layers.items) |*layer| {
-                            for (layer.tiles.items) |tile| {
-                                gui.drawRectTextured(graph.Rec(tile.x, tile.y, tile.w, tile.h), Color.White, atlas.getTexRec(tile.ts_name_index, tile.index), atlas.texture);
-                            }
-                        }
-                        const tile = atlas.getTexRec(self.set_index, self.tile_index);
-                        const pos = self.canvas_cam.?.toCamV(gui.input_state.mouse_pos);
-                        switch (self.tool) {
-                            .pencil => {
-                                const tt = gui.clickWidget(graph.Rec(0, 0, 0, 0), .{ .teleport_area = canvas });
-
-                                if (gui.isKeyDown(.LSHIFT) and self.last_placed_pos != null) {
-                                    var a_it = AreaIt.init(pos, self.last_placed_pos.?, 16);
-                                    while (a_it.next()) |n| {
-                                        gui.drawRectTextured(n, Color.White, tile, atlas.texture);
-                                    }
-                                } else {
-                                    gui.drawRectTextured(graph.Rec(@floor(pos.x / 16) * 16, @floor(pos.y / 16) * 16, tile.w, tile.h), Color.White, tile, atlas.texture);
-                                }
-                                if (tt == .click_teleport) {
-                                    if (gui.isKeyDown(.LSHIFT) and self.last_placed_pos != null) {
-                                        var a_it = AreaIt.init(pos, self.last_placed_pos.?, 16);
-                                        while (a_it.next()) |n| {
-                                            try map.placeTile(self.layer_index, self.set_index, self.tile_index, n);
-                                        }
-                                    } else {
-                                        try map.placeTile(self.layer_index, self.set_index, self.tile_index, graph.Rect.newV(
-                                            floorPos(pos, 16),
-                                            .{ .x = tile.w, .y = tile.h },
-                                        ));
-                                    }
-                                    self.last_placed_pos = pos;
-                                }
-                            },
-                            .erasor => {
-                                const tt = gui.clickWidget(graph.Rec(0, 0, 0, 0), .{ .teleport_area = canvas });
-                                const fp = floorPos(pos, 16);
-                                if (gui.isKeyDown(.LSHIFT) and self.last_placed_pos != null) {
-                                    const a_it = AreaIt.init(pos, self.last_placed_pos.?, 16);
-                                    gui.drawRectOutline(a_it.bounds, Color.White);
-                                } else {
-                                    gui.drawRectOutline(graph.Rec(fp.x, fp.y, 16, 16), Color.White);
-                                }
-                                if (tt == .click_teleport) {
-                                    if (gui.isKeyDown(.LSHIFT) and self.last_placed_pos != null) {
-                                        var a_it = AreaIt.init(pos, self.last_placed_pos.?, 16);
-                                        while (a_it.next()) |n| {
-                                            map.removeTile(self.layer_index, n.pos());
-                                        }
-                                    } else {
-                                        map.removeTile(self.layer_index, fp);
-                                    }
-                                    self.last_placed_pos = pos;
-                                } else if (tt == .held and !gui.isKeyDown(.LSHIFT)) {
-                                    map.removeTile(self.layer_index, fp);
-                                }
-                            },
-                        }
-                    }
-
-                    gui.drawSetCamera(.{ .set_camera = .{ .cam_area = cam.cam_area } });
-
-                    gui.scissor(null);
-                }
-            } else {}
-            gui.endLayout();
-        }
-    }
-};
-
 pub const AtlasEditor = struct {
     const Self = @This();
 
@@ -1757,6 +1525,7 @@ pub const GuiConfig = struct {
         pixel_per_line: f32 = 20,
         color_picker_size: Vec2f = .{ .x = 600, .y = 300 },
         property_table_item_h: f32 = 20,
+        enum_combo_item_count_scroll_threshold: u32 = 7,
 
         colors: struct {
             pub const ColorWrap = struct {
@@ -2455,6 +2224,19 @@ pub const Os9Gui = struct {
         }
     }
 
+    pub fn propertyTableHeight(self: *Self, to_edit: anytype) f32 {
+        const err_prefix = @typeName(@This()) ++ ".propertyTable: ";
+        const invalid = err_prefix ++ "Argument \'to_edit\' expects a mutable pointer to a struct. Recieved: " ++ @typeName(@TypeOf(to_edit));
+        const e_info = @typeInfo(@TypeOf(to_edit));
+        if (e_info != .Pointer or e_info.Pointer.is_const) @compileError(invalid);
+        const ptype = e_info.Pointer.child;
+        const info = @typeInfo(ptype);
+        if (info != .Struct) @compileError(invalid);
+        const num_lines = info.Struct.fields.len;
+        const item_height = self.scale * self.style.config.property_table_item_h;
+        return num_lines * item_height + (2 * 3 * self.scale) + 100;
+    }
+
     pub fn propertyTable(self: *Self, to_edit: anytype) !void {
         const err_prefix = @typeName(@This()) ++ ".propertyTable: ";
         const invalid = err_prefix ++ "Argument \'to_edit\' expects a mutable pointer to a struct. Recieved: " ++ @typeName(@TypeOf(to_edit));
@@ -2788,11 +2570,12 @@ pub const Os9Gui = struct {
 
         if (self.drop_down) |dd| {
             if (dd.eql(id)) {
-                const do_scroll = enum_info.Enum.fields.len > 5;
+                const scrth = self.style.config.enum_combo_item_count_scroll_threshold;
+                const do_scroll = enum_info.Enum.fields.len > scrth;
                 const pa = self.gui.layout.last_requested_bounds.?;
                 const dd_area = graph.Rect.newV(pa.pos(), .{
                     .x = pa.w,
-                    .y = if (do_scroll) pa.h * 6 else enum_info.Enum.fields.len * pa.h,
+                    .y = if (do_scroll) pa.h * @as(f32, @floatFromInt(scrth)) else enum_info.Enum.fields.len * pa.h,
                 });
                 if (self.gui.input_state.mouse_left_clicked and !self.gui.isCursorInRect(dd_area)) {
                     self.drop_down = null;
@@ -3416,6 +3199,9 @@ pub fn main() anyerror!void {
     var debug_dir = try std.fs.cwd().openDir("debug", .{});
     defer debug_dir.close();
 
+    var cwin = try win.createChildWindow("HELLO", 1000, 500);
+    defer cwin.deinit();
+
     graph.c.glLineWidth(1);
 
     //const init_size = graph.pxToPt(win.getDpi(), 100);
@@ -3470,6 +3256,9 @@ pub fn main() anyerror!void {
     var os9gui = try Os9Gui.init(alloc, std.fs.cwd(), scale);
     defer os9gui.deinit();
 
+    var os9gui2 = try Os9Gui.init(alloc, std.fs.cwd(), scale);
+    defer os9gui2.deinit();
+
     var gamemenu = GameMenu.init(alloc);
     defer gamemenu.deinit();
 
@@ -3512,7 +3301,8 @@ pub fn main() anyerror!void {
             .keys = win.keys.slice(),
             .mod_state = win.mod,
         };
-        try os9gui.beginFrame(is, &win);
+        const def_is: Gui.InputState = .{};
+        try os9gui.beginFrame(if (graph.c.SDL_GetMouseFocus() == win.win) is else def_is, &win);
 
         gui_time = gui_timer.read();
 
@@ -3571,7 +3361,7 @@ pub fn main() anyerror!void {
                             try os9gui.textbox(&my_str);
                             try os9gui.textbox2(&statictb, .{});
                             try os9gui.textbox2(&dyn_tb, .{});
-                            scr.layout.pushRemaining();
+                            scr.layout.pushHeight(os9gui.propertyTableHeight(&tc));
                             switch (try os9gui.beginTabs(&tc.tab)) {
                                 .ptable => {
                                     try os9gui.propertyTable(&tc);
@@ -3579,6 +3369,8 @@ pub fn main() anyerror!void {
                                 else => {},
                             }
                             os9gui.endTabs();
+                            scr.layout.pushHeight(os9gui.propertyTableHeight(&os9gui.style.config));
+                            try os9gui.propertyTable(&os9gui.style.config);
                         }
                     }
                 },
@@ -3631,5 +3423,22 @@ pub fn main() anyerror!void {
 
         try draw.end(null);
         win.swap();
+
+        if (graph.c.SDL_GetMouseFocus() == cwin.win) {
+            _ = graph.c.SDL_GL_MakeCurrent(cwin.win, win.ctx);
+            defer _ = graph.c.SDL_GL_MakeCurrent(win.win, win.ctx);
+            const rec = graph.Rec(0, 0, 1000, 500);
+            try draw.begin(0x2f2f2fff, rec.dim());
+            try os9gui2.beginFrame(if (graph.c.SDL_GetMouseFocus() == cwin.win) is else def_is, &win);
+            if (try os9gui2.beginTlWindow(rec)) {
+                defer os9gui2.endTlWindow();
+                try os9gui2.propertyTable(&os9gui.style.config);
+            }
+            try os9gui2.endFrame(&draw);
+            graph.c.glDisable(graph.c.GL_STENCIL_TEST);
+            //draw.text(.{.x = 0, .y = 0}, "hello world", &font, 40, (t.color));
+            try draw.end(null);
+            graph.c.SDL_GL_SwapWindow(cwin.win);
+        }
     }
 }
