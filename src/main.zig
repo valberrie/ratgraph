@@ -1431,12 +1431,13 @@ pub fn main() !void {
         win.pumpEvents();
 
         const is: Gui.InputState = .{
-            .mouse_pos = win.mouse.pos,
-            .mouse_delta = win.mouse.delta,
-            .mouse_left_held = win.mouse.left == .high,
-            .mouse_left_clicked = win.mouse.left == .rising,
-            .mouse_wheel_delta = win.mouse.wheel_delta.y,
-            .mouse_wheel_down = win.mouse.middle == .high,
+            .mouse = win.mouse,
+            //.mouse_pos = win.mouse.pos,
+            //.mouse_delta = win.mouse.delta,
+            //.mouse_left_held = win.mouse.left == .high,
+            //.mouse_left_clicked = win.mouse.left == .rising,
+            //.mouse_wheel_delta = win.mouse.wheel_delta.y,
+            //.mouse_wheel_down = win.mouse.middle == .high,
             .key_state = &win.key_state,
             .keys = win.keys.slice(),
             .mod_state = win.mod,

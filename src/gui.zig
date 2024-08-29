@@ -1,9 +1,11 @@
 const std = @import("std");
 const Cache = @import("gui_cache.zig");
+const graph = @import("graphics.zig");
+//TODO write a backend using wasi
+//TODO write a backend using glfw
 
 const json = std.json;
 const clamp = std.math.clamp;
-pub const graph = @import("graphics.zig");
 const Font = graph.Font;
 const Vec2f = graph.Vec2f;
 const Vec2i = struct {
@@ -18,12 +20,9 @@ const Vec2i = struct {
 };
 
 const Rect = graph.Rect;
-//TODO 86 this
-
 const Hsva = graph.Hsva;
 const Color = u32;
 const Colori = graph.Colori;
-const itc = graph.itc;
 
 //TODO reduce memory footprint of these structs?
 //Colors could be aliased.
@@ -80,6 +79,7 @@ pub const DrawCommand = union(enum) {
         color: u32,
     },
 
+    /// A scissor command flushes existing draw lists than calls glScissor with the provided area. If the area is null, the scissor test is disabled
     scissor: struct {
         area: ?Rect = null,
     },
@@ -90,23 +90,12 @@ pub const DrawCommand = union(enum) {
     },
 };
 
-//TODO bitset type that takes an enum and gives each field a mask bit. see github.com/emekoi/bitset-zig
-
 pub const Justify = enum { right, left, center };
 pub const Orientation = graph.Orientation;
 
 pub const InputState = struct {
     pub const DefaultKeyboardState = graph.SDL.Window.KeyboardStateT.initEmpty();
-    //TODO switch to using new graphics.zig MouseState
-    //make clickwidget support rightClicks, double click etc
-    //This struct should not depend on SDL.
-    //Move
-    mouse_pos: Vec2f = .{ .x = 0, .y = 0 },
-    mouse_delta: Vec2f = .{ .x = 0, .y = 0 },
-    mouse_left_held: bool = false,
-    mouse_left_clicked: bool = false,
-    mouse_wheel_delta: f32 = 0,
-    mouse_wheel_down: bool = false,
+    mouse: graph.SDL.MouseState = .{},
     keys: []const graph.SDL.KeyState = &.{}, // Populated with keys just pressed, keydown events
     key_state: *const graph.SDL.Window.KeyStateT = &graph.SDL.Window.EmptyKeyState, //All the keys state
     mod_state: graph.SDL.keycodes.KeymodMask = 0,
@@ -116,8 +105,6 @@ fn opaqueSelf(comptime self: type, ptr: *anyopaque) *self {
     return @as(*self, @ptrCast(@alignCast(ptr)));
 }
 
-//TODO This should be replaced with something less hacky.
-//Many instances of begin (SubRectLayout) then begin(another layout) when laying out a window
 pub const SubRectLayout = struct {
     rect: Rect,
     index: u32 = 0,
@@ -241,8 +228,6 @@ pub const HorizLayout = struct {
         const w = ((bounds.w - self.paddingh * (fc - 1)) / fc) * @as(f32, @floatFromInt(if (self.count_override) |co| co else 1));
         self.count_override = null;
 
-        //const w = (bounds.w - self.paddingh) / @as(f32, @floatFromInt(self.count));
-        //defer self.current_w += w + self.paddingh;
         defer self.current_w += w + self.paddingh;
 
         return .{ .x = bounds.x + self.current_w, .y = bounds.y, .w = w, .h = bounds.h };
@@ -302,6 +287,7 @@ pub const RetainedState = struct {
         const uni = std.unicode;
         const M = graph.SDL.keycodes.Keymod;
         const None = M.mask(&.{.NONE});
+        //TODO make this configurable
         const edit_keys_list = graph.Bind(&.{
             .{ .name = "backspace", .bind = .{ .BACKSPACE, None } },
             .{ .name = "delete", .bind = .{ .DELETE, None } },
@@ -321,6 +307,7 @@ pub const RetainedState = struct {
             .{ .name = "paste", .bind = .{ .V, M.mask(&.{.LCTRL}) } },
         });
 
+        //TODO These should be configurable
         const setClipboard: fn (std.mem.Allocator, []const u8) std.mem.Allocator.Error!void = graph.SDL.Window.setClipboard;
         const getClipboard: fn (std.mem.Allocator) std.mem.Allocator.Error![]const u8 = graph.SDL.Window.getClipboard;
 
@@ -800,7 +787,6 @@ pub const Context = struct {
             index: usize = 0,
 
             pub fn next(self: *EnumDropdown, comptime enumT: type) ?enumT {
-                //TODO what happens when an enum with non default values is used
                 const info = @typeInfo(enumT).Enum.fields;
                 if (self.index < info.len) {
                     defer self.index += 1;
@@ -1067,7 +1053,7 @@ pub const Context = struct {
     }
 
     pub fn isCursorInRect(self: *Self, r: Rect) bool {
-        return r.containsPoint(self.input_state.mouse_pos);
+        return r.containsPoint(self.input_state.mouse.pos);
     }
 
     pub fn getLayoutBounds(self: *Self) ?Rect {
@@ -1096,11 +1082,11 @@ pub const Context = struct {
                 if (ma.eql(pa)) {
                     ts.hover_time += 1;
                     if (ts.hover_time > 20 and !ts.hide_active) {
-                        if (self.input_state.mouse_left_clicked) {
+                        if (self.input_state.mouse.left == .rising) {
                             ts.hide_active = true;
                         }
                         const bounds = font.textBounds(message, size);
-                        const mp = self.input_state.mouse_pos;
+                        const mp = self.input_state.mouse.pos;
                         ts.command_list.append(.{ .rect_filled = .{ .r = Rect.newV(mp, bounds), .color = Colori.Gray } }) catch unreachable;
                         ts.command_list.append(.{
                             .text = .{ .string = message, .pos = mp.toI(i16, Vec2i), .size = size, .color = Colori.White, .font = font },
@@ -1140,32 +1126,6 @@ pub const Context = struct {
         unreachable;
     }
 
-    //Deprecate
-    pub fn getWidgetState(self: *Self, dependent_data: anytype) WidgetState {
-        const result: WidgetState = blk: {
-            const hash = dhash(dependent_data);
-            if (self.current_layout_cache_data) |ld| {
-                if (ld.dirty) break :blk .dirty;
-                if (ld.is_init != true) unreachable;
-                defer ld.widget_hash_index += 1;
-                if (ld.widget_hash_index >= ld.widget_hashes.items.len) { //append to list and return .init
-                    ld.widget_hashes.append(hash) catch unreachable;
-                    break :blk .init;
-                } else { //Compare and either overwrite or return
-                    if (hash == ld.widget_hashes.items[ld.widget_hash_index])
-                        break :blk .no_change;
-                    ld.widget_hashes.items[ld.widget_hash_index] = hash;
-                    //TODO notify child layouts
-                    break :blk .input_changed;
-                }
-            }
-            unreachable;
-        };
-        if (self.no_caching)
-            return .init;
-        return result;
-    }
-
     pub fn init(alloc: std.mem.Allocator) !Self {
         const aa = try alloc.create(std.heap.ArenaAllocator);
         aa.* = std.heap.ArenaAllocator.init(alloc);
@@ -1187,7 +1147,7 @@ pub const Context = struct {
         var deepest_index: ?usize = null;
         var max_depth: usize = 0;
         for (self.windows.items[0..self.this_frame_num_windows], 0..) |w, i| {
-            if (w.area.containsPoint(input_state.mouse_pos)) {
+            if (w.area.containsPoint(input_state.mouse.pos)) {
                 if (w.depth > max_depth) {
                     max_depth = w.depth;
                     deepest_index = i;
@@ -1217,13 +1177,13 @@ pub const Context = struct {
 
         self.layout.reset();
         self.click_timer += 1;
-        self.held_timer = if (self.input_state.mouse_left_held) self.held_timer + 1 else 0;
+        self.held_timer = if (self.input_state.mouse.left == .high) self.held_timer + 1 else 0;
 
         if (self.mouse_released) {
             self.mouse_grab_id = null;
             self.mouse_released = false;
         }
-        if (!self.input_state.mouse_left_held and self.mouse_grab_id != null) {
+        if (!(self.input_state.mouse.left == .high) and self.mouse_grab_id != null) {
             self.mouse_released = true;
         }
     }
@@ -1245,9 +1205,9 @@ pub const Context = struct {
     pub fn getMouseWheelDelta(self: *Self) ?f32 {
         const w = self.getWindow();
         const sb = if (w.scroll_bounds) |s| s else w.area;
-        if (self.mouse_grab_id == null and !self.scroll_claimed_mouse and sb.containsPoint(self.input_state.mouse_pos) and self.window_index_grabbed_mouse orelse 1000 == self.window_index.?) {
+        if (self.mouse_grab_id == null and !self.scroll_claimed_mouse and sb.containsPoint(self.input_state.mouse.pos) and self.window_index_grabbed_mouse orelse 1000 == self.window_index.?) {
             self.scroll_claimed_mouse = true;
-            return self.input_state.mouse_wheel_delta;
+            return self.input_state.mouse.wheel_delta.y;
         }
         return null;
     }
@@ -1258,8 +1218,8 @@ pub const Context = struct {
     }) struct { click: ClickState, id: WidgetId } {
         const id = self.getId();
 
-        const containsCursor = rec.containsPoint(self.input_state.mouse_pos);
-        const clicked = self.input_state.mouse_left_clicked;
+        const containsCursor = rec.containsPoint(self.input_state.mouse.pos);
+        const clicked = self.input_state.mouse.left == .rising;
         const w = self.getWindow();
 
         if (self.mouse_grab_id) |grab_id| {
@@ -1276,11 +1236,11 @@ pub const Context = struct {
             if (self.window_index_grabbed_mouse != self.window_index.? and !opts.override_depth_test)
                 return .{ .click = .none, .id = id };
             if (w.scroll_bounds) |sb| {
-                if (!sb.containsPoint(self.input_state.mouse_pos))
+                if (!sb.containsPoint(self.input_state.mouse.pos))
                     return .{ .click = .none, .id = id };
             }
             if (opts.teleport_area) |parent_area| {
-                if (clicked and !containsCursor and parent_area.containsPoint(self.input_state.mouse_pos)) {
+                if (clicked and !containsCursor and parent_area.containsPoint(self.input_state.mouse.pos)) {
                     self.mouse_grab_id = id;
                     return .{ .click = .click_teleport, .id = id };
                 }
@@ -1360,8 +1320,8 @@ pub const Context = struct {
             self.draggable_state = .{ .x = 0, .y = 0 };
         }
         if (click == .click or click == .held) {
-            Helper.addDelta(xinfo, &val.x, mdelta_scale.x * self.input_state.mouse_delta.x, &self.draggable_state.x);
-            Helper.addDelta(yinfo, &val.y, mdelta_scale.y * self.input_state.mouse_delta.y, &self.draggable_state.y);
+            Helper.addDelta(xinfo, &val.x, mdelta_scale.x * self.input_state.mouse.delta.x, &self.draggable_state.x);
+            Helper.addDelta(yinfo, &val.y, mdelta_scale.y * self.input_state.mouse.delta.y, &self.draggable_state.y);
         }
         Helper.setVal(xinfo, x_val, val.x, opts.x_min, opts.x_max);
         Helper.setVal(yinfo, y_val, val.y, opts.y_min, opts.y_max);
@@ -1714,8 +1674,8 @@ pub const Context = struct {
         if (lmax - lmin == 0)
             return null;
 
-        const mdel = orient.vec2fComponent(self.input_state.mouse_delta);
-        const mpos = orient.vec2fComponent(self.input_state.mouse_pos);
+        const mdel = orient.vec2fComponent(self.input_state.mouse.delta);
+        const mpos = orient.vec2fComponent(self.input_state.mouse.pos);
         const scale = (rec.w - params.handle_w - (params.handle_offset_x * 2)) / (lmax - lmin);
 
         var val: f32 = switch (number_t) {
@@ -1751,7 +1711,7 @@ pub const Context = struct {
             (if (is_horiz) handle.x else handle.y) = params.handle_offset_x + rec.x + (val - lmin) * scale;
         }
 
-        if (arec.containsPoint(self.input_state.mouse_pos)) {
+        if (arec.containsPoint(self.input_state.mouse.pos)) {
             if (self.getMouseWheelDelta()) |del| {
                 switch (number_t) {
                     .float => {},
@@ -1846,12 +1806,12 @@ pub const Context = struct {
                 self.text_input_state.active_id = id;
                 try self.textbox_state.resetFmt("{s}", .{contents.items});
             }
-            const cin = font.nearestGlyphX(self.textbox_state.getSlice(), trect.h, self.input_state.mouse_pos.sub(trect.pos()));
+            const cin = font.nearestGlyphX(self.textbox_state.getSlice(), trect.h, self.input_state.mouse.pos.sub(trect.pos()));
             if (cin) |cc| {
                 self.textbox_state.setCaret(cc - 1);
             }
         } else if (click == .held and self.held_timer > 4) {
-            const cin = font.nearestGlyphX(self.textbox_state.getSlice(), trect.h, self.input_state.mouse_pos.sub(trect.pos()));
+            const cin = font.nearestGlyphX(self.textbox_state.getSlice(), trect.h, self.input_state.mouse.pos.sub(trect.pos()));
             if (cin) |cc|
                 self.textbox_state.head = @intCast(cc);
         }
@@ -1906,12 +1866,12 @@ pub const Context = struct {
                 self.text_input_state.active_id = id;
                 try self.textbox_state.resetFmt("{s}", .{contents.getSlice()});
             }
-            const cin = font.nearestGlyphX(self.textbox_state.getSlice(), trect.h, self.input_state.mouse_pos.sub(trect.pos()));
+            const cin = font.nearestGlyphX(self.textbox_state.getSlice(), trect.h, self.input_state.mouse.pos.sub(trect.pos()));
             if (cin) |cc| {
                 self.textbox_state.setCaret(cc - 1);
             }
         } else if (click == .held and self.held_timer > 4) {
-            const cin = font.nearestGlyphX(self.textbox_state.getSlice(), trect.h, self.input_state.mouse_pos.sub(trect.pos()));
+            const cin = font.nearestGlyphX(self.textbox_state.getSlice(), trect.h, self.input_state.mouse.pos.sub(trect.pos()));
             if (cin) |cc|
                 self.textbox_state.head = @intCast(cc);
         }
@@ -1997,7 +1957,7 @@ pub const Context = struct {
                 try self.textbox_state.resetFmt("{d:.2}", .{number_ptr.*});
             }
 
-            const cin = font.nearestGlyphX(self.textbox_state.getSlice(), tarea.h, self.input_state.mouse_pos.sub(tarea.pos()));
+            const cin = font.nearestGlyphX(self.textbox_state.getSlice(), tarea.h, self.input_state.mouse.pos.sub(tarea.pos()));
             if (cin) |cc| {
                 self.textbox_state.setCaret(cc - 1);
             }

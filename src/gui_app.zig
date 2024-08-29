@@ -687,7 +687,7 @@ pub const FileBrowser = struct {
             try gui.beginWindow(popup_area);
             defer gui.endWindow();
             gui.draw9Slice(popup_area, wrap.style.getRect(.window_outer_small), wrap.style.texture, wrap.scale);
-            gui.draw9Slice(popup_area.inset(6 * wrap.scale), Os9Gui.os9in, wrap.style.texture, wrap.scale);
+            gui.draw9Slice(popup_area.inset(6 * wrap.scale), wrap.style.getRect(.basic_inset), wrap.style.texture, wrap.scale);
             switch (self.dialog_state) {
                 .none => {},
                 .add_bookmark => {
@@ -735,7 +735,7 @@ pub const FileBrowser = struct {
         const left_side = left_side_outer.inset(6 * wrap.scale);
         const sep_bar = Rect.new(left_side.x + left_side.w, left_side.y, main_area.x - (left_side.x + left_side.w), left_side.h);
         gui.draw9Slice(win_area, wrap.style.getRect(.window_outer_small), wrap.style.texture, wrap.scale);
-        gui.draw9Slice(border_area, Os9Gui.os9in, wrap.style.texture, wrap.scale);
+        gui.draw9Slice(border_area, wrap.style.getRect(.basic_inset), wrap.style.texture, wrap.scale);
         gui.draw9Border(left_side_outer, Os9Gui.os9line, wrap.style.texture, wrap.scale, 0, 0);
 
         var unused: f32 = 0;
@@ -1108,7 +1108,7 @@ pub const KeyboardDisplay = struct {
         const keyboard = Ansi104;
 
         gui.draw9Slice(win_area, wrap.style.getRect(.window_outer_small), wrap.style.texture, wrap.scale);
-        gui.draw9Slice(border_area, Os9Gui.os9in, wrap.style.texture, wrap.scale);
+        gui.draw9Slice(border_area, wrap.style.getRect(.basic_inset), wrap.style.texture, wrap.scale);
 
         const keyboard_width = blk: {
             var maxw: f32 = 0;
@@ -1241,7 +1241,7 @@ pub const AtlasEditor = struct {
         const w_id = gui.getId();
         _ = w_id;
         gui.draw9Slice(win_area, wrap.style.getRect(.window_outer_small), wrap.style.texture, wrap.scale);
-        gui.draw9Slice(border_area, Os9Gui.os9in, wrap.style.texture, wrap.scale);
+        gui.draw9Slice(border_area, wrap.style.getRect(.basic_inset), wrap.style.texture, wrap.scale);
 
         const root = area.split(.vertical, area.w / 3);
         const inspector_rec = root[0];
@@ -1264,14 +1264,14 @@ pub const AtlasEditor = struct {
                     break :blk &self.canvas_cam.?;
                 }
             };
-            if (gui.mouse_grab_id == null and canvas.containsPoint(gui.input_state.mouse_pos)) {
+            if (gui.mouse_grab_id == null and canvas.containsPoint(gui.input_state.mouse.pos)) {
                 {
                     const zf = 0.1;
-                    const md = gui.input_state.mouse_wheel_delta;
-                    cam.zoom(zf * md, gui.input_state.mouse_pos);
+                    const md = gui.input_state.mouse.wheel_delta.y;
+                    cam.zoom(zf * md, gui.input_state.mouse.pos);
 
-                    if (gui.input_state.mouse_wheel_down) {
-                        cam.pan(gui.input_state.mouse_delta);
+                    if (gui.input_state.mouse.middle == .high) {
+                        cam.pan(gui.input_state.mouse.delta);
                     }
                 }
             }
@@ -1333,12 +1333,12 @@ pub const AtlasEditor = struct {
                     else => {},
                     .click_teleport => {
                         self.marquee = graph.Rec(0, 0, 0, 0);
-                        self.marquee.x = gui.input_state.mouse_pos.x;
-                        self.marquee.y = gui.input_state.mouse_pos.y;
+                        self.marquee.x = gui.input_state.mouse.pos.x;
+                        self.marquee.y = gui.input_state.mouse.pos.y;
                     },
                     .held => {
-                        self.marquee.w = (gui.input_state.mouse_pos.x) - self.marquee.x;
-                        self.marquee.h = (gui.input_state.mouse_pos.y) - self.marquee.y;
+                        self.marquee.w = (gui.input_state.mouse.pos.x) - self.marquee.x;
+                        self.marquee.h = (gui.input_state.mouse.pos.y) - self.marquee.y;
                     },
                     .none => {},
                     .click_release => {
@@ -1542,6 +1542,7 @@ pub const GuiConfig = struct {
                 }
             };
             button_text: u32 = 0xff,
+            button_text_disabled: u32 = 0x222222ff,
             text_highlight: u32 = 0xccccffff,
             textbox_fg: u32 = 0xff,
             textbox_fg_disabled: u32 = 0xff,
@@ -1795,16 +1796,7 @@ pub const Os9Gui = struct {
     };
 
     //TODO remove all of these and use AssetMap instead
-
-    //const window9 = Rec(6, 6, 6, 6);
-
-    const text_disabled = (0x222222ff);
-
-    //pub const os9win = Rec(0, 12, 6, 6);
-    const os9in = Rec(6, 12, 6, 6);
     const os9line = Rec(0, 18, 6, 6);
-    const os9btn = Rec(12, 0, 12, 12);
-    const os9btn_disable = Rec(26, 37, 12, 12);
     const os9slider = Rec(0, 24, 3, 3);
     const os9shuttle = Rec(0, 30, 19, 14);
 
@@ -1846,6 +1838,7 @@ pub const Os9Gui = struct {
             // .texture = try graph.Texture.initFromImgFile(alloc, asset_dir, "next_step.png", .{
             //     .mag_filter = graph.c.GL_NEAREST,
             // }),
+            //TODO switch to stb font init
             .font = try graph.Font.init(alloc, asset_dir, "fonts/roboto.ttf", 64, 163, .{}),
             .icon_font = try graph.Font.init(
                 alloc,
@@ -1889,7 +1882,7 @@ pub const Os9Gui = struct {
             const border_area = win_area.inset((_br.h / 3) * self.scale);
             //const area = border_area.inset(6 * self.scale);
             self.gui.draw9Slice(win_area, _br, self.style.texture, self.scale);
-            //self.gui.draw9Slice(border_area, Os9Gui.os9in, self.style.texture, self.scale);
+            //self.gui.draw9Slice(border_area, self.style.getRect(.basic_inset), self.style.texture, self.scale);
             _ = try self.gui.beginLayout(Gui.SubRectLayout, .{ .rect = border_area }, .{});
             return true;
         }
@@ -2089,7 +2082,7 @@ pub const Os9Gui = struct {
             if (scr.*) {
                 const sz = self.style.config.color_picker_size;
                 const r = Rec(d.area.x, d.area.y, sz.x * self.scale, sz.y * self.scale);
-                if (!(d.state == .click) and self.gui.input_state.mouse_left_clicked and !self.gui.isCursorInRect(r) and self.gui.window_index_grabbed_mouse == self.gui.window_index.?)
+                if (!(d.state == .click) and self.gui.input_state.mouse.left == .rising and !self.gui.isCursorInRect(r) and self.gui.window_index_grabbed_mouse == self.gui.window_index.?)
                     scr.* = false;
                 if (try self.beginTlWindow(r)) {
                     defer self.endTlWindow();
@@ -2103,10 +2096,10 @@ pub const Os9Gui = struct {
                         const hs = 15;
                         var sv_handle = Rect.new(sv_area.x + color.s * sv_area.w - hs / 2, sv_area.y + (1.0 - color.v) * sv_area.h - hs / 2, hs, hs);
                         const clicked = self.gui.clickWidgetEx(sv_handle, .{ .teleport_area = sv_area }).click;
-                        const mpos = self.gui.input_state.mouse_pos;
+                        const mpos = self.gui.input_state.mouse.pos;
                         switch (clicked) {
                             .click, .held => {
-                                const mdel = self.gui.input_state.mouse_delta;
+                                const mdel = self.gui.input_state.mouse.delta;
 
                                 color.s += mdel.x / sv_area.w;
                                 color.v += -mdel.y / sv_area.h;
@@ -2140,13 +2133,13 @@ pub const Os9Gui = struct {
                         const hue_clicked = self.gui.clickWidgetEx(hue_handle, .{ .teleport_area = h_area }).click;
                         switch (hue_clicked) {
                             .click, .held => {
-                                const mdel = self.gui.input_state.mouse_delta;
+                                const mdel = self.gui.input_state.mouse.delta;
                                 color.h += 360 * mdel.y / h_area.h;
                                 color.h = std.math.clamp(color.h, 0, 360);
 
-                                if (self.gui.input_state.mouse_pos.y > h_area.y + h_area.h)
+                                if (self.gui.input_state.mouse.pos.y > h_area.y + h_area.h)
                                     color.h = 360.0;
-                                if (self.gui.input_state.mouse_pos.y < h_area.y)
+                                if (self.gui.input_state.mouse.pos.y < h_area.y)
                                     color.h = 0.0;
                             },
                             .click_teleport => {
@@ -2308,7 +2301,7 @@ pub const Os9Gui = struct {
     }
 
     pub fn toggleWindowPop(self: *Self, a: Rect, pop: *bool) void {
-        if (self.gui.input_state.mouse_left_clicked and !self.gui.isCursorInRect(a) and self.gui.window_index_grabbed_mouse == self.gui.window_index.?)
+        if (self.gui.input_state.mouse.left == .rising and !self.gui.isCursorInRect(a) and self.gui.window_index_grabbed_mouse == self.gui.window_index.?)
             pop.* = false;
     }
 
@@ -2336,7 +2329,7 @@ pub const Os9Gui = struct {
                         if (scr.*) {
                             const pa = self.gui.layout.last_requested_bounds orelse return;
                             const a = graph.Rect.newV(pa.pos(), .{ .x = pa.w, .y = pa.h * 5 });
-                            if (self.gui.input_state.mouse_left_clicked and !self.gui.isCursorInRect(a) and self.gui.window_index_grabbed_mouse == self.gui.window_index.?)
+                            if (self.gui.input_state.mouse.left == .rising and !self.gui.isCursorInRect(a) and self.gui.window_index_grabbed_mouse == self.gui.window_index.?)
                                 scr.* = false;
                             try self.gui.beginWindow(a);
                             defer self.gui.endWindow();
@@ -2366,7 +2359,7 @@ pub const Os9Gui = struct {
                             if (scr.pop) {
                                 const pa = self.gui.layout.last_requested_bounds.?;
                                 const a = graph.Rect.newV(pa.pos(), .{ .x = pa.w, .y = pa.h * 5 });
-                                if (self.gui.input_state.mouse_left_clicked and !self.gui.isCursorInRect(a) and self.gui.window_index_grabbed_mouse == self.gui.window_index.?)
+                                if (self.gui.input_state.mouse.left == .rising and !self.gui.isCursorInRect(a) and self.gui.window_index_grabbed_mouse == self.gui.window_index.?)
                                     scr.pop = false;
                                 try self.gui.beginWindow(a);
                                 defer self.gui.endWindow();
@@ -2425,11 +2418,11 @@ pub const Os9Gui = struct {
         const sl = switch (d.state) {
             .none, .hover, .hover_no_focus => self.style.getRect(.button),
             .click, .held => self.style.getRect(.button_clicked),
-            else => os9btn,
+            else => self.style.getRect(.button),
         };
         const disable = self.style.getRect(.button_disabled);
         const sl1 = if (params.disabled) disable else sl;
-        const color = if (params.disabled) text_disabled else (self.style.config.colors.button_text);
+        const color = if (params.disabled) self.style.config.colors.button_text_disabled else (self.style.config.colors.button_text);
         gui.draw9Slice(d.area, sl1, self.style.texture, self.scale);
         const texta = d.area.inset(3 * self.scale);
         gui.drawTextFmt(fmt, args, texta, texta.h, color, .{ .justify = .center }, &self.font);
@@ -2590,7 +2583,7 @@ pub const Os9Gui = struct {
                     .x = pa.w,
                     .y = if (do_scroll) pa.h * @as(f32, @floatFromInt(scrth)) else enum_info.Enum.fields.len * pa.h,
                 });
-                if (self.gui.input_state.mouse_left_clicked and !self.gui.isCursorInRect(dd_area)) {
+                if (self.gui.input_state.mouse.left == .rising and !self.gui.isCursorInRect(dd_area)) {
                     self.drop_down = null;
                     return;
                 }
@@ -2840,7 +2833,7 @@ pub const GuiTest = struct {
                     self.child_pos = area.pos();
                 const c_area = graph.Rect.newV(self.child_pos.?, area.dim().smul(0.3));
                 if (gui.isKeyDown(.SPACE) and gui.isCursorInRect(c_area)) {
-                    self.child_pos.? = self.child_pos.?.add(gui.input_state.mouse_delta);
+                    self.child_pos.? = self.child_pos.?.add(gui.input_state.mouse.delta);
                 }
 
                 // C = (F - 32) * (5/9)
@@ -3322,12 +3315,7 @@ pub fn main() anyerror!void {
         gui_timer.reset();
         Gui.hash_time = 0;
         const is: Gui.InputState = .{
-            .mouse_pos = win.mouse.pos,
-            .mouse_delta = win.mouse.delta,
-            .mouse_left_held = win.mouse.left == .high,
-            .mouse_left_clicked = win.mouse.left == .rising,
-            .mouse_wheel_delta = win.mouse.wheel_delta.y,
-            .mouse_wheel_down = win.mouse.middle == .high,
+            .mouse = win.mouse,
             .key_state = &win.key_state,
             .keys = win.keys.slice(),
             .mod_state = win.mod,

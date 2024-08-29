@@ -40,16 +40,16 @@ pub const ButtonState = enum {
 };
 
 pub const MouseState = struct {
-    left: ButtonState,
-    right: ButtonState,
-    middle: ButtonState,
-    x1: ButtonState,
-    x2: ButtonState,
+    left: ButtonState = .low,
+    right: ButtonState = .low,
+    middle: ButtonState = .low,
+    x1: ButtonState = .low,
+    x2: ButtonState = .low,
 
-    pos: Vec2f,
-    delta: Vec2f,
+    pos: Vec2f = .{ .x = 0, .y = 0 },
+    delta: Vec2f = .{ .x = 0, .y = 0 },
 
-    wheel_delta: Vec2f,
+    wheel_delta: Vec2f = .{ .x = 0, .y = 0 },
 
     pub fn setButtonsSDL(self: *MouseState, sdl_button_mask: u32) void {
         const b = sdl_button_mask;
