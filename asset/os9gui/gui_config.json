@@ -1,12 +1,19 @@
 {
-    "default_item_h": 20,
-    "default_v_pad": {"bottom": 6},
-    "pixel_per_line": 20,
-    "color_picker_size": {"x":600, "y":300},
-    "property_table_item_h":20,
-    "colors" :{
-        "button_text":"0xff",
-        "text_highlight": "0xccccffff"
-    }
-
+  "default_item_h": 20,
+  "default_v_pad": {
+    "bottom": 6
+  },
+  "pixel_per_line": 20,
+  "textbox_caret_width":3,
+  "textbox_inset":3,
+  "color_picker_size": {
+    "x": 600,
+    "y": 300
+  },
+  "property_table_item_h": 20,
+  "colors": {
+    "button_text": "0xff",
+    "text_highlight": "0xccccffff",
+    "textbox_caret": "0xff0000ff"
+  }
 }

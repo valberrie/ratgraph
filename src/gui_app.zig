@@ -1520,11 +1520,15 @@ pub const AtlasEditor = struct {
 pub const GuiConfig = struct {
     const Self = @This();
     pub const ConfigJson = struct {
+        //All units are pixels
         default_item_h: f32 = 20,
         default_v_pad: graph.Padding = .{},
         pixel_per_line: f32 = 20,
         color_picker_size: Vec2f = .{ .x = 600, .y = 300 },
         property_table_item_h: f32 = 20,
+        textbox_caret_width: f32 = 3,
+        textbox_inset: f32 = 3,
+        //All units are counts
         enum_combo_item_count_scroll_threshold: u32 = 7,
 
         colors: struct {
@@ -1539,6 +1543,11 @@ pub const GuiConfig = struct {
             };
             button_text: u32 = 0xff,
             text_highlight: u32 = 0xccccffff,
+            textbox_fg: u32 = 0xff,
+            textbox_fg_disabled: u32 = 0xff,
+            textbox_bg_disabled: u32 = 0xffffff75,
+            textbox_invalid: u32 = 0xff0000ff,
+            textbox_caret: u32 = 0xff,
 
             fn createWrapperType() type {
                 const ch: @This() = .{};
@@ -2407,7 +2416,10 @@ pub const Os9Gui = struct {
         return self.buttonEx("{s}", .{label_}, .{});
     }
 
-    pub fn buttonEx(self: *Self, comptime fmt: []const u8, args: anytype, params: struct { disabled: bool = false }) bool {
+    pub fn buttonEx(self: *Self, comptime fmt: []const u8, args: anytype, params: struct {
+        disabled: bool = false,
+        continuous: bool = false,
+    }) bool {
         const gui = &self.gui;
         const d = gui.buttonGeneric();
         const sl = switch (d.state) {
@@ -2422,7 +2434,8 @@ pub const Os9Gui = struct {
         const texta = d.area.inset(3 * self.scale);
         gui.drawTextFmt(fmt, args, texta, texta.h, color, .{ .justify = .center }, &self.font);
 
-        return (d.state == .click) and !params.disabled;
+        const is_cont = if (params.continuous) d.state == .held else false;
+        return (d.state == .click or is_cont) and !params.disabled;
     }
 
     pub fn scrollBar(self: *Self, pos: *f32, min: f32, max: f32, orientation: Gui.Orientation, params: struct {
@@ -2581,6 +2594,8 @@ pub const Os9Gui = struct {
                     self.drop_down = null;
                     return;
                 }
+                var buf: [256]u8 = undefined;
+                var sb = StaticTextbox.init(&buf);
                 if (try self.beginTlWindow(dd_area)) {
                     defer self.endTlWindow();
 
@@ -2589,12 +2604,21 @@ pub const Os9Gui = struct {
                     //const ar = dd_area.inset(14 * self.scale);
                     _ = try self.gui.beginLayout(Gui.SubRectLayout, .{ .rect = ar }, .{});
                     defer self.gui.endLayout();
+                    const vl = try self.beginV();
+                    defer self.endL();
+                    const old_len = sb.len;
+                    try self.textbox2(&sb, .{});
+                    if (old_len != sb.len)
+                        self.drop_down_scroll.y = 0;
+                    vl.pushRemaining();
                     if (try self.beginScroll(&self.drop_down_scroll, .{ .sw = ar.w }, Gui.VerticalLayout{ .item_height = 20 * self.scale })) |file_scroll| {
                         defer self.endScroll(file_scroll, file_scroll.child.current_h);
                         inline for (enum_info.Enum.fields) |f| {
-                            if (self.buttonEx("{s}", .{f.name}, .{})) {
-                                enum_value.* = @enumFromInt(f.value);
-                                self.drop_down = null;
+                            if (std.mem.startsWith(u8, f.name, sb.getSlice())) {
+                                if (self.buttonEx("{s}", .{f.name}, .{})) {
+                                    enum_value.* = @enumFromInt(f.value);
+                                    self.drop_down = null;
+                                }
                             }
                         }
                     }
@@ -2605,7 +2629,8 @@ pub const Os9Gui = struct {
 
     pub fn textboxNumber(self: *Self, number_ptr: anytype) !void {
         const gui = &self.gui;
-        if (try gui.textboxNumberGeneric(number_ptr, &self.font, .{ .text_inset = self.scale * 3 })) |d| {
+        const inset = self.style.config.textbox_inset * self.scale;
+        if (try gui.textboxNumberGeneric(number_ptr, &self.font, .{ .text_inset = inset })) |d| {
             const tr = d.text_area;
             gui.draw9Slice(d.area, self.style.getRect(.basic_inset), self.style.texture, self.scale);
             if (d.is_invalid)
@@ -2631,37 +2656,43 @@ pub const Os9Gui = struct {
     //
     //Fix the drawing of highlighted. Alpha problems
     //Support for "scrolling" the text if it is wider that the textbox
+    //Make this function support numbers instead
     pub fn textbox2(self: *Self, tb: anytype, params: struct {
         disabled: bool = false,
         invalid: bool = false,
     }) !void {
         const gui = &self.gui;
+        const inset = self.style.config.textbox_inset * self.scale;
         if (params.disabled) {
             const a = self.gui.getArea() orelse return;
-            const tr = a.inset(3 * self.scale);
+            const tr = a.inset(inset);
             gui.draw9Slice(a, self.style.getRect(.basic_inset), self.style.texture, self.scale);
-            gui.drawTextFmt("{s}", .{tb.getSlice()}, tr, tr.h, 0x00aa, .{}, &self.font);
-            gui.drawRectFilled(a, 0xffffff75);
+            gui.drawRectFilled(a, self.style.config.colors.textbox_bg_disabled);
+            gui.drawTextFmt("{s}", .{tb.getSlice()}, tr, tr.h, self.style.config.colors.textbox_fg_disabled, .{}, &self.font);
             return;
         }
-        if (try gui.textboxGeneric2(tb, &self.font, .{ .text_inset = 3 * self.scale })) |d| {
+        if (try gui.textboxGeneric2(tb, &self.font, .{ .text_inset = inset })) |d| {
             const tr = d.text_area;
             gui.draw9Slice(d.area, self.style.getRect(.basic_inset), self.style.texture, self.scale);
             if (params.invalid)
-                gui.drawRectFilled(tr, 0xff0000ff);
+                gui.drawRectFilled(tr, self.style.config.colors.textbox_invalid);
             gui.drawRectFilled(Rect.new(
                 d.selection_pos_min + d.text_area.x,
                 d.text_area.y,
                 d.selection_pos_max - d.selection_pos_min,
                 d.text_area.h,
             ), self.style.config.colors.text_highlight);
-            gui.drawTextFmt("{s}", .{d.slice}, d.text_area, d.text_area.h, Color.Black, .{}, &self.font);
             if (d.caret) |of| {
-                gui.drawRectFilled(Rect.new(of + tr.x, tr.y + 2, 3, tr.h - 4), Color.Black);
+                gui.drawRectFilled(
+                    Rect.new(of + tr.x, tr.y + 2, self.style.config.textbox_caret_width, tr.h - 4),
+                    self.style.config.colors.textbox_caret,
+                );
+                gui.drawTextFmt("{s}", .{d.slice}, d.text_area, d.text_area.h, Color.Black, .{}, &self.font);
             }
         }
     }
 
+    //TODO delete me and use textbox2
     pub fn textboxEx(self: *Self, contents: *std.ArrayList(u8), params: struct {
         disabled: bool = false,
         invalid: bool = false,
@@ -3199,8 +3230,8 @@ pub fn main() anyerror!void {
     var debug_dir = try std.fs.cwd().openDir("debug", .{});
     defer debug_dir.close();
 
-    var cwin = try win.createChildWindow("HELLO", 1000, 500);
-    defer cwin.deinit();
+    //var cwin = try win.createChildWindow("HELLO", 1000, 500);
+    //defer cwin.deinit();
 
     graph.c.glLineWidth(1);
 
@@ -3360,7 +3391,9 @@ pub fn main() anyerror!void {
                             try os9gui.textboxNumber(&tc.win_inset);
                             try os9gui.textbox(&my_str);
                             try os9gui.textbox2(&statictb, .{});
-                            try os9gui.textbox2(&dyn_tb, .{});
+                            try os9gui.textbox2(&dyn_tb, .{
+                                .disabled = os9gui.buttonEx("Disable box", .{}, .{ .continuous = true }),
+                            });
                             scr.layout.pushHeight(os9gui.propertyTableHeight(&tc));
                             switch (try os9gui.beginTabs(&tc.tab)) {
                                 .ptable => {
@@ -3424,21 +3457,21 @@ pub fn main() anyerror!void {
         try draw.end(null);
         win.swap();
 
-        if (graph.c.SDL_GetMouseFocus() == cwin.win) {
-            _ = graph.c.SDL_GL_MakeCurrent(cwin.win, win.ctx);
-            defer _ = graph.c.SDL_GL_MakeCurrent(win.win, win.ctx);
-            const rec = graph.Rec(0, 0, 1000, 500);
-            try draw.begin(0x2f2f2fff, rec.dim());
-            try os9gui2.beginFrame(if (graph.c.SDL_GetMouseFocus() == cwin.win) is else def_is, &win);
-            if (try os9gui2.beginTlWindow(rec)) {
-                defer os9gui2.endTlWindow();
-                try os9gui2.propertyTable(&os9gui.style.config);
-            }
-            try os9gui2.endFrame(&draw);
-            graph.c.glDisable(graph.c.GL_STENCIL_TEST);
-            //draw.text(.{.x = 0, .y = 0}, "hello world", &font, 40, (t.color));
-            try draw.end(null);
-            graph.c.SDL_GL_SwapWindow(cwin.win);
-        }
+        //if (graph.c.SDL_GetMouseFocus() == cwin.win) {
+        //    _ = graph.c.SDL_GL_MakeCurrent(cwin.win, win.ctx);
+        //    defer _ = graph.c.SDL_GL_MakeCurrent(win.win, win.ctx);
+        //    const rec = graph.Rec(0, 0, 1000, 500);
+        //    try draw.begin(0x2f2f2fff, rec.dim());
+        //    try os9gui2.beginFrame(if (graph.c.SDL_GetMouseFocus() == cwin.win) is else def_is, &win);
+        //    if (try os9gui2.beginTlWindow(rec)) {
+        //        defer os9gui2.endTlWindow();
+        //        try os9gui2.propertyTable(&os9gui.style.config);
+        //    }
+        //    try os9gui2.endFrame(&draw);
+        //    graph.c.glDisable(graph.c.GL_STENCIL_TEST);
+        //    //draw.text(.{.x = 0, .y = 0}, "hello world", &font, 40, (t.color));
+        //    try draw.end(null);
+        //    graph.c.SDL_GL_SwapWindow(cwin.win);
+        //}
     }
 }

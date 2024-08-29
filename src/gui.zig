@@ -1989,12 +1989,12 @@ pub const Context = struct {
             }
             ret.slice = self.storeString(sl);
         } else {
-            ret.slice = self.scratchPrint("{d}", .{number_ptr.*});
+            ret.slice = self.scratchPrint("{d:.2}", .{number_ptr.*});
         }
         if (click == .click) {
             if (!self.isActiveTextinput(id)) {
                 self.text_input_state.active_id = id;
-                try self.textbox_state.resetFmt("{d}", .{number_ptr.*});
+                try self.textbox_state.resetFmt("{d:.2}", .{number_ptr.*});
             }
 
             const cin = font.nearestGlyphX(self.textbox_state.getSlice(), tarea.h, self.input_state.mouse_pos.sub(tarea.pos()));
