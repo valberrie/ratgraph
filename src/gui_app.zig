@@ -1588,6 +1588,7 @@ pub const GuiConfig = struct {
     };
 
     pub const Style9Slices = enum {
+        rat,
         tab_border,
         tab_active,
         tab_inactive,
@@ -1839,7 +1840,8 @@ pub const Os9Gui = struct {
             //     .mag_filter = graph.c.GL_NEAREST,
             // }),
             //TODO switch to stb font init
-            .font = try graph.Font.init(alloc, asset_dir, "fonts/roboto.ttf", 64, 163, .{}),
+            //.font = try graph.Font.init(alloc, asset_dir, "fonts/roboto.ttf", 64, 163, .{}),
+            .font = try graph.Font.initFromBuffer(alloc, @embedFile("font/roboto.ttf"), 64, .{}),
             .icon_font = try graph.Font.init(
                 alloc,
                 asset_dir,
@@ -2070,6 +2072,23 @@ pub const Os9Gui = struct {
         self.endL();
     }
 
+    pub fn rat(self: *Self) !void {
+        if (self.gui.getArea()) |area| {
+            const scr = try self.gui.storeLayoutData(struct {
+                frame: u32,
+                x: f32,
+            }, .{ .frame = 0, .x = 0 }, "frame");
+            const frame = self.style.getRect(.rat);
+            const p = 6;
+            const rect = frame.replace(frame.x + @as(f32, @floatFromInt(32 * (scr.frame / p))), null, 32, 24);
+            scr.frame = (scr.frame + 1) % (p * 3);
+            scr.x += 2 * self.scale;
+            if (scr.x > area.w)
+                scr.x = 0;
+            self.gui.drawRectTextured(area.replace(area.x + scr.x, null, 32 * self.scale, 24 * self.scale), Color.White, rect, self.style.texture);
+        }
+    }
+
     pub fn colorPicker(self: *Self, color: *graph.Hsva) !void {
         if (self.gui.getArea()) |area| {
             _ = try self.gui.beginLayout(Gui.SubRectLayout, .{ .rect = area }, .{});
@@ -2175,6 +2194,10 @@ pub const Os9Gui = struct {
                     {
                         var vl = try self.beginV();
                         defer self.endL();
+                        if (self.button("Done")) {
+                            scr.* = false;
+                        }
+
                         {
                             _ = try self.beginH(3);
                             defer self.endL();
@@ -3372,6 +3395,7 @@ pub fn main() anyerror!void {
                             try os9gui.textboxNumber(&tc.my_int);
                             try os9gui.radio(&tc.tab);
                             try os9gui.colorPicker(&tc.my_color);
+                            try os9gui.rat();
 
                             try os9gui.enumCombo("filek", .{}, &tc.filek);
                             try os9gui.textboxNumber(&tc.scale);
