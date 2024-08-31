@@ -1,8 +1,7 @@
 const std = @import("std");
-//TODO I WANT TO DESTROY THIS
 
 const newcol = @import("newcol.zig");
-pub const ColType = newcol.CollisionType(graph.Rect, graph.Vec2f);
+pub const ColType = newcol.ColCtx(2, f32);
 
 const graph = @import("graphics.zig");
 pub const ColRect = graph.Rect;
@@ -41,12 +40,6 @@ pub fn doRectsOverlap(r1: ColRect, r2: ColRect) bool {
     return !(r1.x > r2.x + r2.w or r2.x > r1.x + r1.w or r1.y > r2.y + r2.h or r2.y > r1.y + r1.h);
 }
 
-pub fn containsPoint(low: f32, high: f32, point: f32) bool {
-    return (low - point > 0) != (high - point > 0);
-}
-
 pub fn doLinesOverlap(low1: f32, high1: f32, low2: f32, high2: f32) bool {
     return !(low1 > high2 or high1 < low2);
 }
-
-pub const eps = 0.01;

@@ -246,6 +246,10 @@ pub const Vec2f = packed struct {
         return .{ .x = 0, .y = 0 };
     }
 
+    pub fn toArray(self: @This()) [2]f32 {
+        return [2]f32{ self.x, self.y };
+    }
+
     pub fn new(x: anytype, y: anytype) @This() {
         return .{
             .x = std.math.lossyCast(f32, x),
