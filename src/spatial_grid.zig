@@ -4,7 +4,7 @@ const Allocator = std.mem.Allocator;
 
 const Rect = graph.Rect;
 const Vec2i = graph.Vec2i;
-
+/// 2d integer Spatial lookups. Used for collision detection
 pub fn Spatial(comptime value_T: type) type {
     const lossyCast = std.math.lossyCast;
     return struct {

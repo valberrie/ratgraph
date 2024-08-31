@@ -31,6 +31,16 @@ pub fn ColCtx(DIM: usize, FT: type) type {
                     );
                 }
             },
+            3 => struct {
+                pub fn detectCollision(c1: anytype, c2: anytype, goal: anytype, other_i: u32) ?CollisionResult {
+                    return detectCollisionRaw(
+                        .{ .p = c1.pos.data, .x = c1.ext.data },
+                        .{ .p = c2.pos.data, .x = c2.ext.data },
+                        goal.data,
+                        other_i,
+                    );
+                }
+            },
             else => struct {},
         };
 

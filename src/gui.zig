@@ -79,7 +79,6 @@ pub const DrawCommand = union(enum) {
         color: u32,
     },
 
-    /// A scissor command flushes existing draw lists than calls glScissor with the provided area. If the area is null, the scissor test is disabled
     scissor: struct {
         area: ?Rect = null,
     },
@@ -1964,60 +1963,6 @@ pub const Context = struct {
         }
 
         return ret;
-    }
-
-    //TODO there are a few states for this function when drawing
-    //popped / not popped
-    // A 'U' indicates user facing
-    // beginPopup
-    // U "draw stuff"
-    // beginscrollVLayout <- This causes draw.scissor to be called, if we inset the scroll area but want to draw a border it has to happend before this call
-    // U for each enum value draw a widget
-    // U set a value if clicked
-    // end the v layout
-    // end all regardless
-    // U draw the non popped
-    //
-    pub fn enumDropdownGeneric(self: *Self, comptime enumT: type, enum_val: *enumT, params: struct {
-        max_items: usize,
-        scroll_bar_w: f32,
-        inset_scroll: f32 = 0,
-    }) !?GenericWidget.EnumDropdown {
-        const rec = self.getArea() orelse return null;
-        const id = self.getId();
-        const h = rec.h;
-        const nfields = @typeInfo(enumT).Enum.fields.len;
-
-        _ = enum_val;
-        const click = self.clickWidget(rec);
-        const popup_h = h * @as(f32, if (nfields > params.max_items) @floatFromInt(params.max_items) else @floatFromInt(nfields));
-
-        if (self.isActivePopup(id)) {
-            //var done = false;
-            const lrq = self.layout.last_requested_bounds orelse graph.Rec(0, 0, 0, 0);
-            const popup_rec = graph.Rec(lrq.x, lrq.y, lrq.w, popup_h);
-            try self.beginPopup(popup_rec);
-            const inset = popup_rec.inset(params.inset_scroll);
-            _ = try self.beginLayout(SubRectLayout, .{ .rect = inset }, .{});
-            if (try self.beginVLayoutScroll(&self.enum_drop_down_scroll, .{ .item_height = h }, params.scroll_bar_w)) |scroll| {
-                return .{
-                    .area = popup_rec,
-                    .popup_active = true,
-                    .slider_area = scroll.data.vertical_slider_area.?,
-                    .slider_range = .{ .x = 0, .y = h * nfields - inset.h },
-                    .slider_ptr = &self.enum_drop_down_scroll.y,
-                };
-            }
-            self.endLayout();
-            self.endPopup();
-        } else {
-            if (click == .click) {
-                self.enum_drop_down_scroll = .{ .x = 0, .y = 0 };
-                self.popup_id = id;
-                self.last_frame_had_popup = true;
-            }
-        }
-        return .{ .area = rec, .popup_active = false };
     }
 };
 

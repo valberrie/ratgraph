@@ -8,8 +8,59 @@ const V3f = graph.za.Vec3;
 const Mat4 = graph.za.Mat4;
 const Mat3 = graph.za.Mat3;
 const Rec = graph.Rec;
-const Col3d = @import("col3d.zig");
-const ColType = Col3d.CollisionType(graph.Rect, graph.za.Vec3);
+const NewCol = @import("newcol.zig");
+const ColType = NewCol.ColCtx(3, f32);
+
+//const Col3d = @import("col3d.zig");
+//const ColType = Col3d.CollisionType(graph.Rect, graph.za.Vec3);
+pub const Cube = struct {
+    const Vec = graph.za.Vec3;
+    pos: Vec,
+    ext: Vec,
+
+    /// add "addition * norm" to ext
+    /// Negative normals also subtract "addition * norm" from pos
+    pub fn addInDir(self: Cube, addition: f32, normal: Vec) Cube {
+        var ret = self;
+        const n = normal.toArray();
+        for (n, 0..) |comp, i| {
+            ret.ext.data[i] += addition * @abs(comp);
+            if (comp < 0) {
+                ret.pos.data[i] += addition * comp;
+            }
+        }
+        return ret;
+    }
+
+    pub fn getPlane0(self: Cube, norm: Vec) Vec {
+        if (norm.dot(Vec.new(1, 1, 1)) > 0)
+            return self.pos.add(self.ext.mul(norm));
+        return self.pos;
+    }
+
+    pub fn fromBounds(p1: Vec, p2: Vec) Cube {
+        const ext = p1.sub(p2);
+        return Cube{
+            .pos = Vec{ .data = @min(p1.data, p2.data) },
+            .ext = Vec{ .data = @abs(ext.data) },
+        };
+    }
+
+    //Return the verts, bottom first, then top. [pos, x, xz, z]
+    pub fn getVerts(self: Cube) [8]Vec {
+        const p = self.pos.add(Vec.new(0, self.ext.y(), 0));
+        return [8]Vec{
+            self.pos,
+            self.pos.add(Vec.new(self.ext.x(), 0, 0)),
+            self.pos.add(Vec.new(self.ext.x(), 0, self.ext.z())),
+            self.pos.add(Vec.new(0, 0, self.ext.z())),
+            p,
+            p.add(Vec.new(self.ext.x(), 0, 0)),
+            p.add(Vec.new(self.ext.x(), 0, self.ext.z())),
+            p.add(Vec.new(0, 0, self.ext.z())),
+        };
+    }
+};
 
 const pow = std.math.pow;
 const sqrt = std.math.sqrt;
@@ -718,7 +769,7 @@ pub const JsonWorldCube = struct {
 
 pub const WorldCube = struct {
     const Self = @This();
-    cube: ColType.Cube,
+    cube: Cube,
     texture_index: u16,
 
     pub fn jsonStringify(self: *const Self, jw: anytype) !void {
@@ -1425,7 +1476,7 @@ pub fn main() !void {
             );
         }
         if (pencil.state == .p2) {
-            const cu = ColType.Cube.fromBounds(pencil.p1, pencil.p2);
+            const cu = Cube.fromBounds(pencil.p1, pencil.p2);
             try cubes.cube(cu.pos.x(), cu.pos.y(), cu.pos.z(), cu.ext.x(), cu.ext.y(), cu.ext.z(), tex.rect(), 0);
         }
         win.pumpEvents();
@@ -1540,33 +1591,34 @@ pub fn main() !void {
 
         const pex = 0.3;
         const bb_offset = V3f.new(-pex, -1.6, -pex);
-        var cam_bb = ColType.Cube{ .pos = old_pos.add(bb_offset), .ext = V3f.new(2 * pex, 1.7, 2 * pex) };
+        var cam_bb = Cube{ .pos = old_pos.add(bb_offset), .ext = V3f.new(2 * pex, 1.7, 2 * pex) };
         {
             grounded = false;
             var delta = camera.pos.sub(old_pos);
             while (delta.length() > 0) {
                 var cols = std.ArrayList(ColType.CollisionResult).init(arena);
                 for (world.cubes.items) |lum| {
-                    if (ColType.detectCollision(cam_bb, lum.cube, delta)) |col| {
+                    if (ColType.detectCollision(cam_bb, lum.cube, delta, 0)) |col| {
                         try cols.append(col);
                     }
                 }
                 if (cols.items.len > 0) {
                     std.sort.heap(ColType.CollisionResult, cols.items, {}, ColType.CollisionResult.lessThan);
                     const col = &cols.items[0];
+                    const cn = graph.za.Vec3.new(col.normal[0], col.normal[1], col.normal[2]);
                     delta = delta.sub(delta.scale(col.ti));
-                    if ((col.normal.x() != 0 or col.normal.z() != 0) and col.other.pos.y() + col.other.ext.y() - 0.25 < cam_bb.pos.y() and grounded) {}
-                    if (col.normal.x() != 0) {
+                    if ((cn.x() != 0 or cn.z() != 0) and col.other.p[1] + col.other.x[1] - 0.25 < cam_bb.pos.y() and grounded) {}
+                    if (cn.x() != 0) {
                         delta.xMut().* = 0;
                     }
-                    if (col.normal.y() != 0) {
+                    if (cn.y() != 0) {
                         delta.yMut().* = 0;
                         grounded = true;
                     }
-                    if (col.normal.z() != 0) {
+                    if (cn.z() != 0) {
                         delta.zMut().* = 0;
                     }
-                    cam_bb.pos = col.touch;
+                    cam_bb.pos.data = col.touch;
                     camera.pos = cam_bb.pos.sub(bb_offset);
 
                     //for (col.normal.toArray(), 0..) |n, i| {
@@ -1987,7 +2039,7 @@ pub fn main() !void {
                     .p2 => {
                         if (doesRayIntersectPlane(camera.pos, camera.front, origin, V3f.new(0, 1, 0))) |p| {
                             const pp = snapV3(p.add(V3f.new(sel_snap / 2, 0, sel_snap / 2)), sel_snap);
-                            const cube = ColType.Cube.fromBounds(pp, pencil.p1);
+                            const cube = Cube.fromBounds(pp, pencil.p1);
                             //draw.cube(cube.pos, cube.ext, 0xffffffff);
                             {
                                 const num_lines = 30;
