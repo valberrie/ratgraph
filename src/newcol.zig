@@ -1,4 +1,4 @@
-pub const DELTA: f32 = 1e-10;
+pub const DELTA: f32 = 1e-5;
 const std = @import("std");
 
 //TODO
@@ -49,6 +49,13 @@ pub fn ColCtx(DIM: usize, FT: type) type {
             var ret = a;
             for (0..DIM) |i| {
                 ret[i] -= b[i];
+            }
+            return ret;
+        }
+        pub fn addV(a: V, b: V) V {
+            var ret = a;
+            for (0..DIM) |i| {
+                ret[i] += b[i];
             }
             return ret;
         }
@@ -205,7 +212,7 @@ pub fn ColCtx(DIM: usize, FT: type) type {
             //if the Minkowsky diff intersects the origin it is already overlapping
             if (containsPoint(mdiff, ZeroV)) {
                 const point = nearestCorner(mdiff, ZeroV);
-                var area: FT = -1;
+                var area: FT = -1.0;
                 for (0..DIM) |i| {
                     area *= @min(r1.x[i], @abs(point[i]));
                 }
@@ -227,7 +234,7 @@ pub fn ColCtx(DIM: usize, FT: type) type {
 
             var tv = ZeroV;
             if (overlaps) {
-                if (lenV(delta) < DELTA) {
+                if (lenV(delta) == 0) {
                     var np = nearestCorner(mdiff, ZeroV);
                     //Find the minimum component and set all others to zero
                     var mi: usize = 0;
@@ -245,13 +252,16 @@ pub fn ColCtx(DIM: usize, FT: type) type {
                     }
                     for (0..DIM) |i| {
                         norm[i] = sign(np[i]);
+                        tv[i] = r1.p[i] + np[i];
                     }
-                    tv = ZeroV;
+
+                    //tv = ZeroV;
                     //tx = r1.x + np.x;
                     //ty = r1.y + np.y;
                 } else {
                     const lb = liang_barsky(mdiff, ZeroV, delta, -std.math.floatMax(f32), 1) orelse return null;
                     norm = lb.normal;
+                    ti = lb.ti;
                     for (0..DIM) |i| {
                         tv[i] = r1.p[i] + delta[i] * lb.ti;
                     }
@@ -276,6 +286,18 @@ pub fn ColCtx(DIM: usize, FT: type) type {
             };
         }
     };
+}
+
+const TC3 = ColCtx(3, f32);
+test "3dfail" {
+    //newcol.ColCtx(3,f32).CollisionResult{ .overlaps = true, .ti = -1.37082266e-8, .move = { 0e0, 0e0, 1.9326568e-2 }, .normal = { 0e0, 0e0, -1e0 }, .touch = { 5.48e0, 9.99999e-3, -6e-1 }, .other_i = 31, .item = newcol.ColCtx(3,f32).AABB{ .p = { 5.48e0, 9.99999e-3, 1.9193107e0 }, .x = { 6e-1, 1.7e0, 6e-1 } }, .other = newcol.ColCtx(3,f32).AABB{ .p = { 6.08e0, 0e0, 0e0 }, .x = { 9.0999997e-1, 2.9e-1, 2.33e0 } } }
+    const item = TC3.AABB{ .p = [_]f32{ 5.48e0, 9.99999e-3, 1.9193107e0 }, .x = [_]f32{ 6e-1, 1.7e0, 6e-1 } };
+    const other = TC3.AABB{ .p = [_]f32{ 6.08e0, 0e0, 0e0 }, .x = [_]f32{ 9.0999997e-1, 2.9e-1, 2.33e0 } };
+    const move = [_]f32{ 0e0, 0e0, 1.9326568e-2 };
+    const col = TC3.detectCollisionRaw(item, other, TC3.addV(item.p, move), 0);
+    _ = col;
+    const mdiff = TC3.minkowsky_diff(item, other);
+    std.debug.print("{any}\n", .{mdiff});
 }
 
 const TC = ColCtx(2, f32);

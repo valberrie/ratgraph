@@ -1594,45 +1594,45 @@ pub fn main() !void {
         var cam_bb = Cube{ .pos = old_pos.add(bb_offset), .ext = V3f.new(2 * pex, 1.7, 2 * pex) };
         {
             grounded = false;
-            var delta = camera.pos.sub(old_pos);
-            while (delta.length() > 0) {
+            const delta = camera.pos.sub(old_pos);
+            var goal = cam_bb.pos.add(delta);
+            var i_2: usize = 0;
+            outer: while (true) {
+                defer i_2 += 1;
+                //std.debug.print("LOOP{d}\n", .{i_2});
                 var cols = std.ArrayList(ColType.CollisionResult).init(arena);
-                for (world.cubes.items) |lum| {
-                    if (ColType.detectCollision(cam_bb, lum.cube, delta, 0)) |col| {
+                for (world.cubes.items, 0..) |lum, ii| {
+                    if (ColType.detectCollision(cam_bb, lum.cube, goal, @intCast(ii))) |col| {
                         try cols.append(col);
                     }
                 }
-                if (cols.items.len > 0) {
-                    std.sort.heap(ColType.CollisionResult, cols.items, {}, ColType.CollisionResult.lessThan);
-                    const col = &cols.items[0];
-                    const cn = graph.za.Vec3.new(col.normal[0], col.normal[1], col.normal[2]);
-                    delta = delta.sub(delta.scale(col.ti));
-                    if ((cn.x() != 0 or cn.z() != 0) and col.other.p[1] + col.other.x[1] - 0.25 < cam_bb.pos.y() and grounded) {}
-                    if (cn.x() != 0) {
-                        delta.xMut().* = 0;
+                std.sort.heap(ColType.CollisionResult, cols.items, {}, ColType.CollisionResult.lessThan);
+                for (cols.items) |col| {
+                    if (ColType.lenV(col.move) == 0) {
+                        break :outer;
                     }
-                    if (cn.y() != 0) {
-                        delta.yMut().* = 0;
-                        grounded = true;
-                    }
-                    if (cn.z() != 0) {
-                        delta.zMut().* = 0;
-                    }
-                    cam_bb.pos.data = col.touch;
-                    camera.pos = cam_bb.pos.sub(bb_offset);
 
-                    //for (col.normal.toArray(), 0..) |n, i| {
-                    //    if (n != 0) {
-                    //        (&delta.toArray())[i] = 0;
-                    //        cam_bb.pos.toArray()[i] = col.touch.toArray()[i] - bb_offset.toArray()[i];
-                    //    }
-                    //}
-                } else {
-                    cam_bb.pos = cam_bb.pos.add(delta);
-                    camera.pos = cam_bb.pos.sub(bb_offset);
-                    delta = V3f.zero();
+                    //std.debug.print("{any}\n", .{col});
+                    //if for all nonzero normals the goal == pos, quit
+                    var done: bool = true;
+                    for (0..3) |i| {
+                        if (col.normal[i] != 0) {
+                            if (goal.data[i] != col.touch[i])
+                                done = false;
+
+                            goal.data[i] = col.touch[i];
+                        }
+                    }
+                    if (col.normal[1] != 0)
+                        grounded = true;
+                    cam_bb.pos.data = col.touch;
+                    continue :outer;
                 }
+                break :outer;
             }
+            cam_bb.pos = goal;
+            camera.pos = cam_bb.pos.sub(bb_offset);
+
             model_m[alyx_index] = Mat4.fromTranslate(cam_bb.pos.add(V3f.new(cam_bb.ext.x() / 2, 0, cam_bb.ext.z() / 2))).rotate(-camera.yaw + 90, V3f.new(0, 1, 0));
             //for each collidable
             //  col_list append(detectCollision)
