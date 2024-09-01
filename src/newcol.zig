@@ -7,26 +7,27 @@ const std = @import("std");
 //Given two objects which response should we use?
 pub fn ColCtx(DIM: usize, FT: type) type {
     return struct {
-        const V = [DIM]FT;
-        const ZeroV = [_]FT{0} ** DIM;
+        pub const V = [DIM]FT;
+        pub const ZeroV = [_]FT{0} ** DIM;
         const AABB = struct {
             p: V,
             x: V,
         };
+        const Plane = [DIM]V;
 
         pub usingnamespace switch (DIM) {
             2 => struct {
                 pub fn detectCollision(r1: anytype, r2: anytype, goal: anytype, other_i: u32) ?CollisionResult {
                     return detectCollisionRaw(
                         .{
-                            .p = [2]f32{ r1.x, r1.y },
-                            .x = [2]f32{ r1.w, r1.h },
+                            .p = [2]FT{ r1.x, r1.y },
+                            .x = [2]FT{ r1.w, r1.h },
                         },
                         .{
-                            .p = [2]f32{ r2.x, r2.y },
-                            .x = [2]f32{ r2.w, r2.h },
+                            .p = [2]FT{ r2.x, r2.y },
+                            .x = [2]FT{ r2.w, r2.h },
                         },
-                        [2]f32{ goal.x, goal.y },
+                        [2]FT{ goal.x, goal.y },
                         other_i,
                     );
                 }
@@ -201,6 +202,115 @@ pub fn ColCtx(DIM: usize, FT: type) type {
             };
         }
 
+        //If either x1 == x2 or y1 == y2, decomposes into a aabb
+        //
+
+        //AABB vs line in 2d
+        //2 line-line intersection checks, either intersects, they collide there
+
+        //pub fn detectCollisionAABB_planeRaw(r1:AABB, plane: )
+        //
+        //position,
+
+        pub fn lineIntersect(a1: V, a2: V, b1: V, b2: V) ?V {
+            if (DIM != 2)
+                return null;
+            const al = subV(a1, a2);
+            const bl = subV(b1, b2);
+            var all: FT = 0;
+            var bll: FT = 0;
+
+            for (0..DIM) |i| {
+                all += al[i];
+                bll += bl[i];
+            }
+            if (all == 0 or bll == 0)
+                return null;
+            const denom = (b2[1] - b1[1]) * (a2[0] - a1[0]) - (b2[0] - b1[0]) * (a2[1] - a1[1]);
+            if (denom == 0)
+                return null;
+
+            const ua = ((b2[0] - b1[0]) * (a1[1] - b1[1]) - (b2[1] - b1[1]) * (a1[0] - b1[0])) / denom;
+            const ub = ((a2[0] - a1[0]) * (a1[1] - b1[1]) - (a2[1] - a1[1]) * (a1[0] - b1[0])) / denom;
+            if (ua < 0 or ua > 1 or ub < 0 or ub > 1)
+                return null;
+            return [2]FT{
+                a1[0] + ua * (a2[0] - a1[0]),
+                a1[0] + ua * (a2[1] - a1[0]),
+            };
+        }
+
+        pub fn minkl(r1: AABB, s1: V, en1: V, ret: *[6]V) []V {
+            if (s1[0] == en1[0] or s1[1] == en1[1]) {
+                ret[0][0] = @min(s1[0] - r1.p[0], en1[0] - r1.p[0]) - r1.x[0];
+                ret[0][1] = @min(s1[1] - r1.p[1], en1[1] - r1.p[1]) - r1.x[1];
+                ret[2][0] = @max(s1[0] - r1.p[0] + r1.x[0], en1[0] - r1.p[0] + r1.x[0]) - r1.x[0];
+                ret[2][1] = @max(s1[1] - r1.p[1] + r1.x[1], en1[1] - r1.p[1] + r1.x[1]) - r1.x[1];
+                ret[1][0] = ret[2][0];
+                ret[1][1] = ret[0][1];
+                ret[3][0] = ret[0][0];
+                ret[3][1] = ret[2][1];
+                return ret[0..4];
+            }
+            var en = en1;
+            var s = s1;
+
+            if ((en[0] - s[0]) / (en[1] - s[1]) < 0) {
+                if (en[0] < s[0]) {
+                    s = en1;
+                    en = s1;
+                }
+                ret[0][0] = s[0] - r1.p[0] - r1.x[0];
+                ret[0][1] = s[1] - r1.p[1] - r1.x[1];
+
+                ret[1][0] = en[0] - r1.p[0] - r1.x[0];
+                ret[1][1] = en[1] - r1.p[1] - r1.x[1];
+
+                ret[2][0] = en[0] - r1.p[0];
+                ret[2][1] = en[1] - r1.p[1] - r1.x[1];
+
+                ret[3][0] = en[0] - r1.p[0];
+                ret[3][1] = en[1] - r1.p[1];
+
+                ret[4][0] = s[0] - r1.p[0];
+                ret[4][1] = s[1] - r1.p[1];
+
+                ret[5][0] = s[0] - r1.p[0] - r1.x[0];
+                ret[5][1] = s[1] - r1.p[1];
+                return ret;
+            } else {
+                if (en[1] < s[1]) {
+                    s = en1;
+                    en = s1;
+                }
+                ret[0][0] = s[0] - r1.p[0] - r1.x[0];
+                ret[0][1] = s[1] - r1.p[1] - r1.x[1];
+
+                ret[1][0] = s[0] - r1.p[0];
+                ret[1][1] = ret[0][1];
+
+                ret[2][0] = en[0] - r1.p[0];
+                ret[2][1] = en[1] - r1.p[1] - r1.x[1];
+
+                ret[3][0] = ret[2][0];
+                ret[3][1] = ret[2][1] + r1.x[1];
+
+                ret[4][0] = ret[3][0] - r1.x[0];
+                ret[4][1] = ret[3][1];
+
+                ret[5][0] = ret[0][0];
+                ret[5][1] = ret[0][1] + r1.x[1];
+                return ret;
+            }
+        }
+
+        //pub fn detectCollisionLine(r1:AABB, l1:V, l2:V, goal:V, other_i:u32)?CollisionResult{
+        //    const delta = subV(goal, r1.p);
+        //    var verts:[6]V = undefined;
+        //    const mdiff = minkl(r1, l1,l2, &ret);
+        //    if(mdiff.len == 4)
+        //}
+
         pub fn detectCollisionRaw(r1: AABB, r2: AABB, goal: V, other_i: u32) ?CollisionResult {
             const delta = subV(goal, r1.p);
             const mdiff = minkowsky_diff(r1, r2);
@@ -222,7 +332,7 @@ pub fn ColCtx(DIM: usize, FT: type) type {
                 //ti = -wi * hi; // ti is the negative area of intersection
                 overlaps = true;
             } else {
-                if (liang_barsky(mdiff, ZeroV, delta, -std.math.floatMax(f32), std.math.floatMax(f32))) |lb| {
+                if (liang_barsky(mdiff, ZeroV, delta, -std.math.floatMax(FT), std.math.floatMax(FT))) |lb| {
                     if (lb.ti < 1 and @abs(lb.ti - lb.ti2) >= DELTA and (0 < lb.ti + DELTA or 0 == ti and lb.ti2 > 0)) {
                         ti = lb.ti;
                         norm = lb.normal;
@@ -259,7 +369,7 @@ pub fn ColCtx(DIM: usize, FT: type) type {
                     //tx = r1.x + np.x;
                     //ty = r1.y + np.y;
                 } else {
-                    const lb = liang_barsky(mdiff, ZeroV, delta, -std.math.floatMax(f32), 1) orelse return null;
+                    const lb = liang_barsky(mdiff, ZeroV, delta, -std.math.floatMax(FT), 1) orelse return null;
                     norm = lb.normal;
                     ti = lb.ti;
                     for (0..DIM) |i| {

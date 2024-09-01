@@ -29,35 +29,34 @@ pub fn Spatial(comptime value_T: type) type {
         };
 
         pub const RectIt = struct {
-            x0: i32,
-            xf: i32,
-            y0: i32,
-            yf: i32,
+            p0: Vec2i,
+            pf: Vec2i,
 
-            x: i32,
-            y: i32,
+            //x0: i32,
+            //xf: i32,
+            //y0: i32,
+            //yf: i32,
+
+            p: Vec2i,
 
             pub fn init(top_left: Key, bot_right: Key) RectIt {
                 if (bot_right.x - top_left.x < 0 or bot_right.y - top_left.y < 0) unreachable;
                 return .{
-                    .x0 = top_left.x,
-                    .xf = bot_right.x,
-                    .y0 = top_left.y,
-                    .yf = bot_right.y,
-                    .x = top_left.x,
-                    .y = top_left.y,
+                    .p0 = top_left,
+                    .pf = bot_right,
+                    .p = top_left,
                 };
             }
 
             pub fn next(self: *RectIt) ?Key {
-                const res = .{ .x = self.x, .y = self.y };
-                if (self.x > self.xf) {
+                const res = .{ .x = self.p.x, .y = self.p.y };
+                if (self.p.x > self.pf.x) {
                     return null;
                 }
-                self.y += 1;
-                if (self.y > self.yf) {
-                    self.x += 1;
-                    self.y = self.y0;
+                self.p.y += 1;
+                if (self.p.y > self.pf.y) {
+                    self.p.x += 1;
+                    self.p.y = self.p0.y;
                 }
                 return res;
             }
@@ -66,16 +65,14 @@ pub fn Spatial(comptime value_T: type) type {
         pub const MapT = std.HashMap(Key, Value, HashMapContext, std.hash_map.default_max_load_percentage);
 
         map: MapT,
-        cell_w: i32,
-        cell_h: i32,
+        cell_dim: Vec2i,
         alloc: Allocator,
 
-        pub fn init(alloc: Allocator, cw: i32, ch: i32) Self {
+        pub fn init(alloc: Allocator, cell_dim: Vec2i) Self {
             return .{
                 .alloc = alloc,
                 .map = MapT.init(alloc),
-                .cell_w = cw,
-                .cell_h = ch,
+                .cell_dim = cell_dim,
             };
         }
         pub fn deinit(self: *Self) void {
@@ -116,15 +113,15 @@ pub fn Spatial(comptime value_T: type) type {
             }
         }
 
-        pub fn toCell(self: Self, x: anytype, y: anytype) Vec2i {
+        pub fn toCell(self: Self, v: anytype) Vec2i {
             return .{
-                .x = @divFloor(lossyCast(i32, x), self.cell_w),
-                .y = @divFloor(lossyCast(i32, y), self.cell_h),
+                .x = @divFloor(lossyCast(i32, v.x), self.cell_dim.x),
+                .y = @divFloor(lossyCast(i32, v.y), self.cell_dim.y),
             };
         }
 
         pub fn insertRect(self: *Self, r: Rect, value: value_T) !void {
-            var r_it = RectIt.init(self.toCell(r.x, r.y), self.toCell(r.x + r.w, r.y + r.h));
+            var r_it = RectIt.init(self.toCell(r.pos()), self.toCell(r.botR()));
             while (r_it.next()) |key| {
                 try self.addToCell(key, value);
             }
@@ -136,7 +133,7 @@ pub fn Spatial(comptime value_T: type) type {
         }
 
         pub fn removeRect(self: *Self, r: Rect, value: value_T) !void {
-            var r_it = RectIt.init(self.toCell(r.x, r.y), self.toCell(r.x + r.w, r.y + r.h));
+            var r_it = RectIt.init(self.toCell(r.pos()), self.toCell(r.botR()));
             while (r_it.next()) |key| {
                 try self.removeFromCell(key, value);
             }
@@ -156,7 +153,7 @@ pub fn Spatial(comptime value_T: type) type {
 
         pub fn getObjectsInArea(self: *Self, alloc: std.mem.Allocator, r: Rect) !std.ArrayList(value_T) {
             var list = std.ArrayList(value_T).init(alloc);
-            var r_it = RectIt.init(self.toCell(r.x, r.y), self.toCell(r.x + r.w, r.y + r.h));
+            var r_it = RectIt.init(self.toCell(r.pos()), self.toCell(r.botR()));
             while (r_it.next()) |key| {
                 if (self.map.get(key)) |vals| {
                     for (vals.items) |item| {
