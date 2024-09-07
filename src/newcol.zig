@@ -212,6 +212,32 @@ pub fn ColCtx(DIM: usize, FT: type) type {
         //
         //position,
 
+        pub fn polygonContainsPoint2d(verts: []const V, p: V) bool {
+            if (DIM != 2)
+                return false;
+
+            var angle: FT = 0;
+            var p1: V = ZeroV;
+            var p2: V = ZeroV;
+            for (verts, 1..) |vert, i| {
+                p1[0] = vert[0] - p[0];
+                p1[1] = vert[1] - p[1];
+                p2[0] = verts[i % verts.len][0] - p[0];
+                p2[1] = verts[i % verts.len][1] - p[1];
+                angle += angle2d(p1, p2);
+            }
+            return !(@abs(angle) < std.math.pi);
+        }
+
+        fn angle2d(v1: V, v2: V) FT {
+            const th1 = std.math.atan2(v1[1], v1[0]);
+            const th2 = std.math.atan2(v2[1], v2[0]);
+            var dth = th2 - th1;
+            while (dth > std.math.pi) : (dth -= std.math.tau) {}
+            while (dth < -std.math.pi) : (dth += std.math.tau) {}
+            return dth;
+        }
+
         pub fn lineIntersect(a1: V, a2: V, b1: V, b2: V) ?V {
             if (DIM != 2)
                 return null;
@@ -304,12 +330,22 @@ pub fn ColCtx(DIM: usize, FT: type) type {
             }
         }
 
-        //pub fn detectCollisionLine(r1:AABB, l1:V, l2:V, goal:V, other_i:u32)?CollisionResult{
-        //    const delta = subV(goal, r1.p);
-        //    var verts:[6]V = undefined;
-        //    const mdiff = minkl(r1, l1,l2, &ret);
-        //    if(mdiff.len == 4)
-        //}
+        pub fn detectCollisionLine(r1: AABB, l1: V, l2: V, goal: V, other_i: u32) ?CollisionResult {
+            _ = other_i;
+            if (DIM != 2)
+                @compileError("");
+            const delta = subV(goal, r1.p);
+            var verts: [6]V = undefined;
+            const mdiff = minkl(r1, l1, l2, &verts);
+            if (polygonContainsPoint2d(mdiff, ZeroV)) {} else {
+                const intersection = delta;
+                for (verts, 1..) |v, i| {
+                    _ = lineIntersect(ZeroV, delta, v, verts[i % verts.len]);
+                    //Find nearest intersection
+                    _ = intersection;
+                }
+            }
+        }
 
         pub fn detectCollisionRaw(r1: AABB, r2: AABB, goal: V, other_i: u32) ?CollisionResult {
             const delta = subV(goal, r1.p);
