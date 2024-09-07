@@ -714,7 +714,6 @@ pub const ImmediateDrawingContext = struct {
         drawErr(e: {
             const b = &(self.getBatch(.{ .batch_kind = .color_tri, .params = .{
                 .shader = self.colored_tri_shader,
-                .draw_priority = 0xff,
             } }) catch |err| break :e err).color_tri;
             const z = self.zindex;
             self.zindex += 1;
@@ -1013,7 +1012,9 @@ pub const ImmediateDrawingContext = struct {
     }
 
     pub fn line(self: *Self, start_p: Vec2f, end_p: Vec2f, color: u32) void {
-        const b = &(self.getBatch(.{ .batch_kind = .color_line, .params = .{ .shader = self.colored_tri_shader } }) catch unreachable).color_line;
+        const b = &(self.getBatch(.{ .batch_kind = .color_line, .params = .{
+            .shader = self.colored_tri_shader,
+        } }) catch unreachable).color_line;
         const z = self.zindex;
         self.zindex += 1;
         b.vertices.appendSlice(&.{

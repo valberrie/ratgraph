@@ -1,13 +1,11 @@
 # ratgraph
 ![Icon](img/icon.png)
 
-A bunch of graphics code.
-
-* Some 3d rendering
-* Some 2d rendering
-* An imgui 
-
 ![Imgui](img/gui1.png)
+
+graphics.zig.ImmediateDrawingContext provides a raylib style immediate drawing api.
+
+gui_app.zig.Os9Gui provides a imgui.
 
 
 ## Depends on
