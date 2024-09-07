@@ -1,7 +1,3 @@
-//TODO
-//have a way to "bake" a tiled tsj file from the asset hash_map thing.
-//it would take a previous version of the tileset, keeping ids constant for any existing tiles.
-//It would allow tiled maps to use our texture atlas instead of a seperate one
 const std = @import("std");
 pub const TileMap = struct {
     pub const JTileset = struct {
