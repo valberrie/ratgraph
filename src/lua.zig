@@ -252,7 +252,7 @@ pub fn pushHashMap(L: Ls, hm: anytype) void {
     lua.lua_newtable(L);
     var it = hm.iterator();
     while (it.next()) |item| {
-        std.debug.print("PUSHING {s} {s}\n", .{ item.key_ptr.*, item.value_ptr.* });
+        //std.debug.print("PUSHING {s} {s}\n", .{ item.key_ptr.*, item.value_ptr.* });
         _ = lua.lua_pushstring(L, zstring(item.key_ptr.*));
         pushV(L, @as([]const u8, item.value_ptr.*));
         lua.lua_settable(L, -3);

@@ -1,5 +1,7 @@
 const std = @import("std");
+//Only supports maps that are infinite, and use csv for layer data
 pub const TileMap = struct {
+    pub const SupportedJsonVersion = "1.10";
     pub const JTileset = struct {
         columns: u32 = 0,
         image: []const u8 = "",
@@ -69,15 +71,6 @@ pub const TileMap = struct {
         file: []const u8,
         object: usize,
         bool: bool,
-    };
-
-    pub const LayerClass = enum { //Todo remove this and replace with string
-        entity,
-        collision,
-        template,
-        bg,
-        entity_proto,
-        component_proto,
     };
 
     pub const Chunk = struct { data: []u32, height: u32, width: u32, x: i32, y: i32 };
@@ -209,9 +202,10 @@ pub const TileMap = struct {
     pub const Layer = struct {
         //Global fields
         type: LayerType,
+        name: []const u8,
 
         //tile fields
-        data: ?[]u32 = null,
+        //data: ?[]u32 = null,
         height: ?u32 = null,
         width: ?u32 = null,
         chunks: ?[]Chunk = null,
@@ -220,12 +214,19 @@ pub const TileMap = struct {
         image: ?[]const u8 = null,
 
         //obj fields
-        class: ?LayerClass = null,
+        class: ?[]const u8 = null,
         objects: ?[]Object = null,
 
         properties: ?[]Property = null,
+        encoding: ?enum { csv, base64 } = null,
+        compression: ?enum { gzip, zlib, ztd } = null,
+
+        parallaxx: f32 = 1,
+        parallaxy: f32 = 1,
     };
 
+    orientation: enum { orthogonal, isometric, staggered, hexagonal },
+    renderorder: enum { @"right-down", @"right-up", @"left-down", @"left-up" },
     infinite: bool,
     height: i32,
     layers: []Layer,
@@ -233,6 +234,7 @@ pub const TileMap = struct {
     tilesets: ?[]JTileset,
 
     properties: ?[]Property = null,
+    version: []const u8,
 };
 
 threadlocal var propertiesToStructErrorCtx: struct {
@@ -460,7 +462,11 @@ pub fn setStructFromProperty(comptime stype: type, field_name: []const u8, ptr: 
         return error.notGOOD;
     switch (info) {
         .Int => {
-            ptr.* = if (value == .int) std.math.lossyCast(stype, value.int) else std.math.lossyCast(stype, value.object);
+            ptr.* = switch (value) {
+                .int => std.math.lossyCast(stype, value.int),
+                .color => std.math.lossyCast(stype, value.color),
+                else => std.math.lossyCast(stype, value.object),
+            };
             return;
         },
         .Struct => |s| {

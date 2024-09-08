@@ -13,8 +13,8 @@ pub fn SparseSet(comptime child_type: type, comptime index_type: type) type {
     return struct {
         const Self = @This();
         const max_index = std.math.maxInt(index_type);
-        const sparse_null_marker: index_type = max_index;
-        const dense_null_marker: index_type = max_index;
+        pub const sparse_null_marker: index_type = max_index;
+        pub const dense_null_marker: index_type = max_index;
 
         //TODO write tests that ensure addition and removal during iteration does not invalidate anything
         pub const Iterator = struct {
@@ -38,6 +38,12 @@ pub fn SparseSet(comptime child_type: type, comptime index_type: type) type {
                 self.i = self.dense_index_lut.items[self.index];
                 return &self.dense.items[self.index];
                 //return .{ .item = &self.dense.items[self.index], .i = self.dense_index_lut.items[self.index] };
+            }
+
+            pub fn getCurrent(self: *Iterator) ?*child_type {
+                if (self.index < self.dense.items.len)
+                    return &self.dense.items[self.index];
+                return null;
             }
         };
 
