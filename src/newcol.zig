@@ -31,6 +31,13 @@ pub fn ColCtx(DIM: usize, FT: type) type {
                         other_i,
                     );
                 }
+
+                pub fn rectToAABB(r: anytype) AABB {
+                    return .{
+                        .p = [2]FT{ r.x, r.y },
+                        .x = [2]FT{ r.w, r.h },
+                    };
+                }
             },
             3 => struct {
                 pub fn detectCollision(c1: anytype, c2: anytype, goal: anytype, other_i: u32) ?CollisionResult {

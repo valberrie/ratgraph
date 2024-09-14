@@ -448,6 +448,7 @@ pub fn assetBake(
             .tilecount = @intCast(tiles.items.len),
             .name = output_filename_prefix,
         };
+        //We output this to dir so that we don't need to backtrack in the image paths as dir is always above sub_path
         var outfile = dir.createFile(tiled_filename, .{}) catch unreachable;
         std.json.stringify(new_tsj, .{}, outfile.writer()) catch unreachable;
         outfile.close();
