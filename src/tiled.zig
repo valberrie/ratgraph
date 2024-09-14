@@ -522,7 +522,8 @@ pub fn setStructFromProperty(comptime stype: type, field_name: []const u8, ptr: 
             }
             @compileError("unable to parse type" ++ @typeName(stype));
         },
-        else => @compileError("unable to parse type " ++ @typeName(stype)),
+        else => return error.unableToParseType,
+        //@compileError("unable to parse type " ++ @typeName(stype)),
     }
 }
 

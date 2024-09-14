@@ -68,6 +68,15 @@ pub const Rect = struct {
         return .{ .x = self.x + lcast(f32, x), .y = self.y + lcast(f32, y), .w = self.w, .h = self.h };
     }
 
+    pub fn setPos(self: @This(), pos_: Vec2f) @This() {
+        return .{
+            .x = pos_.x,
+            .y = pos_.y,
+            .w = self.w,
+            .h = self.h,
+        };
+    }
+
     pub fn subVec(self: Self, s: Vec2f) Self {
         return .{ .x = self.x - s.x, .y = self.y - s.y, .w = self.w, .h = self.h };
     }
