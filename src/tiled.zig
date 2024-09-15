@@ -223,6 +223,8 @@ pub const TileMap = struct {
 
         parallaxx: f32 = 1,
         parallaxy: f32 = 1,
+
+        tintcolor: ?[]const u8 = null,
     };
 
     orientation: enum { orthogonal, isometric, staggered, hexagonal },
@@ -230,6 +232,8 @@ pub const TileMap = struct {
     infinite: bool,
     height: i32,
     layers: []Layer,
+    tilewidth: u32 = 0,
+    tileheight: u32 = 0,
 
     tilesets: ?[]JTileset,
 

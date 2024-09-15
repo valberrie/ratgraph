@@ -1027,7 +1027,8 @@ pub const Context = struct {
     pub fn scratchPrint(self: *Self, comptime fmt: []const u8, args: anytype) []const u8 {
         var fbs = std.io.FixedBufferStream([]u8){ .buffer = self.scratch_buf[self.scratch_buf_pos..], .pos = 0 };
         fbs.writer().print(fmt, args) catch {
-            std.debug.panic("scratch_buffer out of space", .{});
+            return "";
+            //std.debug.panic("scratch_buffer out of space", .{});
         };
         self.scratch_buf_pos += fbs.pos;
         return fbs.getWritten();

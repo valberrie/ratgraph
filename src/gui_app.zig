@@ -1179,7 +1179,7 @@ pub const Os9Gui = struct {
         };
         return .{
             .gui = try Gui.Context.init(alloc),
-            .style = try GuiConfig.init(alloc, std.fs.cwd(), "asset/os9gui"),
+            .style = try GuiConfig.init(alloc, asset_dir, "asset/os9gui"),
             .gui_draw_ctx = try Gui.GuiDrawContext.init(alloc),
             .scale = scale,
             // .texture = try graph.Texture.initFromImgFile(alloc, asset_dir, "next_step.png", .{
@@ -1776,6 +1776,20 @@ pub const Os9Gui = struct {
 
     pub fn button(self: *Self, label_: []const u8) bool {
         return self.buttonEx("{s}", .{label_}, .{});
+    }
+
+    pub fn toggleButton(self: *Self, comptime fmt: []const u8, args: anytype, checked: *bool) bool {
+        const gui = &self.gui;
+        if (gui.checkboxGeneric(checked)) |d| {
+            const color = if (!checked.*) self.style.config.colors.button_text_disabled else (self.style.config.colors.button_text);
+            const sl = if (!checked.*) self.style.getRect(.button) else self.style.getRect(.button_clicked);
+
+            gui.draw9Slice(d.area, sl, self.style.texture, self.scale);
+            const texta = d.area.inset(3 * self.scale);
+            gui.drawTextFmt(fmt, args, texta, texta.h, color, .{ .justify = .center }, &self.font);
+            return d.changed;
+        }
+        return false;
     }
 
     pub fn buttonEx(self: *Self, comptime fmt: []const u8, args: anytype, params: struct {
@@ -2683,12 +2697,7 @@ pub fn main() anyerror!void {
         const win_rect = graph.Rect.newV(.{ .x = 0, .y = 0 }, draw.screen_dimensions);
         gui_timer.reset();
         Gui.hash_time = 0;
-        const is: Gui.InputState = .{
-            .mouse = win.mouse,
-            .key_state = &win.key_state,
-            .keys = win.keys.slice(),
-            .mod_state = win.mod,
-        };
+        const is: Gui.InputState = .{ .mouse = win.mouse, .key_state = &win.key_state, .keys = win.keys.slice(), .mod_state = win.mod };
         const def_is: Gui.InputState = .{};
         try os9gui.beginFrame(if (graph.c.SDL_GetMouseFocus() == win.win) is else def_is, &win);
 
