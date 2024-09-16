@@ -431,14 +431,18 @@ pub fn Registry(comptime field_names_l: FieldList) type {
             self.call_create_callback(component_type, ptr, index);
         }
 
-        pub fn removeComponent(self: *Self, index: ID_TYPE, comptime component_type: Components) !Fields[@intFromEnum(component_type)].ftype {
+        pub fn removeComponentOpt(self: *Self, index: ID_TYPE, comptime component_type: Components) !?Fields[@intFromEnum(component_type)].ftype {
             const comp: usize = @intFromEnum(component_type);
             const ent = try self.getEntity(index);
-            if (!ent.isSet(comp)) return error.componentNotAttached;
+            if (!ent.isSet(comp)) return null;
             ent.unset(comp);
             var d = try @field(self.data, @tagName(component_type)).remove(index);
             self.call_destroy_callback(component_type, &d, index);
             return d;
+        }
+
+        pub fn removeComponent(self: *Self, index: ID_TYPE, comptime component_type: Components) !Fields[@intFromEnum(component_type)].ftype {
+            return try self.removeComponentOpt(index, component_type) orelse return error.componentNotAttached;
         }
 
         pub fn removeAllExcept(self: *Self, index: ID_TYPE, comptime components_to_keep: []const Components) !void {
