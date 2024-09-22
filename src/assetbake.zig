@@ -14,6 +14,9 @@ const ArgUtil = graph.ArgGen;
 //Actually Andrew Kelly's rucksack is way better.
 //Just load a my_package.json
 //my_package specifies which dirs to include and how to pack them.
+//
+//TODO perserve any extra tiled data
+//allow the assets to be packed in a specific way
 
 pub const PackageConfigJson = struct {
     //my_path/*.png

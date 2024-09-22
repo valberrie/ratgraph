@@ -1,5 +1,7 @@
 const std = @import("std");
-//Only supports maps that are infinite, and use csv for layer data
+//Only supports maps with following format:
+//infinite
+//base64-gzip for chunk data
 pub const TileMap = struct {
     pub const SupportedJsonVersion = "1.10";
     pub const JTileset = struct {
@@ -20,6 +22,7 @@ pub const TileMap = struct {
             image: []const u8,
             imageheight: u32,
             imagewidth: u32,
+            objectgroup: ?Layer = null,
 
             pub fn compare(_: void, lhs: TileImage, rhs: TileImage) bool {
                 return std.ascii.lessThanIgnoreCase(lhs.image, rhs.image);
@@ -44,6 +47,7 @@ pub const TileMap = struct {
         } = .{},
         margin: u32 = 0,
         spacing: u32 = 0,
+        wangsets: ?[]WangSet = null,
     };
 
     pub const LayerType = enum {
@@ -73,7 +77,7 @@ pub const TileMap = struct {
         bool: bool,
     };
 
-    pub const Chunk = struct { data: []u32, height: u32, width: u32, x: i32, y: i32 };
+    pub const Chunk = struct { data: []u8, height: u32, width: u32, x: i32, y: i32 };
 
     pub const Property = struct {
         name: []const u8,
@@ -225,6 +229,12 @@ pub const TileMap = struct {
         parallaxy: f32 = 1,
 
         tintcolor: ?[]const u8 = null,
+    };
+
+    pub const WangSet = struct {
+        name: []const u8,
+        type: enum { corner, edge, mixed },
+        tile: u32,
     };
 
     orientation: enum { orthogonal, isometric, staggered, hexagonal },
