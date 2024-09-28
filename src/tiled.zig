@@ -3,6 +3,12 @@ const std = @import("std");
 //infinite
 //base64-gzip for chunk data
 pub const TileMap = struct {
+    pub const Doc =
+        \\Tiled maps must be:
+        \\  Infinite
+        \\  Layer data should be Base64-gzip
+        \\  They should be saved as .tmj or json files.
+    ;
     pub const SupportedJsonVersion = "1.10";
     pub const JTileset = struct {
         columns: u32 = 0,

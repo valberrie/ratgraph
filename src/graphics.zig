@@ -835,6 +835,37 @@ pub const ImmediateDrawingContext = struct {
         }) catch return;
     }
 
+    pub fn rectTexTintUvOffset(self: *Self, r: Rect, tr: Rect, col: u32, texture: Texture, uv_offset: u8) void {
+        const b = &(self.getBatch(.{ .batch_kind = .color_tri_tex, .params = .{ .shader = self.textured_tri_shader, .texture = texture.id } }) catch return).color_tri_tex;
+        const z = self.zindex;
+        self.zindex += 1;
+        const un = GL.normalizeTexRect(tr, texture.w, texture.h);
+        const uvs = [4]Vec2f{
+            .{ .x = un.x + un.w, .y = un.y + un.h },
+            .{ .x = un.x + un.w, .y = un.y },
+            .{ .x = un.x, .y = un.y },
+            .{ .x = un.x, .y = un.y + un.h },
+        };
+        //Bits are HVD
+        const uo = 4 - ([_]u8{ 0, 1, 0, 3, 2, 2, 2, 3 })[uv_offset];
+        const uvf = [4]u8{
+            uo % 4,
+            (uo + 1) % 4,
+            (uo + 2) % 4,
+            (uo + 3) % 4,
+        };
+        // Vert ^ horiz = flip vert
+        const h: u8 = if ((uv_offset >> 2 & 0b1) ^ ((uv_offset >> 1) & 0b1) == 1) 1 else 0;
+
+        b.indicies.appendSlice(&genQuadIndices(@as(u32, @intCast(b.vertices.items.len)))) catch return;
+        b.vertices.appendSlice(&.{
+            .{ .pos = .{ .x = r.x + r.w, .y = r.y + r.h }, .z = z, .uv = uvs[uvf[(0 + h) % 4]], .color = col }, //0
+            .{ .pos = .{ .x = r.x + r.w, .y = r.y }, .z = z, .uv = uvs[uvf[(1 + 4 - h) % 4]], .color = col }, //1
+            .{ .pos = .{ .x = r.x, .y = r.y }, .z = z, .uv = uvs[uvf[(2 + h) % 4]], .color = col }, //2
+            .{ .pos = .{ .x = r.x, .y = r.y + r.h }, .z = z, .uv = uvs[uvf[(3 + 4 - h) % 4]], .color = col }, //3
+        }) catch return;
+    }
+
     pub fn text(self: *Self, pos: Vec2f, str: []const u8, font: *Font, px_size: f32, col: u32) void {
         const SF = (px_size / font.font_size);
         //const SF = (pxToPt(self.dpi, pt_size)) / font.font_size;

@@ -7,6 +7,8 @@ pub usingnamespace @cImport({
 
     @cInclude("AL/al.h");
     @cInclude("AL/alc.h");
+    //@cInclude("vorbis/codec.h");
+    //@cInclude("vorbis/vorbisfile.h");
 
     //Static
     @cInclude("stb_rect_pack.h");
