@@ -332,7 +332,7 @@ pub const Font = struct {
         }
         std.debug.print("took x ms {d}\n", .{@as(f32, @floatFromInt(timer.read() / pack_ctx.rects.items.len)) / std.time.ns_per_ms});
 
-        try out_bmp.writeToPngFile(std.fs.cwd(), "crass.png");
+        //try out_bmp.writeToPngFile(std.fs.cwd(), "crass.png");
         std.debug.print("num {d}\n", .{finfo.numGlyphs});
         result.texture = Texture.initFromBitmap(out_bmp, .{
             .pixel_store_alignment = 1,

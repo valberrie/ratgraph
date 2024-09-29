@@ -965,6 +965,7 @@ pub const GuiConfig = struct {
     texture: graph.Texture,
 
     pub fn init(alloc: std.mem.Allocator, dir: std.fs.Dir, path: []const u8) !Self {
+        //TODO maybe put the baked atlas into a xdg cache dir
         try graph.AssetBake.assetBake(
             alloc,
             dir,
@@ -972,6 +973,7 @@ pub const GuiConfig = struct {
             dir,
             "mani",
         );
+
         var manifest = try graph.AssetBake.AssetMap.initFromManifest(alloc, dir, "mani");
         defer manifest.deinit();
         var ret = Self{
