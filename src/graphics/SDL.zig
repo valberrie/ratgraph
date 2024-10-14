@@ -218,7 +218,7 @@ pub const Window = struct {
             });
         }
         //TODO where should these be set instead?
-        c.glEnable(c.GL_MULTISAMPLE);
+        //c.glEnable(c.GL_MULTISAMPLE);
         c.glEnable(c.GL_DEPTH_TEST);
         //c.glEnable(c.GL_STENCIL_TEST);
         c.glEnable(c.GL_DEBUG_OUTPUT);

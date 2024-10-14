@@ -340,7 +340,7 @@ pub fn ColCtx(DIM: usize, FT: type) type {
         pub fn detectCollisionLine(r1: AABB, l1: V, l2: V, goal: V, other_i: u32) ?CollisionResult {
             _ = other_i;
             if (DIM != 2)
-                @compileError("");
+                @compileError("unsupported");
             const delta = subV(goal, r1.p);
             var verts: [6]V = undefined;
             const mdiff = minkl(r1, l1, l2, &verts);

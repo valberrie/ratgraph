@@ -820,8 +820,8 @@ pub const ImmediateDrawingContext = struct {
         self.rectTexTint(r, tr, 0xffffffff, texture);
     }
 
-    pub fn rectTexTint(self: *Self, r: Rect, tr: Rect, col: u32, texture: Texture) void {
-        const b = &(self.getBatch(.{ .batch_kind = .color_tri_tex, .params = .{ .shader = self.textured_tri_shader, .texture = texture.id } }) catch return).color_tri_tex;
+    pub fn rectTexTintShader(self: *Self, r: Rect, tr: Rect, col: u32, texture: Texture, shader: glID) void {
+        const b = &(self.getBatch(.{ .batch_kind = .color_tri_tex, .params = .{ .shader = shader, .texture = texture.id } }) catch return).color_tri_tex;
         const z = self.zindex;
         self.zindex += 1;
         const un = GL.normalizeTexRect(tr, texture.w, texture.h);
@@ -833,6 +833,10 @@ pub const ImmediateDrawingContext = struct {
             .{ .pos = .{ .x = r.x, .y = r.y }, .z = z, .uv = .{ .x = un.x, .y = un.y }, .color = col }, //2
             .{ .pos = .{ .x = r.x, .y = r.y + r.h }, .z = z, .uv = .{ .x = un.x, .y = un.y + un.h }, .color = col }, //3
         }) catch return;
+    }
+
+    pub fn rectTexTint(self: *Self, r: Rect, tr: Rect, col: u32, texture: Texture) void {
+        self.rectTexTintShader(r, tr, col, texture, self.textured_tri_shader);
     }
 
     pub fn rectTexTintUvOffset(self: *Self, r: Rect, tr: Rect, col: u32, texture: Texture, uv_offset: u8) void {
@@ -1241,7 +1245,11 @@ pub const RenderTexture = struct {
             .fb = 0,
             .depth_rb = 0,
             .stencil_rb = 0,
-            .texture = Texture.initFromBuffer(null, w, h, .{ .min_filter = c.GL_LINEAR, .mag_filter = c.GL_NEAREST, .generate_mipmaps = false }),
+            .texture = Texture.initFromBuffer(null, w, h, .{
+                .min_filter = c.GL_LINEAR,
+                .mag_filter = c.GL_NEAREST,
+                .generate_mipmaps = false,
+            }),
             //.texture = Texture.
         };
         c.glGenFramebuffers(1, &ret.fb);

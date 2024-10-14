@@ -219,12 +219,17 @@ pub fn Registry(comptime field_names_l: FieldList) type {
         pub const Fields = field_names_l;
         pub const Components = Types.component_enum;
         pub const SleptT = SparseSet(struct { i: ID_TYPE = 0 }, ID_TYPE);
+        pub const SleepTimer = struct {
+            i: ID_TYPE,
+            time: usize,
+        };
 
         callbacks: Types.callbacks,
         data: Types.reg,
 
         ///All entities have an entry in this array. The bitset represents what components are attached to this entity.
         entities: std.ArrayList(Types.component_bit_set),
+        sleep_timers: std.ArrayList(SleepTimer),
 
         slept: SleptT,
 
@@ -269,11 +274,13 @@ pub fn Registry(comptime field_names_l: FieldList) type {
             }
             ret.entities = std.ArrayList(Types.component_bit_set).init(alloc);
             ret.slept = try SleptT.init(alloc);
+            ret.sleep_timers = std.ArrayList(SleepTimer).init(alloc);
 
             return ret;
         }
 
         pub fn deinit(self: *Self) void {
+            self.sleep_timers.deinit();
             self.slept.deinit();
             self.entities.deinit();
             inline for (field_names_l) |field| {
@@ -503,6 +510,27 @@ pub fn Registry(comptime field_names_l: FieldList) type {
 
         pub fn iterator(self: *Self, comptime component_type: Components) Iterator(component_type) {
             return .{ .child_it = @field(self.data, @tagName(component_type)).denseIterator(), .slept = &self.slept, .i = 0 };
+        }
+
+        pub fn appendWakeEvent(self: *Self, index: ID_TYPE, time: usize) !void {
+            try self.sleep_timers.append(.{ .i = index, .time = time });
+        }
+
+        pub fn updateSleepTimers(self: *Self) !void {
+            var delete = std.ArrayList(usize).init(self.sleep_timers.allocator);
+            defer delete.deinit();
+            for (self.sleep_timers.items, 0..) |*item, i| {
+                if (item.time == 0) {
+                    try delete.append(i);
+                    try self.wakeEntity(item.i);
+                } else {
+                    item.time -= 1;
+                }
+            }
+            var i: usize = delete.items.len;
+            while (i > 0) : (i -= 1) {
+                _ = self.sleep_timers.swapRemove(delete.items[i - 1]);
+            }
         }
 
         pub fn sleepEntity(self: *Self, index: ID_TYPE) !void {

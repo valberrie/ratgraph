@@ -19,6 +19,8 @@ const ArgUtil = graph.ArgGen;
 //allow the assets to be packed in a specific way
 
 pub const PackageConfigJson = struct {
+    // Global tiled tileset
+
     //my_path/*.png
     //*/crasshunter/*.png
 
@@ -28,6 +30,7 @@ pub const PackageConfigJson = struct {
     //files
 };
 
+/// AssetMap
 pub const AssetMap = struct {
     const Self = @This();
     const IDT = u32;
@@ -229,6 +232,22 @@ pub const AssetMap = struct {
         return id;
     }
 
+    pub fn addSymbol(self: *Self, name: []const u8) !u32 {
+        const str_all = try self.alloc.dupe(u8, name);
+        errdefer self.alloc.free(str_all);
+        try self.id_name_lut.append(str_all);
+        const id: u32 = @intCast(self.id_name_lut.items.len - 1);
+        try self.name_id_map.put(str_all, id);
+        return id;
+    }
+
+    pub fn addExistingSymbol(self: *Self, name: []const u8) !u32 {
+        if (self.name_id_map.get(name)) |id| {
+            return id;
+        }
+        return try self.addSymbol(name);
+    }
+
     pub fn getNameFromId(self: *Self, id: u32) []const u8 {
         return self.id_name_lut.items[id].?;
     }
@@ -329,6 +348,9 @@ pub fn assetBake(
     //First we walk the directory and all children, creating a list of images and a list of json files.
     var uid_bmp_index_map = std.AutoHashMap(u32, u32).init(alloc);
     defer uid_bmp_index_map.deinit();
+    const ignore_tiled_name = "tignore";
+    var tiled_exclude = std.AutoHashMap(u32, void).init(alloc);
+    defer tiled_exclude.deinit();
     while (try walker.next()) |w| {
         switch (w.kind) {
             .file => {
@@ -348,6 +370,9 @@ pub fn assetBake(
                     break :blk range.start;
                 };
                 try out_name_id_map.put(try talloc.dupe(u8, w.path), @intCast(ind));
+                if (std.mem.startsWith(u8, w.path, ignore_tiled_name)) {
+                    try tiled_exclude.put(ind, {});
+                }
                 if (std.mem.endsWith(u8, w.basename, ".png")) {
                     const index = bmps.items.len;
                     try bmps.append(try graph.Bitmap.initFromPngFile(alloc, w.dir, w.basename));
@@ -433,6 +458,9 @@ pub fn assetBake(
                 const r = id_rects.items[ri];
                 const h = (r.h);
                 const w = (r.w);
+                if (tiled_exclude.get(item.value_ptr.*) != null) {
+                    continue;
+                }
                 max_w = @max(max_w, w);
                 max_h = @max(max_h, h);
                 try tiles.append(.{
