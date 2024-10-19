@@ -267,7 +267,10 @@ pub const Vec2f = packed struct {
     }
 
     pub fn normal(a: @This()) @This() {
-        return a.scale(1.0 / a.length());
+        const len = a.length();
+        if (len == 0)
+            return .{ .x = 0, .y = 0 };
+        return a.scale(1.0 / len);
     }
 
     pub fn dot(a: @This(), b: @This()) f32 {
