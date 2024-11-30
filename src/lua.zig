@@ -62,7 +62,7 @@ pub fn callLuaFunctionEx(self: *Self, fn_name: []const u8, nargs: c_int, nres: c
 }
 
 pub fn callLuaFunction(self: *Self, fn_name: []const u8) !void {
-    self.callLuaFunctionEx(fn_name, 0, 0);
+    try self.callLuaFunctionEx(fn_name, 0, 0);
 }
 
 pub fn reg(self: *Self, name: [*c]const u8, fn_: ?*const fn (Ls) callconv(.C) c_int) void {

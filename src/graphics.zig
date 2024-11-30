@@ -1468,9 +1468,13 @@ pub const Cubes = struct {
     }
 
     pub fn cube(self: *Self, px: f32, py: f32, pz: f32, sx: f32, sy: f32, sz: f32, tr: Rect, ti: u16) !void {
+        try self.cubeExtra(px, py, pz, sx, sy, sz, tr, ti, [_]u32{0xffffffff} ** 6);
+    }
+
+    pub fn cubeExtra(self: *Self, px: f32, py: f32, pz: f32, sx: f32, sy: f32, sz: f32, tr: Rect, ti: u16, colors: ?[6]u32) !void {
         const tx_w = self.texture.w;
         const tx_h = self.texture.h;
-        const color = 0xffffffff;
+        const cc = colors orelse [_]u32{0xffffffff} ** 6;
         const un = GL.normalizeTexRect(tr, @as(i32, @intCast(tx_w)), @as(i32, @intCast(tx_h)));
         try self.indicies.appendSlice(&GL.genCubeIndicies(@as(u32, @intCast(self.vertices.items.len))));
         const nx = sx / tr.w * 512;
@@ -1483,37 +1487,37 @@ pub const Cubes = struct {
         // zig fmt: off
     try self.vertices.appendSlice(&.{
         // front
-        cubeVert(px + sx, py + sy, pz, uxx, uyy, 0,0,-1, color, 1,0,0,ti), //0
-        cubeVert(px + sx, py     , pz, uxx, un.y       , 0,0,-1, color, 1,0,0,ti), //1
-        cubeVert(px     , py     , pz, un.x       , un.y       , 0,0,-1, color, 1,0,0,ti), //2
-        cubeVert(px     , py + sy, pz, un.x       , uyy, 0,0,-1, color, 1,0,0,ti), //3
+        cubeVert(px + sx, py + sy, pz, uxx, uyy, 0,0,-1, cc[0], 1,0,0,ti), //0
+        cubeVert(px + sx, py     , pz, uxx, un.y       , 0,0,-1, cc[0], 1,0,0,ti), //1
+        cubeVert(px     , py     , pz, un.x       , un.y       , 0,0,-1, cc[0], 1,0,0,ti), //2
+        cubeVert(px     , py + sy, pz, un.x       , uyy, 0,0,-1, cc[0], 1,0,0,ti), //3
 
         // back
-        cubeVert(px     , py + sy, pz + sz, un.x       , (un.y + un.h) * ny, 0,0,1, color, 1,0,0,ti), //3
-        cubeVert(px     , py     , pz + sz, un.x       , un.y       , 0,0,1, color, 1,0,0,ti), //2
-        cubeVert(px + sx, py     , pz + sz, (un.x + un.w) * nx, un.y       , 0,0,1, color, 1,0,0,ti), //1
-        cubeVert(px + sx, py + sy, pz + sz, (un.x + un.w) * nx, (un.y + un.h) * ny, 0,0,1, color, 1,0,0,ti), //0
+        cubeVert(px     , py + sy, pz + sz, un.x       , (un.y + un.h) * ny, 0,0,1, cc[1], 1,0,0,ti), //3
+        cubeVert(px     , py     , pz + sz, un.x       , un.y       , 0,0,1, cc[1], 1,0,0,ti), //2
+        cubeVert(px + sx, py     , pz + sz, (un.x + un.w) * nx, un.y       , 0,0,1, cc[1], 1,0,0,ti), //1
+        cubeVert(px + sx, py + sy, pz + sz, (un.x + un.w) * nx, (un.y + un.h) * ny, 0,0,1, cc[1], 1,0,0,ti), //0
 
 
-        cubeVert(px + sx, py, pz,      uxx,un.x, 0,-1,0,      color, 1,0,0,ti),
-        cubeVert(px + sx, py, pz + sz, uxx,uzz,        0,-1,0,      color, 1,0,0,ti),
-        cubeVert(px     , py, pz + sz, un.x,uzz,             0,-1,0,      color, 1,0,0,ti),
-        cubeVert(px     , py, pz     , un.x,un.y + un.h,      0,-1,0,      color, 1,0,0,ti),
+        cubeVert(px + sx, py, pz,      uxx,un.x, 0,-1,0,      cc[2], 1,0,0,ti),
+        cubeVert(px + sx, py, pz + sz, uxx,uzz,        0,-1,0,      cc[2], 1,0,0,ti),
+        cubeVert(px     , py, pz + sz, un.x,uzz,             0,-1,0,      cc[2], 1,0,0,ti),
+        cubeVert(px     , py, pz     , un.x,un.y + un.h,      0,-1,0,      cc[2], 1,0,0,ti),
 
-        cubeVert(px     , py + sy, pz     , un.x,un.y ,        0,1,0,   color, 1,0,0,ti),
-        cubeVert(px     , py + sy, pz + sz, un.x,(un.y + un.w) * nz,               0,1,0,   color, 1,0,0,ti),
-        cubeVert(px + sx, py + sy, pz + sz, (un.x + un.w) * nx,(un.y + un.w) * nz,        0,1,0,   color, 1,0,0,ti),
-        cubeVert(px + sx, py + sy, pz, (un.x + un.w) * nx,   un.y  ,  0,1,0,   color, 1,0,0,ti),
+        cubeVert(px     , py + sy, pz     , un.x,un.y ,        0,1,0,   cc[3], 1,0,0,ti),
+        cubeVert(px     , py + sy, pz + sz, un.x,(un.y + un.w) * nz,               0,1,0,   cc[3], 1,0,0,ti),
+        cubeVert(px + sx, py + sy, pz + sz, (un.x + un.w) * nx,(un.y + un.w) * nz,        0,1,0,   cc[3], 1,0,0,ti),
+        cubeVert(px + sx, py + sy, pz, (un.x + un.w) * nx,   un.y  ,  0,1,0,   cc[3], 1,0,0,ti),
 
-        cubeVert(px, py + sy, pz, un.x + un.w,un.y + un.h,   -1,0,0,   color, 0,1,0,ti),
-        cubeVert(px, py , pz, un.x + un.w,un.y,              -1,0,0,   color, 0,1,0,ti),
-        cubeVert(px, py , pz + sz, un.x,un.y,                -1,0,0,   color, 0,1,0,ti),
-        cubeVert(px, py + sy , pz + sz, un.x,un.y + un.h,    -1,0,0,   color, 0,1,0,ti),
+        cubeVert(px, py + sy, pz, un.x + un.w,un.y + un.h,   -1,0,0,   cc[4], 0,1,0,ti),
+        cubeVert(px, py , pz, un.x + un.w,un.y,              -1,0,0,   cc[4], 0,1,0,ti),
+        cubeVert(px, py , pz + sz, un.x,un.y,                -1,0,0,   cc[4], 0,1,0,ti),
+        cubeVert(px, py + sy , pz + sz, un.x,un.y + un.h,    -1,0,0,   cc[4], 0,1,0,ti),
 
-        cubeVert(px + sx, py + sy , pz + sz , un.x       ,  un.y + un.h,     1,0,0, color, 0,-1,0,ti),
-        cubeVert(px + sx, py      , pz + sz , un.x       ,  un.y,            1,0,0, color, 0,-1,0,ti),
-        cubeVert(px + sx, py      , pz      , un.x + un.w,  un.y,            1,0,0, color, 0,-1,0,ti),
-        cubeVert(px + sx, py + sy , pz      , un.x + un.w,  un.y + un.h,     1,0,0, color, 0,-1,0,ti),
+        cubeVert(px + sx, py + sy , pz + sz , un.x       ,  un.y + un.h,     1,0,0, cc[5], 0,-1,0,ti),
+        cubeVert(px + sx, py      , pz + sz , un.x       ,  un.y,            1,0,0, cc[5], 0,-1,0,ti),
+        cubeVert(px + sx, py      , pz      , un.x + un.w,  un.y,            1,0,0, cc[5], 0,-1,0,ti),
+        cubeVert(px + sx, py + sy , pz      , un.x + un.w,  un.y + un.h,     1,0,0, cc[5], 0,-1,0,ti),
 
 
     });
