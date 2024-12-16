@@ -62,7 +62,8 @@ pub fn linkLibrary(b: *std.Build, mod: *std.Build.Module) void {
             mod.linkSystemLibrary("epoxy", .{});
             mod.linkSystemLibrary("freetype2", .{});
             mod.linkSystemLibrary("zlib", .{});
-            //mod.linkSystemLibrary("lua", .{});
+            if (LUA_SRC == null)
+                mod.linkSystemLibrary("lua", .{});
         }
     }
 }
