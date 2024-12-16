@@ -1640,7 +1640,24 @@ pub const Context = struct {
         self.endScroll();
     }
 
+    //Given the number val between min,max, normalize using exp base b
+    fn sliderScaleFn(base: f32, min: f32, max: f32, val: f32) f32 {
+        if (base == 1) {
+            return (val - min) / (max - min);
+        }
+
+        return (std.math.pow(f32, base, (val - min) / max) - 1) / (base - 1);
+    }
+
+    fn sliderScaleFnInv(base: f32, min: f32, max: f32, norm: f32) f32 {
+        if (base == 1) {
+            return (max - min) * norm + min;
+        }
+        return @log(norm * (base - 1) + 1) / @log(base) * max + min;
+    }
+
     pub fn sliderGeneric(self: *Self, number_ptr: anytype, min: anytype, max: anytype, params: struct {
+        base: f32 = 1,
         handle_offset_x: f32 = 0,
         handle_offset_y: f32 = 0,
         handle_w: f32,
@@ -1678,14 +1695,20 @@ pub const Context = struct {
         const mpos = orient.vec2fComponent(self.input_state.mouse.pos);
         const scale = (rec.w - params.handle_w - (params.handle_offset_x * 2)) / (lmax - lmin);
 
+        const sc = (rec.w - params.handle_w - (params.handle_offset_x * 2));
+        //normalize val
+        //mul by sc to convert to ss
+
         var val: f32 = switch (number_t) {
             .float => @as(f32, @floatCast(number_ptr.*)),
             .int, .uint => @as(f32, @floatFromInt(number_ptr.*)),
         };
 
         var handle: Rect = switch (orient) {
-            .horizontal => Rect.new(params.handle_offset_x + arec.x + (val - min) * scale, params.handle_offset_y + arec.y, params.handle_w, handle_h),
-            .vertical => Rect.new(params.handle_offset_y + arec.x, params.handle_offset_x + arec.y + (val - min) * scale, handle_h, params.handle_w),
+            //.horizontal => Rect.new(params.handle_offset_x + arec.x + (val - min) * scale, params.handle_offset_y + arec.y, params.handle_w, handle_h),
+            //.vertical => Rect.new(params.handle_offset_y + arec.x, params.handle_offset_x + arec.y + (val - min) * scale, handle_h, params.handle_w),
+            .horizontal => Rect.new(params.handle_offset_x + arec.x + sliderScaleFn(params.base, min, max, val) * sc, params.handle_offset_y + arec.y, params.handle_w, handle_h),
+            .vertical => Rect.new(params.handle_offset_y + arec.x, params.handle_offset_x + arec.y + sliderScaleFn(params.base, min, max, val) * sc, handle_h, params.handle_w),
         };
 
         const clicked = self.clickWidget(handle);
@@ -1696,9 +1719,12 @@ pub const Context = struct {
 
         // Only moving the slider until after our initial .click state prevents the slider from teleporting when used with a touch screen or other input method that teleports the cursor like a drawing tablet.
         if (clicked == .held) {
-            val += self.focused_slider_state;
-            val += mdel / scale;
-            val = std.math.clamp(val, lmin, lmax);
+            const new = std.math.clamp(sliderScaleFn(params.base, min, max, val + self.focused_slider_state) + mdel / sc, 0, 1);
+            val = sliderScaleFnInv(params.base, min, max, new);
+
+            //val += self.focused_slider_state;
+            //val += mdel / scale;
+            //val = std.math.clamp(val, lmin, lmax);
 
             //Prevent the slider's and the cursor's position from becoming misaligned when the cursor goes past the slider boundries.
             if (mpos - params.handle_offset_x > rec.x + rec.w)
@@ -1708,10 +1734,12 @@ pub const Context = struct {
 
             if (number_t == .int or number_t == .uint)
                 self.focused_slider_state = (val - @trunc(val));
-            (if (is_horiz) handle.x else handle.y) = params.handle_offset_x + rec.x + (val - lmin) * scale;
+            //(if (is_horiz) handle.x else handle.y) = params.handle_offset_x + rec.x + (val - lmin) * scale;
+            (if (is_horiz) handle.x else handle.y) = params.handle_offset_x + rec.x + new * sc;
         }
 
         if (arec.containsPoint(self.input_state.mouse.pos)) {
+            //BROKEN WITH LOG
             if (self.getMouseWheelDelta()) |del| {
                 switch (number_t) {
                     .float => {},

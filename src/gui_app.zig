@@ -1845,11 +1845,23 @@ pub const Os9Gui = struct {
         self.endL();
     }
 
+    pub fn sliderLog(self: *Self, value: anytype, min: anytype, max: anytype, comptime fmt: []const u8, args: anytype, base: f32) void {
+        _ = self.beginL(Gui.HorizLayout{ .count = 2 }) catch return;
+        self.label(fmt, args);
+        self.sliderParam(value, min, max, base);
+        self.endL();
+    }
+
     pub fn slider(self: *Self, value: anytype, min: anytype, max: anytype) void {
+        self.sliderParam(value, min, max, 1);
+    }
+
+    pub fn sliderParam(self: *Self, value: anytype, min: anytype, max: anytype, base: f32) void {
         const gui = &self.gui;
         const box = self.style.getRect(.slider_box);
         const shuttle = self.style.getRect(.slider_shuttle);
         if (gui.sliderGeneric(value, min, max, .{
+            .base = base,
             .handle_offset_x = 0,
             .handle_offset_y = 0,
             .handle_w = 16 * self.scale,
