@@ -5,6 +5,9 @@ fn getSrcDir() []const u8 {
 }
 const srcdir = getSrcDir();
 
+//const LUA_SRC: ?[]const u8 = "lua5.4.7/src/";
+const LUA_SRC = null;
+
 pub fn linkLibrary(b: *std.Build, mod: *std.Build.Module) void {
     const cdir = "c_libs";
 
@@ -27,6 +30,13 @@ pub fn linkLibrary(b: *std.Build, mod: *std.Build.Module) void {
         cdir ++ "/stb_truetype.c",
         cdir ++ "/libspng/spng/spng.c",
     };
+
+    if (LUA_SRC) |lsrc| {
+        const paths = [_][]const u8{ "lapi.c", "lauxlib.c", "lbaselib.c", "lcode.c", "lcorolib.c", "lctype.c", "ldblib.c", "ldebug.c", "ldo.c", "ldump.c", "lfunc.c", "lgc.c", "linit.c", "liolib.c", "llex.c", "lmathlib.c", "lmem.c", "loadlib.c", "lobject.c", "lopcodes.c", "loslib.c", "lparser.c", "lstate.c", "lstring.c", "lstrlib.c", "ltable.c", "ltablib.c", "ltm.c", "lundump.c", "lutf8lib.c", "lvm.c", "lzio.c" };
+        inline for (paths) |p| {
+            mod.addCSourceFile(.{ .file = b.path(lsrc ++ p), .flags = &[_][]const u8{"-Wall"} });
+        }
+    }
 
     for (c_source_files) |cfile| {
         mod.addCSourceFile(.{ .file = b.path(cfile), .flags = &[_][]const u8{"-Wall"} });
@@ -52,7 +62,7 @@ pub fn linkLibrary(b: *std.Build, mod: *std.Build.Module) void {
             mod.linkSystemLibrary("epoxy", .{});
             mod.linkSystemLibrary("freetype2", .{});
             mod.linkSystemLibrary("zlib", .{});
-            mod.linkSystemLibrary("lua", .{});
+            //mod.linkSystemLibrary("lua", .{});
         }
     }
 }

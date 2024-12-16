@@ -45,7 +45,25 @@ pub fn loadAndRunFile(self: *Self, filename: []const u8) void {
     lua.lua_pushcfunction(self.state, handleError);
 
     const lf = lua.luaL_loadfilex(self.state, zstring(filename), "bt");
-    _ = lf;
+    switch (lf) {
+        else => {
+            std.debug.print("Unknown lua error in loadAndRunFile()\n", .{});
+            return;
+        },
+        c.LUA_OK => {},
+        c.LUA_ERRSYNTAX => {
+            std.debug.print("LUA_ERRSYNTAX\n", .{});
+            return;
+        },
+        c.LUA_ERRMEM => {
+            std.debug.print("LUA_ERRMEM\n", .{});
+            return;
+        },
+        c.LUA_ERRFILE => {
+            std.debug.print("LUA_ERRFILE\n", .{});
+            return;
+        },
+    }
     const err = lua.lua_pcallk(self.state, 0, 0, -2, 0, null);
     checkErrorTb(self.state, err);
     lua.lua_pop(self.state, 1); //pushCFunction
@@ -312,7 +330,7 @@ pub fn pushV(L: Ls, s: anytype) void {
         .Pointer => |p| {
             if (p.size == .Slice) {
                 if (p.child == u8) {
-                    _ = lua.lua_pushlstring(L, zstring(s), s.len);
+                    _ = lua.lua_pushlstring(L, @ptrCast(s), s.len);
                 } else {
                     lua.lua_newtable(L);
                     for (s, 1..) |item, i| {
@@ -330,16 +348,12 @@ pub fn pushV(L: Ls, s: anytype) void {
     }
 }
 
+/// Warning, if the api_struct contains strings, they must have type specified as []const u8 otherwise lua corrupts memory for some reason
 pub fn registerAllStruct(self: *Self, comptime api_struct: type) void {
     const info = @typeInfo(api_struct);
     inline for (info.Struct.decls) |decl| {
-        var buf: [128]u8 = undefined;
-        if (buf.len <= decl.name.len)
-            @compileError("function name to long");
-        @memcpy(buf[0..decl.name.len], decl.name);
-        buf[decl.name.len] = 0;
         const tinfo = @typeInfo(@TypeOf(@field(api_struct, decl.name)));
-        const lua_name = @as([*c]const u8, @ptrCast(&buf[0]));
+        const lua_name = decl.name;
         switch (tinfo) {
             .Fn => self.reg(lua_name, @field(api_struct, decl.name)),
             //else => |crass| @compileError("Cannot export to lua: " ++ @tagName(crass)),
