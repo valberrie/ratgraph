@@ -119,15 +119,17 @@ pub fn checkError(L: Ls, err: c_int) void {
     }
 }
 
-pub fn putError(self: *Self, msg: []const u8) void {
-    _ = lua.luaL_error(self.state, zstring(msg));
+pub fn putError(self: *Self, msg: []const u8) noreturn {
+    _ = lua.luaL_error(self.state, zstring(msg)); //Longjmp
+    unreachable;
 }
 
-pub fn putErrorFmt(self: *Self, comptime fmt: []const u8, args: anytype) void {
+pub fn putErrorFmt(self: *Self, comptime fmt: []const u8, args: anytype) noreturn {
     var buff: [256]u8 = undefined;
     var fbs = std.io.FixedBufferStream([]u8){ .buffer = &buff, .pos = 0 };
     fbs.writer().print(fmt, args) catch unreachable;
     self.putError(fbs.getWritten());
+    unreachable;
 }
 
 pub fn printStack(L: Ls) void {
@@ -231,7 +233,10 @@ pub fn getArg(self: *Self, L: Ls, comptime s: type, idx: c_int) s {
             inline for (in.Struct.fields) |f| {
                 const lt = lua.lua_getfield(L, idx, zstring(f.name));
                 @field(ret, f.name) = switch (lt) {
-                    lua.LUA_TNIL => if (f.default_value) |d| @as(*const f.type, @ptrCast(@alignCast(d))).* else undefined,
+                    lua.LUA_TNIL => if (f.default_value) |d| @as(*const f.type, @ptrCast(@alignCast(d))).* else blk: {
+                        std.debug.print("THIS IS BROKEN\n", .{});
+                        break :blk undefined;
+                    },
                     else => self.getArg(L, f.type, -1),
                 };
                 lua.lua_pop(L, 1);
