@@ -18,6 +18,7 @@ const ArgUtil = graph.ArgGen;
 //TODO perserve any extra tiled data
 //allow the assets to be packed in a specific way
 
+const log = std.log.scoped(.AssetBake);
 pub const PackageConfigJson = struct {
     // Global tiled tileset
 
@@ -30,10 +31,43 @@ pub const PackageConfigJson = struct {
     //files
 };
 
+const IDT = u32;
+pub const BakedManifestJson = struct {
+    pub const IdRect = struct {
+        id: IDT,
+        x: u32,
+        y: u32,
+        w: u32,
+        h: u32,
+
+        pub fn sortAscById(_: void, lhs: IdRect, rhs: IdRect) bool {
+            return lhs.id < rhs.id;
+        }
+
+        pub fn compare(_: void, index: u32, item: IdRect) std.math.Order {
+            return std.math.order(index, item.id);
+        }
+    };
+    pub const IdInfo = struct {
+        id: IDT,
+        //mtime: u64 = 0,
+    };
+    pub const IdMap = std.json.ArrayHashMap(IdInfo);
+    //What we need to store
+    //path to the atlas.png
+    //an array mapping names to id
+    //array mapping ids to rects
+    name_id_map: IdMap,
+    rects: []IdRect,
+    version: usize = 1,
+    build_timestamp: u64 = 0,
+
+    //collected_json: std.json.ArrayHashMap()
+};
+
 /// AssetMap
 pub const AssetMap = struct {
     const Self = @This();
-    const IDT = u32;
 
     pub const UserResources = struct {
         const USelf = @This();
@@ -52,34 +86,8 @@ pub const AssetMap = struct {
     };
 
     pub const FreeListItem = struct { start: u32, end: u32 };
-    pub const BakedManifestJson = struct {
-        pub const IdRect = struct {
-            id: IDT,
-            x: u32,
-            y: u32,
-            w: u32,
-            h: u32,
 
-            pub fn sortAscById(_: void, lhs: IdRect, rhs: IdRect) bool {
-                return lhs.id < rhs.id;
-            }
-
-            pub fn compare(_: void, index: u32, item: IdRect) std.math.Order {
-                return std.math.order(index, item.id);
-            }
-        };
-        //What we need to store
-        //path to the atlas.png
-        //an array mapping names to id
-        //array mapping ids to rects
-        name_id_map: std.json.ArrayHashMap(IDT),
-        rects: []IdRect,
-        version: usize = 0,
-
-        //collected_json: std.json.ArrayHashMap()
-    };
-
-    fn createFreelist(alloc: std.mem.Allocator, old_map: ?*const std.json.ArrayHashMap(IDT)) !std.ArrayList(FreeListItem) {
+    fn createFreelist(alloc: std.mem.Allocator, old_map: ?*const BakedManifestJson.IdMap) !std.ArrayList(FreeListItem) {
         var freelist = std.ArrayList(FreeListItem).init(alloc);
 
         var sorted_ids = std.ArrayList(u32).init(alloc);
@@ -87,7 +95,7 @@ pub const AssetMap = struct {
         if (old_map) |ob| {
             var it = ob.map.iterator();
             while (it.next()) |item| {
-                try sorted_ids.append(item.value_ptr.*);
+                try sorted_ids.append(item.value_ptr.id);
             }
             std.sort.heap(u32, sorted_ids.items, {}, std.sort.asc(u32));
         }
@@ -125,7 +133,7 @@ pub const AssetMap = struct {
         const manifest_filename = try suffix(talloc, file_prefix, "_manifest.json");
         //TODO notify if the file isn't found
         const jslice = try dir.readFileAlloc(talloc, manifest_filename, std.math.maxInt(usize));
-        const parsed = try std.json.parseFromSlice(BakedManifestJson, talloc, jslice, .{});
+        const parsed = try std.json.parseFromSlice(BakedManifestJson, talloc, jslice, .{ .ignore_unknown_fields = true });
 
         var ret = Self{
             .file_prefix = try alloc.dupe(u8, file_prefix),
@@ -158,7 +166,7 @@ pub const AssetMap = struct {
         defer tmp_name_mapping.deinit();
         var it = parsed.value.name_id_map.map.iterator();
         while (it.next()) |item| {
-            try tmp_name_mapping.append(.{ .name = item.key_ptr.*, .id = item.value_ptr.* });
+            try tmp_name_mapping.append(.{ .name = item.key_ptr.*, .id = item.value_ptr.id });
             //const name = try alloc.dupe(u8, item.key_ptr.*);
             //try ret.id_name_lut.append(name);
             //try ret.name_id_map.put(name, item.value_ptr.*);
@@ -293,11 +301,11 @@ pub fn assetBake(
     sub_path: []const u8,
     output_dir: std.fs.Dir,
     output_filename_prefix: []const u8, //prefix.json prefix.png etc
-    options: struct { pixel_extrude: u32 = 0 },
+    options: struct { pixel_extrude: u32 = 0, force_rebuild: bool = false },
 ) !void {
     const pixel_extrude = options.pixel_extrude;
     //const pixel_extrude = 4; //How many pixels to extrude each texture
-    const IdRect = AssetMap.BakedManifestJson.IdRect;
+    const IdRect = BakedManifestJson.IdRect;
     var arena = std.heap.ArenaAllocator.init(alloc);
     defer arena.deinit();
     const talloc = arena.allocator();
@@ -308,13 +316,13 @@ pub fn assetBake(
     const tiled_filename = try suffix(talloc, output_filename_prefix, "_tiled.tsj");
 
     //Really just assign a numerical id to every item in the dir
-    const old_bake: ?AssetMap.BakedManifestJson = blk: {
+    const old_bake: ?BakedManifestJson = blk: {
         const jslice = output_dir.readFileAlloc(talloc, manifest_filename, std.math.maxInt(usize)) catch break :blk null;
-        const parsed = try std.json.parseFromSlice(AssetMap.BakedManifestJson, talloc, jslice, .{ .ignore_unknown_fields = true });
+        const parsed = try std.json.parseFromSlice(BakedManifestJson, talloc, jslice, .{ .ignore_unknown_fields = true });
         break :blk parsed.value;
     };
     //store json files in seperate json file
-    var out_name_id_map = std.StringArrayHashMap(u32).init(alloc);
+    var out_name_id_map = std.StringArrayHashMap(BakedManifestJson.IdInfo).init(alloc);
     defer out_name_id_map.deinit();
 
     //if a resource has an id in old_bake then use that id otherwise get it from freelist
@@ -327,7 +335,6 @@ pub fn assetBake(
     var walker = try idir.walk(
         alloc,
     );
-    defer walker.deinit();
 
     var bmps = std.ArrayList(graph.Bitmap).init(alloc);
     defer {
@@ -354,15 +361,40 @@ pub fn assetBake(
     var uid_bmp_index_map = std.AutoHashMap(u32, u32).init(alloc);
     defer uid_bmp_index_map.deinit();
     const ignore_tiled_name = "tignore";
+    var need_rebuild = old_bake == null;
     var tiled_exclude = std.AutoHashMap(u32, void).init(alloc);
     defer tiled_exclude.deinit();
+    while (try walker.next()) |w| {
+        switch (w.kind) {
+            .file => {
+                const stat = try w.dir.statFile(w.basename);
+                const mtime: u64 = @intCast(@divTrunc(stat.mtime, std.time.ns_per_s));
+                if (old_bake) |ob| {
+                    if (mtime >= ob.build_timestamp)
+                        need_rebuild = true;
+                }
+                if (need_rebuild)
+                    break;
+            },
+            else => {},
+        }
+    }
+    walker.deinit();
+    if (!need_rebuild and !options.force_rebuild) {
+        log.info("Cached manifest {s}, skipping rebuild.", .{output_filename_prefix});
+        return;
+    }
+    walker = try idir.walk(
+        alloc,
+    );
+    defer walker.deinit();
     while (try walker.next()) |w| {
         switch (w.kind) {
             .file => {
                 const ind = blk: {
                     if (old_bake) |ob| {
                         if (ob.name_id_map.map.get(w.path)) |id|
-                            break :blk id;
+                            break :blk id.id;
                     }
                     var range = &freelist.items[0];
                     while (range.start == range.end) {
@@ -374,7 +406,9 @@ pub fn assetBake(
                     defer range.start += 1;
                     break :blk range.start;
                 };
-                try out_name_id_map.put(try talloc.dupe(u8, w.path), @intCast(ind));
+                try out_name_id_map.put(try talloc.dupe(u8, w.path), .{
+                    .id = @intCast(ind),
+                });
                 if (std.mem.startsWith(u8, w.path, ignore_tiled_name)) {
                     try tiled_exclude.put(ind, {});
                 }
@@ -496,9 +530,13 @@ pub fn assetBake(
     var out = try output_dir.createFile(manifest_filename, .{});
     defer out.close();
     try std.json.stringify(
-        AssetMap.BakedManifestJson{ .rects = id_rects.items, .name_id_map = std.json.ArrayHashMap(u32){
-            .map = out_name_id_map.unmanaged,
-        } },
+        BakedManifestJson{
+            .rects = id_rects.items,
+            .name_id_map = BakedManifestJson.IdMap{
+                .map = out_name_id_map.unmanaged,
+            },
+            .build_timestamp = @intCast(std.time.timestamp()),
+        },
         .{},
         out.writer(),
     );
@@ -516,18 +554,18 @@ pub fn assetBake(
             try new_name.append('/');
             try new_name.appendSlice(item.key_ptr.*);
             //We might need to append the dir prefix to fileimage path?
-            if (std.sort.binarySearch(IdRect, item.value_ptr.*, id_rects.items, {}, IdRect.compare)) |ri| {
+            if (std.sort.binarySearch(IdRect, item.value_ptr.id, id_rects.items, {}, IdRect.compare)) |ri| {
                 const r = id_rects.items[ri];
                 const h = (r.h);
                 const w = (r.w);
-                if (tiled_exclude.get(item.value_ptr.*) != null) {
+                if (tiled_exclude.get(item.value_ptr.id) != null) {
                     continue;
                 }
                 max_w = @max(max_w, w);
                 max_h = @max(max_h, h);
                 try tiles.append(.{
                     .image = new_name.items,
-                    .id = item.value_ptr.*,
+                    .id = item.value_ptr.id,
                     .imageheight = h,
                     .imagewidth = w,
                 });
