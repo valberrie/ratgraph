@@ -377,11 +377,36 @@ pub const Camera2D = struct {
         return v;
     }
 
-    pub fn zoom(self: *Self, dist: f32, zoom_target: Vec2f) void {
+    pub fn zoom(self: *Self, dist_: f32, zoom_target: Vec2f, w_range: ?Vec2f, h_range: ?Vec2f) void {
+        var dist = dist_;
         if (@abs(dist) > 0.00001) {
             const m_init = self.toCamV(zoom_target);
-            const h = self.cam_area.w * dist;
-            const v = self.cam_area.h * dist;
+            var h = self.cam_area.w * dist;
+
+            if (w_range) |wr| {
+                const inith = self.cam_area.w - h * 2;
+                if (inith < wr.x) {
+                    dist = (1 - wr.x / self.cam_area.w) / 2;
+                } else if (inith > wr.y) {
+                    dist = (1 - wr.y / self.cam_area.w) / 2;
+                    //minw = self.cam_area.w - (self.cam_area.w * dist) * 2;
+                    //minw = caw * ( 1-2dist)
+                    //dist = (1 - minw / caw) / 2
+                }
+            }
+            var v = self.cam_area.h * dist;
+            if (h_range) |hr| {
+                const initw = self.cam_area.h - v * 2;
+                if (initw < hr.x) {
+                    dist = (1 - hr.x / self.cam_area.h) / 2;
+                } else if (initw > hr.y) {
+                    dist = (1 - hr.y / self.cam_area.h) / 2;
+                }
+            }
+
+            h = self.cam_area.w * dist;
+            v = self.cam_area.h * dist;
+
             self.cam_area.x += h;
             self.cam_area.w -= h * 2;
 
