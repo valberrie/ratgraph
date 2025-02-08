@@ -972,6 +972,7 @@ pub const GuiConfig = struct {
             path,
             dir,
             "mani",
+            .{ .pixel_extrude = 1 },
         );
 
         var manifest = try graph.AssetBake.AssetMap.initFromManifest(alloc, dir, "mani");

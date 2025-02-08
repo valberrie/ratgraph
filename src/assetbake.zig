@@ -74,6 +74,7 @@ pub const AssetMap = struct {
         //array mapping ids to rects
         name_id_map: std.json.ArrayHashMap(IDT),
         rects: []IdRect,
+        version: usize = 0,
 
         //collected_json: std.json.ArrayHashMap()
     };
@@ -183,6 +184,7 @@ pub const AssetMap = struct {
 
         return try graph.Texture.initFromImgFile(alloc, dir, atlas_filename, .{
             .mag_filter = graph.c.GL_NEAREST,
+            //.min_filter = graph.c.GL_NEAREST,
         });
     }
 
@@ -291,7 +293,10 @@ pub fn assetBake(
     sub_path: []const u8,
     output_dir: std.fs.Dir,
     output_filename_prefix: []const u8, //prefix.json prefix.png etc
+    options: struct { pixel_extrude: u32 = 0 },
 ) !void {
+    const pixel_extrude = options.pixel_extrude;
+    //const pixel_extrude = 4; //How many pixels to extrude each texture
     const IdRect = AssetMap.BakedManifestJson.IdRect;
     var arena = std.heap.ArenaAllocator.init(alloc);
     defer arena.deinit();
@@ -376,7 +381,7 @@ pub fn assetBake(
                 if (std.mem.endsWith(u8, w.basename, ".png")) {
                     const index = bmps.items.len;
                     try bmps.append(try graph.Bitmap.initFromPngFile(alloc, w.dir, w.basename));
-                    try rpack.appendRect(index, bmps.items[index].w, bmps.items[index].h);
+                    try rpack.appendRect(index, bmps.items[index].w + pixel_extrude * 2, bmps.items[index].h + pixel_extrude * 2);
                     try uid_bmp_index_map.put(@intCast(index), @intCast(ind));
                     //names has the same indicies as bmps
                     //} else if (std.mem.endsWith(u8, w.basename, ".json")) {
@@ -399,15 +404,72 @@ pub fn assetBake(
     const out_size = try rpack.packOptimalSize();
     var out_bmp = try graph.Bitmap.initBlank(alloc, out_size.x, out_size.y, .rgba_8);
     defer out_bmp.deinit();
+    const comp_count = 4;
     for (rpack.rects.items) |rect| {
+        const x: u32 = @intCast(rect.x);
+        const yy: u32 = @intCast(rect.y);
         const i: usize = @intCast(rect.id);
-        graph.Bitmap.copySubR(4, &out_bmp, @intCast(rect.x), @intCast(rect.y), &bmps.items[i], 0, 0, @intCast(rect.w), @intCast(rect.h));
+        const w: u32 = @intCast(rect.w);
+        const h: u32 = @intCast(rect.h);
+        graph.Bitmap.copySubR(
+            comp_count,
+            &out_bmp,
+            x + pixel_extrude,
+            yy + pixel_extrude,
+            &bmps.items[i],
+            0,
+            0,
+            w - pixel_extrude * 2,
+            h - pixel_extrude * 2,
+        );
+        const sx: u32 = x + pixel_extrude;
+        const sy: u32 = @intCast(rect.y);
+        for (0..pixel_extrude) |pi| {
+            const bstart = ((sy + pi) * out_bmp.w + sx) * comp_count;
+            const dist = (w - pixel_extrude * 2);
+            @memcpy(
+                out_bmp.data.items[bstart .. bstart + dist * comp_count],
+                bmps.items[i].data.items[0 .. dist * comp_count],
+            );
+
+            const tstart = ((sy + h - pixel_extrude + pi) * out_bmp.w + sx) * comp_count;
+            //const tstart = ((sy + pixel_extrude + pi) * out_bmp.w + sx) * comp_count;
+            const sstart = (dist * ((h - pixel_extrude * 2) - 1)) * comp_count;
+            @memcpy(
+                out_bmp.data.items[tstart .. tstart + dist * comp_count],
+                //bmps.items[i].data.items[0 .. dist * comp_count],
+                bmps.items[i].data.items[sstart .. sstart + dist * comp_count],
+            );
+        }
+        for (0..pixel_extrude) |pi| {
+            for (0..h) |y| {
+                const sts = ((sy + y) * out_bmp.w + x + pixel_extrude) * comp_count;
+                const st = ((sy + y) * out_bmp.w + x + pi) * comp_count;
+
+                //const ost = ((w - pixel_extrude * 2) * y) * comp_count;
+                @memcpy(
+                    out_bmp.data.items[st .. st + 4],
+                    out_bmp.data.items[sts .. sts + 4],
+                    //bmps.items[i].data.items[ost .. ost + 4],
+                );
+
+                const stf = ((sy + y) * out_bmp.w + x + w - pi - 1) * comp_count;
+                const stfs = ((sy + y) * out_bmp.w + x + w - pixel_extrude - 1) * comp_count;
+
+                //const ostf = ((w - pixel_extrude * 2) * (y + 1) - 1) * comp_count;
+                @memcpy(
+                    out_bmp.data.items[stf .. stf + 4],
+                    out_bmp.data.items[stfs .. stfs + 4],
+                    //bmps.items[i].data.items[ostf .. ostf + 4],
+                );
+            }
+        }
         try id_rects.append(.{
             .id = uid_bmp_index_map.get(@intCast(rect.id)).?,
-            .x = @intCast(rect.x),
-            .y = @intCast(rect.y),
-            .w = @intCast(rect.w),
-            .h = @intCast(rect.h),
+            .x = x + pixel_extrude,
+            .y = yy + pixel_extrude,
+            .w = w - pixel_extrude * 2,
+            .h = h - pixel_extrude * 2,
         });
     }
     try out_bmp.writeToPngFile(output_dir, atlas_filename);
@@ -497,6 +559,7 @@ pub fn main() !void {
     const cli_opts = try (ArgUtil.parseArgs(&.{
         Arg("dir", .string, "The directory you want to process into a manifest"),
         Arg("name", .string, "name of the artifacts"),
+        Arg("extrude", .number, "Amount of pixels to extrude each sprite"),
     }, &args));
 
     if (cli_opts.dir == null or cli_opts.name == null) {
@@ -510,5 +573,6 @@ pub fn main() !void {
         cli_opts.dir.?,
         std.fs.cwd(),
         cli_opts.name.?,
+        .{ .pixel_extrude = @intFromFloat(cli_opts.extrude orelse 0) },
     );
 }
