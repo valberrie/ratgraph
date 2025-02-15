@@ -262,6 +262,10 @@ pub const AssetMap = struct {
         return self.id_name_lut.items[id].?;
     }
 
+    pub fn getRectFromId(self: *Self, id: u32) ?graph.Rect {
+        return self.resource_rect_lut.items[id];
+    }
+
     pub fn getRectFromName(self: *Self, name: []const u8) ?graph.Rect {
         const id = self.name_id_map.get(name) orelse {
             std.debug.print("Unkown asset {s}\n", .{name});

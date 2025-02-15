@@ -78,7 +78,13 @@ pub fn GenRegistryStructs(comptime fields: FieldList) struct {
         };
         json_fields[lt_i] = .{
             .name = f.name,
-            .type = []f.ftype,
+            .type = struct {
+                pub const Entry = struct {
+                    id: ID_TYPE,
+                    data: f.ftype,
+                };
+                entries: []Entry,
+            },
             .default_value = null,
             .is_comptime = false,
             .alignment = 0,
@@ -336,6 +342,11 @@ pub fn Registry(comptime field_names_l: FieldList) type {
             @field(self.callbacks, @tagName(component_type) ++ "data") = user_data;
         }
 
+        //FIXME what happens in very long running games?
+        //Worst case we create and destroy 1000 entities per second
+        //with 2**32 that gives us roughly 1200 hours before wraparound
+        //A bigger issue is the sparse sets
+        //
         pub fn createEntity(self: *Self) !ID_TYPE {
             const index = @as(ID_TYPE, @intCast(self.entities.items.len));
             try self.entities.append(Types.component_bit_set.initEmpty());
@@ -425,6 +436,18 @@ pub fn Registry(comptime field_names_l: FieldList) type {
             if (!ent.isSet(comp)) return error.componentNotAttached;
             const ptr = try @field(self.data, @tagName(component_type)).getPtr(index);
             ptr.* = component;
+        }
+
+        pub fn attachComponentAndCreate(self: *Self, index: ID_TYPE, comptime component_type: Components, component: anytype) !void {
+            if (!self.isEntity(index)) {
+                if (index >= self.entities.items.len) { //Entity outside of range, append tombstones
+                    var tomb = Types.component_bit_set.initEmpty();
+                    tomb.set(Types.tombstone_bit);
+                    try self.entities.appendNTimes(tomb, index - self.entities.items.len + 1);
+                }
+                self.entities.items[index].unset(Types.tombstone_bit);
+            }
+            try self.attachComponent(index, component_type, component);
         }
 
         pub fn attachComponent(self: *Self, index: ID_TYPE, comptime component_type: Components, component: anytype) !void {
