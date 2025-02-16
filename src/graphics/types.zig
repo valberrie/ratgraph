@@ -60,6 +60,10 @@ pub const Rect = struct {
         return !(r1.x > r2.x + r2.w or r2.x > r1.x + r1.w or r1.y > r2.y + r2.h or r2.y > r1.y + r1.h);
     }
 
+    pub fn overlapExclusive(r1: Self, r2: Self) bool {
+        return !(r1.x >= r2.x + r2.w or r2.x >= r1.x + r1.w or r1.y >= r2.y + r2.h or r2.y >= r1.y + r1.h);
+    }
+
     pub fn newV(_pos: Vec2f, dim_: Vec2f) @This() {
         return .{ .x = _pos.x, .y = _pos.y, .w = dim_.x, .h = dim_.y };
     }

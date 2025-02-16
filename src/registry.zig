@@ -286,12 +286,17 @@ pub fn Registry(comptime field_names_l: FieldList) type {
         }
 
         pub fn deinit(self: *Self) void {
+            inline for (field_names_l, 0..) |field, i| {
+                if (std.meta.hasFn(field.ftype, "deinit")) {
+                    var t_it = self.iterator(@enumFromInt(i));
+                    while (t_it.next()) |item|
+                        item.deinit();
+                }
+                @field(self.data, field.name).deinit();
+            }
             self.sleep_timers.deinit();
             self.slept.deinit();
             self.entities.deinit();
-            inline for (field_names_l) |field| {
-                @field(self.data, field.name).deinit();
-            }
         }
 
         pub fn stringToComponent(string: []const u8) ?Components {
@@ -376,6 +381,11 @@ pub fn Registry(comptime field_names_l: FieldList) type {
         pub fn destroyAll(self: *Self) !void {
             inline for (field_names_l, 0..) |field, i| {
                 self.call_reset_callback(@enumFromInt(i), @field(self.data, field.name).dense.items, @field(self.data, field.name).dense_index_lut.items);
+                if (std.meta.hasFn(field.ftype, "deinit")) {
+                    var t_it = self.iterator(@enumFromInt(i));
+                    while (t_it.next()) |item|
+                        item.deinit();
+                }
                 try @field(self.data, field.name).empty();
             }
             try self.entities.resize(0);
