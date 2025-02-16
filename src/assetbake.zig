@@ -385,7 +385,8 @@ pub fn assetBake(
     }
     walker.deinit();
     if (!need_rebuild and !options.force_rebuild) {
-        log.info("Cached manifest {s}, skipping rebuild.", .{output_filename_prefix});
+        const rp = try idir.realpathAlloc(talloc, ".");
+        log.info("Cached manifest of {s} named: {s}, skipping rebuild.", .{ rp, output_filename_prefix });
         return;
     }
     walker = try idir.walk(

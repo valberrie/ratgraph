@@ -237,7 +237,7 @@ pub const Font = struct {
         var finfo: c.stbtt_fontinfo = undefined;
         _ = c.stbtt_InitFont(&finfo, @as([*c]const u8, @ptrCast(buf)), c.stbtt_GetFontOffsetForIndex(&buf[0], 0));
 
-        var timer = try std.time.Timer.start();
+        //var timer = try std.time.Timer.start();
         //For each codepoint to load
         //  render to a bitmap
         //  store the metrics in glyph
@@ -330,10 +330,9 @@ pub const Font = struct {
             g.tr.x = @floatFromInt(bmx);
             g.tr.y = @floatFromInt(bmy);
         }
-        std.debug.print("took x ms {d}\n", .{@as(f32, @floatFromInt(timer.read() / pack_ctx.rects.items.len)) / std.time.ns_per_ms});
+        //std.debug.print("took x ms {d}\n", .{@as(f32, @floatFromInt(timer.read() / pack_ctx.rects.items.len)) / std.time.ns_per_ms});
 
         //try out_bmp.writeToPngFile(std.fs.cwd(), "crass.png");
-        std.debug.print("num {d}\n", .{finfo.numGlyphs});
         result.texture = Texture.initFromBitmap(out_bmp, .{
             .pixel_store_alignment = 1,
             .internal_format = c.GL_RED,
