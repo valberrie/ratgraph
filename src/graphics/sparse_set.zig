@@ -145,25 +145,25 @@ pub fn SparseSet(comptime child_type: type, comptime index_type: type) type {
         }
 
         //TODO iteration safe, but not deterministic, item added during iteration getting seen during that iteration is random
-        pub fn add(self: *Self, item: child_type) !index_type {
-            var empty_index: ?index_type = null;
-            for (self.sparse.items, 0..) |item_index, sp_i| {
-                if (item_index == sparse_null_marker and sp_i != sparse_null_marker) {
-                    empty_index = @as(index_type, @intCast(sp_i));
-                    break;
-                }
-            }
+        //pub fn add(self: *Self, item: child_type) !index_type {
+        //    var empty_index: ?index_type = null;
+        //    for (self.sparse.items, 0..) |item_index, sp_i| {
+        //        if (item_index == sparse_null_marker and sp_i != sparse_null_marker) {
+        //            empty_index = @as(index_type, @intCast(sp_i));
+        //            break;
+        //        }
+        //    }
 
-            if (empty_index == null) {
-                empty_index = @as(index_type, @intCast(self.sparse.items.len));
-                try self.sparse.append(sparse_null_marker);
-            }
+        //    if (empty_index == null) {
+        //        empty_index = @as(index_type, @intCast(self.sparse.items.len));
+        //        try self.sparse.append(sparse_null_marker);
+        //    }
 
-            self.sparse.items[empty_index.?] = @as(index_type, @intCast(self.dense.items.len));
-            try self.dense.append(item);
-            try self.dense_index_lut.append(@intCast(empty_index.?));
-            return empty_index.?;
-        }
+        //    self.sparse.items[empty_index.?] = @as(index_type, @intCast(self.dense.items.len));
+        //    try self.dense.append(item);
+        //    try self.dense_index_lut.append(@intCast(empty_index.?));
+        //    return empty_index.?;
+        //}
 
         pub fn get(self: *Self, index: index_type) !child_type {
             const di = try self.getDenseIndex(index);

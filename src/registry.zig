@@ -6,6 +6,7 @@ pub const MapField = struct {
     ftype: type,
     name: [:0]const u8,
     allow_getPtr: bool = true,
+    dont_create_template: bool = false, //If true, templates specifying this component will not attach them on instantiation.
     callback: ?struct {
         /// Called on component creation, args are user_data, *ftype, EcsIndex
         create_pointer: type = void,
@@ -628,6 +629,22 @@ pub fn Registry(comptime field_names_l: FieldList) type {
                 @field(result, field.name) = try @field(self.data, field.name).getPtr(index);
             }
             return result;
+        }
+
+        pub fn getComponentMask(comp_list: []const Types.component_enum) Types.component_bit_set {
+            var mask = Types.component_bit_set.initEmpty();
+            for (comp_list) |comp| {
+                mask.set(@intFromEnum(comp));
+            }
+            return mask;
+        }
+
+        pub fn superSetOf(self: *const Self, index: ID_TYPE, mask: Types.component_bit_set) bool {
+            return (self.getEntity(index) catch return false).supersetOf(mask);
+        }
+
+        pub fn intersects(self: *const Self, index: ID_TYPE, mask: Types.component_bit_set) bool {
+            return (self.getEntity(index) catch return false).intersectWith(mask).mask != 0;
         }
 
         //pub fn getEntitySetIterator() type {
