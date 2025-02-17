@@ -307,6 +307,7 @@ pub fn assetBake(
     output_filename_prefix: []const u8, //prefix.json prefix.png etc
     options: struct { pixel_extrude: u32 = 0, force_rebuild: bool = false },
 ) !void {
+    const TILED_SCRATCH_NAME = ".tiled_img";
     const pixel_extrude = options.pixel_extrude;
     //const pixel_extrude = 4; //How many pixels to extrude each texture
     const IdRect = BakedManifestJson.IdRect;
@@ -328,6 +329,9 @@ pub fn assetBake(
     //store json files in seperate json file
     var out_name_id_map = std.StringArrayHashMap(BakedManifestJson.IdInfo).init(alloc);
     defer out_name_id_map.deinit();
+
+    var tiled_substite_path = std.StringArrayHashMap([]const u8).init(alloc);
+    defer tiled_substite_path.deinit();
 
     //if a resource has an id in old_bake then use that id otherwise get it from freelist
     //we create freelist by gathering all old ids, sorting then iterating and generating a freelist.
@@ -361,6 +365,8 @@ pub fn assetBake(
         json_files.deinit();
     }
 
+    var temp_name_buf: [1024]u8 = undefined;
+
     //First we walk the directory and all children, creating a list of images and a list of json files.
     var uid_bmp_index_map = std.AutoHashMap(u32, u32).init(alloc);
     defer uid_bmp_index_map.deinit();
@@ -393,6 +399,16 @@ pub fn assetBake(
         alloc,
     );
     defer walker.deinit();
+
+    { //Make the tiled scratch directory
+        dir.makeDir(TILED_SCRATCH_NAME) catch |err| switch (err) {
+            error.PathAlreadyExists => {},
+            else => return err,
+        };
+    }
+    var tiled_scratch_dir = try dir.openDir(TILED_SCRATCH_NAME, .{});
+    defer tiled_scratch_dir.close();
+
     while (try walker.next()) |w| {
         switch (w.kind) {
             .file => {
@@ -411,7 +427,8 @@ pub fn assetBake(
                     defer range.start += 1;
                     break :blk range.start;
                 };
-                try out_name_id_map.put(try talloc.dupe(u8, w.path), .{
+                const nameid = try talloc.dupe(u8, w.path);
+                try out_name_id_map.put(nameid, .{
                     .id = @intCast(ind),
                 });
                 if (std.mem.startsWith(u8, w.path, ignore_tiled_name)) {
@@ -423,7 +440,26 @@ pub fn assetBake(
                     try rpack.appendRect(index, bmps.items[index].w + pixel_extrude * 2, bmps.items[index].h + pixel_extrude * 2);
                     try uid_bmp_index_map.put(@intCast(index), @intCast(ind));
                     //names has the same indicies as bmps
-                    //} else if (std.mem.endsWith(u8, w.basename, ".json")) {
+                } else if (std.mem.endsWith(u8, w.basename, ".ora")) {
+                    const index = bmps.items.len;
+                    const png_buf = try oraFileToPngBuffer(w.dir, w.basename, alloc);
+                    defer png_buf.deinit();
+                    var bmp = try graph.Bitmap.initFromPngBuffer(alloc, png_buf.items);
+                    try bmps.append(bmp);
+                    try rpack.appendRect(index, bmps.items[index].w + pixel_extrude * 2, bmps.items[index].h + pixel_extrude * 2);
+                    try uid_bmp_index_map.put(@intCast(index), @intCast(ind));
+                    const dirname = w.path[0 .. w.path.len - w.basename.len];
+                    tiled_scratch_dir.makePath(dirname) catch |err| switch (err) {
+                        error.PathAlreadyExists => {},
+                        else => return err,
+                    };
+                    var fbs = std.io.FixedBufferStream([]u8){ .buffer = &temp_name_buf, .pos = 0 };
+                    const wr = fbs.writer();
+                    _ = try wr.write(dirname);
+                    _ = try wr.write(w.basename[0 .. w.basename.len - ".ora".len]);
+                    _ = try wr.write(".png");
+                    try bmp.writeToPngFile(tiled_scratch_dir, fbs.getWritten());
+                    try tiled_substite_path.put(nameid, try talloc.dupe(u8, fbs.getWritten()));
                 } else {
                     const path = try talloc.dupe(u8, w.path);
                     try json_files.append(.{
@@ -554,6 +590,7 @@ pub fn assetBake(
         defer tiles.deinit();
         var name_it = out_name_id_map.iterator();
         while (name_it.next()) |item| {
+            //TODO .ora images need to be written to a scratch dir so tiled can load them
             var new_name = std.ArrayList(u8).init(talloc);
             try new_name.appendSlice(sub_path);
             try new_name.append('/');
@@ -568,6 +605,12 @@ pub fn assetBake(
                 }
                 max_w = @max(max_w, w);
                 max_h = @max(max_h, h);
+                if (tiled_substite_path.get(item.key_ptr.*)) |sub_name| {
+                    try new_name.resize(0);
+                    try new_name.appendSlice(TILED_SCRATCH_NAME);
+                    try new_name.append('/');
+                    try new_name.appendSlice(sub_name);
+                }
                 try tiles.append(.{
                     .image = new_name.items,
                     .id = item.value_ptr.id,
@@ -589,6 +632,75 @@ pub fn assetBake(
         std.json.stringify(new_tsj, .{}, outfile.writer()) catch unreachable;
         outfile.close();
     }
+}
+
+fn oraFileToPngBuffer(dir: std.fs.Dir, path: []const u8, alloc: std.mem.Allocator) !std.ArrayList(u8) {
+    var infile = try dir.openFile(path, .{});
+    defer infile.close();
+    const ZipIterator = std.zip.Iterator(std.fs.File.SeekableStream);
+    var zit = try ZipIterator.init(infile.seekableStream());
+
+    var filename_buf: [256]u8 = undefined;
+    var out = std.ArrayList(u8).init(alloc);
+    while (try zit.next()) |entry| {
+        const filename = filename_buf[0..entry.filename_len];
+        try zit.stream.seekTo(entry.header_zip_offset + @sizeOf(std.zip.CentralDirectoryFileHeader));
+        const rlen = try zit.stream.context.reader().readAll(filename);
+        if (rlen != filename.len)
+            return error.ZipBadFileOffset;
+        if (std.mem.eql(u8, filename, "mergedimage.png")) {
+            //Much of this is copied straight from std.zip.zig as they don't have an api for decompressing into buffer.
+            const local_data_header_offset: u64 = local_data_header_offset: {
+                const local_header = blk: {
+                    try zit.stream.seekTo(entry.file_offset);
+                    break :blk try zit.stream.context.reader().readStructEndian(std.zip.LocalFileHeader, .little);
+                };
+                if (!std.mem.eql(u8, &local_header.signature, &std.zip.local_file_header_sig))
+                    return error.ZipBadFileOffset;
+                if (local_header.version_needed_to_extract != entry.version_needed_to_extract)
+                    return error.ZipMismatchVersionNeeded;
+                if (local_header.last_modification_time != entry.last_modification_time)
+                    return error.ZipMismatchModTime;
+                if (local_header.last_modification_date != entry.last_modification_date)
+                    return error.ZipMismatchModDate;
+
+                if (@as(u16, @bitCast(local_header.flags)) != @as(u16, @bitCast(entry.flags)))
+                    return error.ZipMismatchFlags;
+                if (local_header.crc32 != 0 and local_header.crc32 != entry.crc32)
+                    return error.ZipMismatchCrc32;
+                if (local_header.compressed_size != 0 and
+                    local_header.compressed_size != entry.compressed_size)
+                    return error.ZipMismatchCompLen;
+                if (local_header.uncompressed_size != 0 and
+                    local_header.uncompressed_size != entry.uncompressed_size)
+                    return error.ZipMismatchUncompLen;
+                if (local_header.filename_len != entry.filename_len)
+                    return error.ZipMismatchFilenameLen;
+
+                break :local_data_header_offset @as(u64, local_header.filename_len) +
+                    @as(u64, local_header.extra_len);
+            };
+            const local_data_file_offset: u64 =
+                @as(u64, entry.file_offset) +
+                @as(u64, @sizeOf(std.zip.LocalFileHeader)) +
+                local_data_header_offset;
+            try zit.stream.seekTo(local_data_file_offset);
+            var limited_reader = std.io.limitedReader(zit.stream.context.reader(), entry.compressed_size);
+
+            const crc = try std.zip.decompress(
+                entry.compression_method,
+                entry.uncompressed_size,
+                limited_reader.reader(),
+                out.writer(),
+            );
+            if (limited_reader.bytes_left != 0)
+                return error.ZipDecompressTruncated;
+            if (crc != entry.crc32)
+                return error.ZipCrcMismatch;
+            return out;
+        }
+    }
+    return error.invalidOraFile;
 }
 
 pub fn main() !void {
