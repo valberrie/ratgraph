@@ -1116,6 +1116,10 @@ pub const DrawParams = struct {
     draw_priority: u8 = 0,
     shader: c_uint,
 };
+pub const PassedUniform = struct {
+    name: [*c]const u8,
+    payload: union(enum) { float: f32 },
+};
 pub fn NewBatch(comptime vertex_type: type, comptime batch_options: BatchOptions) type {
     const IndexType = u32;
     return struct {
@@ -1170,6 +1174,10 @@ pub fn NewBatch(comptime vertex_type: type, comptime batch_options: BatchOptions
         }
 
         pub fn draw(self: *Self, params: DrawParams, view: za.Mat4, model: za.Mat4) void {
+            self.drawUniform(params, view, model, &.{});
+        }
+
+        pub fn drawUniform(self: *Self, params: DrawParams, view: za.Mat4, model: za.Mat4, uniform_list: []const PassedUniform) void {
             if (self.vertices.items.len == 0)
                 return;
             c.glUseProgram(params.shader);
@@ -1179,6 +1187,11 @@ pub fn NewBatch(comptime vertex_type: type, comptime batch_options: BatchOptions
             }
             GL.passUniform(params.shader, "view", view);
             GL.passUniform(params.shader, "model", model);
+            for (uniform_list) |uni| {
+                switch (uni.payload) {
+                    .float => |f| GL.passUniform(params.shader, uni.name, f),
+                }
+            }
 
             const prim: u32 = @intFromEnum(self.primitive_mode);
             if (batch_options.index_buffer) {

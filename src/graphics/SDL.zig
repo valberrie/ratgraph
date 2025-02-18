@@ -110,7 +110,7 @@ pub const Window = struct {
     text_input_buffer: [32]u8 = undefined,
     text_input: []const u8,
 
-    fn sdlLogErr() void {
+    pub fn sdlLogErr() void {
         log.err("{s}", .{c.SDL_GetError()});
     }
 
