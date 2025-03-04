@@ -57,7 +57,7 @@ pub fn linkLibrary(b: *std.Build, mod: *std.Build.Module) void {
             mod.linkSystemLibrary("z", .{});
         } else {
             mod.addSystemIncludePath(.{ .cwd_relative = "/usr/include" });
-            mod.linkSystemLibrary("sdl2", .{});
+            mod.linkSystemLibrary("SDL2", .{});
             mod.linkSystemLibrary("openal", .{});
             mod.linkSystemLibrary("epoxy", .{});
             mod.linkSystemLibrary("freetype2", .{});

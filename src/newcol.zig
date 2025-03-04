@@ -1,5 +1,7 @@
 pub const DELTA: f32 = 1e-5;
 const std = @import("std");
+const Reg = @import("registry.zig");
+const ID_TYPE = Reg.ID_TYPE;
 
 //TODO
 //Delete col3d and use ColCtx(3,f32)
@@ -17,7 +19,7 @@ pub fn ColCtx(DIM: usize, FT: type) type {
 
         pub usingnamespace switch (DIM) {
             2 => struct {
-                pub fn detectCollision(r1: anytype, r2: anytype, goal: anytype, other_i: u32) ?CollisionResult {
+                pub fn detectCollision(r1: anytype, r2: anytype, goal: anytype, other_i: ID_TYPE) ?CollisionResult {
                     return detectCollisionRaw(
                         .{
                             .p = [2]FT{ r1.x, r1.y },
@@ -40,7 +42,7 @@ pub fn ColCtx(DIM: usize, FT: type) type {
                 }
             },
             3 => struct {
-                pub fn detectCollision(c1: anytype, c2: anytype, goal: anytype, other_i: u32) ?CollisionResult {
+                pub fn detectCollision(c1: anytype, c2: anytype, goal: anytype, other_i: ID_TYPE) ?CollisionResult {
                     return detectCollisionRaw(
                         .{ .p = c1.pos.data, .x = c1.ext.data },
                         .{ .p = c2.pos.data, .x = c2.ext.data },
@@ -98,7 +100,7 @@ pub fn ColCtx(DIM: usize, FT: type) type {
             move: V,
             normal: V,
             touch: V,
-            other_i: u32,
+            other_i: ID_TYPE,
 
             item: AABB,
             other: AABB,
@@ -337,7 +339,7 @@ pub fn ColCtx(DIM: usize, FT: type) type {
             }
         }
 
-        pub fn detectCollisionLine(r1: AABB, l1: V, l2: V, goal: V, other_i: u32) ?CollisionResult {
+        pub fn detectCollisionLine(r1: AABB, l1: V, l2: V, goal: V, other_i: ID_TYPE) ?CollisionResult {
             _ = other_i;
             if (DIM != 2)
                 @compileError("unsupported");
@@ -354,7 +356,7 @@ pub fn ColCtx(DIM: usize, FT: type) type {
             }
         }
 
-        pub fn detectCollisionRaw(r1: AABB, r2: AABB, goal: V, other_i: u32) ?CollisionResult {
+        pub fn detectCollisionRaw(r1: AABB, r2: AABB, goal: V, other_i: ID_TYPE) ?CollisionResult {
             const delta = subV(goal, r1.p);
             const mdiff = minkowsky_diff(r1, r2);
             var overlaps = false;

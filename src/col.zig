@@ -4,6 +4,7 @@ const newcol = @import("newcol.zig");
 pub const ColType = newcol.ColCtx(2, f32);
 
 const graph = @import("graphics.zig");
+const reg = @import("registry.zig");
 pub const ColRect = graph.Rect;
 const Vec2f = graph.Vec2f;
 
@@ -12,7 +13,7 @@ const collision_set = SparseSet(ColRect);
 
 pub var simulate_move_time: u64 = 0;
 
-pub fn simulateMoveNew(game: anytype, cols: *std.ArrayList(ColType.CollisionResult), id: u32, goal: Vec2f) !void {
+pub fn simulateMoveNew(game: anytype, cols: *std.ArrayList(ColType.CollisionResult), id: reg.ID_TYPE, goal: Vec2f) !void {
     var timer = try std.time.Timer.start();
     defer simulate_move_time += timer.read();
     const plc = try game.ecs.get(id, .collide);

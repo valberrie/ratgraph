@@ -26,7 +26,7 @@ pub const ComponentCreateCallback = fn (user_ctx: anytype, component: anytype) v
 
 pub const FieldList = []const MapField;
 
-pub const ID_TYPE = u32;
+pub const ID_TYPE = u16;
 pub const NULLMARKER = sparseset.NullMarker(ID_TYPE);
 
 //TODO to preserve iterators:
@@ -352,7 +352,10 @@ pub fn Registry(comptime field_names_l: FieldList) type {
         //Worst case we create and destroy 1000 entities per second
         //with 2**32 that gives us roughly 1200 hours before wraparound
         //A bigger issue is the sparse sets
-        //
+        //Solution:
+        //Divide each id into to sections, the lower n bits identify all living entities and represent indices into the sparse arrays.
+        //The upper n bits are a life-counter. On the first assignment of id "1", life-counter is 0, once id 1 dies, when it is reassigned it is given life-counter 1
+        //The main concern with recycling ids is that any references to an entity are not cleared before reassignment, leading to what is essentially memory corruption.
         pub fn createEntity(self: *Self) !ID_TYPE {
             const index = @as(ID_TYPE, @intCast(self.entities.items.len));
             try self.entities.append(Types.component_bit_set.initEmpty());
