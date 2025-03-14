@@ -2078,8 +2078,8 @@ pub const Os9Gui = struct {
                     Rect.new(of + tr.x, tr.y + 2, self.style.config.textbox_caret_width, tr.h - 4),
                     self.style.config.colors.textbox_caret,
                 );
-                gui.drawTextFmt("{s}", .{d.slice}, d.text_area, d.text_area.h, Color.Black, .{}, &self.font);
             }
+            gui.drawTextFmt("{s}", .{d.slice}, d.text_area, d.text_area.h, Color.Black, .{}, &self.font);
         }
     }
 
