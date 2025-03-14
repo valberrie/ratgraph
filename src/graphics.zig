@@ -847,6 +847,7 @@ pub const ImmediateDrawingContext = struct {
     }
 
     pub fn rectTexTintUvOffset(self: *Self, r: Rect, tr: Rect, col: u32, texture: Texture, uv_offset: u8) void {
+        //FIXME support flip flags again
         const b = &(self.getBatch(.{ .batch_kind = .color_tri_tex, .params = .{ .shader = self.textured_tri_shader, .texture = texture.id } }) catch return).color_tri_tex;
         const z = self.zindex;
         self.zindex += 1;
@@ -858,7 +859,8 @@ pub const ImmediateDrawingContext = struct {
             .{ .x = un.x, .y = un.y + un.h },
         };
         //Bits are HVD
-        const uo = 4 - ([_]u8{ 0, 1, 0, 3, 2, 2, 2, 3 })[uv_offset];
+        const uo = uv_offset;
+        //const uo = 4 - ([_]u8{ 0, 1, 0, 3, 2, 2, 2, 3 })[uv_offset];
         const uvf = [4]u8{
             uo % 4,
             (uo + 1) % 4,
@@ -866,7 +868,8 @@ pub const ImmediateDrawingContext = struct {
             (uo + 3) % 4,
         };
         // Vert ^ horiz = flip vert
-        const h: u8 = if ((uv_offset >> 2 & 0b1) ^ ((uv_offset >> 1) & 0b1) == 1) 1 else 0;
+        //econst h: u8 = if ((uv_offset >> 2 & 0b1) ^ ((uv_offset >> 1) & 0b1) == 1) 1 else 0;
+        const h = 0; //Disable flip flags
 
         b.indicies.appendSlice(&genQuadIndices(@as(u32, @intCast(b.vertices.items.len)))) catch return;
         b.vertices.appendSlice(&.{
