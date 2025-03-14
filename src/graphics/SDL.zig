@@ -39,6 +39,17 @@ pub const ButtonState = enum {
     }
 };
 
+threadlocal var scratch_buffer: [256]u8 = undefined;
+
+pub fn getScancodeFromName(name: []const u8) usize {
+    if (name.len > scratch_buffer.len - 1)
+        return 0;
+    @memcpy(scratch_buffer[0..name.len], name);
+    scratch_buffer[name.len] = 0;
+
+    return c.SDL_GetScancodeFromName(&scratch_buffer[0]);
+}
+
 pub const MouseState = struct {
     left: ButtonState = .low,
     right: ButtonState = .low,

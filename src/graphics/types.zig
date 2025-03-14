@@ -355,26 +355,26 @@ pub const Camera2D = struct {
         return .{ .x = fx, .y = fy };
     }
 
-    pub fn toWorld(self: *Self, local: Rect) Rect {
+    pub fn toWorld(self: *const Self, local: Rect) Rect {
         const f = self.factor().inv();
         const cam_area = self.cam_area.pos();
         return local.subVec(cam_area).vmul(f).addVec(self.screen_area.pos());
     }
 
-    pub fn toWorldV(self: *Self, local: Vec2f) Vec2f {
+    pub fn toWorldV(self: *const Self, local: Vec2f) Vec2f {
         const f = self.factor().inv();
         const cam_area = self.cam_area.pos();
         return local.sub(cam_area).mul(f).add(self.screen_area.pos());
     }
 
-    pub fn toCamV(self: *Self, world: Vec2f) Vec2f {
+    pub fn toCamV(self: *const Self, world: Vec2f) Vec2f {
         const f = self.factor();
         const cam_area = self.cam_area.pos();
         const v = world.sub(self.screen_area.pos()).mul(f).add(cam_area);
         return v;
     }
 
-    pub fn toCam(self: *Self, world: Rect) Rect {
+    pub fn toCam(self: *const Self, world: Rect) Rect {
         const f = self.factor();
         const cam_area = self.cam_area.pos();
         const v = world.subVec(self.screen_area.pos()).vmul(f).addVec(cam_area);
