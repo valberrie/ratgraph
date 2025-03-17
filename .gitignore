@@ -6,3 +6,4 @@ zig-cache
 fonts/
 debug
 std
+mani_*

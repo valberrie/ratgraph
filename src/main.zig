@@ -10,6 +10,7 @@ const Mat3 = graph.za.Mat3;
 const Rec = graph.Rec;
 const NewCol = @import("newcol.zig");
 const ColType = NewCol.ColCtx(3, f32);
+const OFont = @import("graphics/online_font.zig").OnlineFont;
 
 //const Col3d = @import("col3d.zig");
 //const ColType = Col3d.CollisionType(graph.Rect, graph.za.Vec3);
@@ -1038,9 +1039,16 @@ pub fn testMain() !void {
     defer _ = gpa.detectLeaks();
     const alloc = gpa.allocator();
 
-    var win = try graph.SDL.Window.createWindow("zig-game-engine", .{});
+    _ = graph.c.SDL_SetHint("SDL_HINT_IME_IMPLEMENTED_UI", "0");
+    var win = try graph.SDL.Window.createWindow("zig-game-engine", .{
+        .window_flags = &.{graph.c.SDL_WINDOW_INPUT_FOCUS},
+        //graph.c.SDL_WINDOW_KEYBOARD_GRABBED
+        //},
+    });
     defer win.destroyWindow();
-    var draw = graph.ImmediateDrawingContext.init(alloc, win.getDpi());
+    win.pumpEvents();
+    _ = graph.c.SDL_SetHint("SDL_HINT_IME_IMPLEMENTED_UI", "0");
+    var draw = graph.ImmediateDrawingContext.init(alloc);
     defer draw.deinit();
 
     const cp437 = try graph.Bitmap.initFromImageBuffer(alloc, @embedFile("font/cp437.png"));
@@ -1063,6 +1071,11 @@ pub fn testMain() !void {
     defer ff.deinit();
 
     cp437.deinit();
+    var ofont = try OFont.initFromBuffer(alloc, @embedFile("noto.ttc"), 64);
+    defer ofont.deinit();
+    win.startTextInput(graph.Rec(900, 900, 900, 80));
+    var type_string = std.ArrayList(u8).init(alloc);
+    defer type_string.deinit();
 
     var font = try graph.Font.initFromBuffer(alloc, @embedFile("font/roboto.ttf"), 64, .{
         .padding_px = 2,
@@ -1088,20 +1101,41 @@ pub fn testMain() !void {
     while (!win.should_exit) {
         try draw.begin(0x00, win.screen_dimensions.toF());
         win.pumpEvents();
+        if (win.text_input.len > 0) {
+            try type_string.appendSlice(win.text_input);
+        }
+        if (win.keyRising(._1)) {
+            std.debug.print("STARTING TEXT INPUT\n", .{});
+            win.startTextInput(graph.Rec(900, 900, 900, 80));
+        }
+        if (win.keyRising(._2)) {
+            std.debug.print("STOP TEXT INPUT\n", .{});
+            win.stopTextInput();
+        }
         //draw.rect(graph.Rec(0, 0, 200, 40), 0xff0000ff);
-        draw.textPx(.{ .x = font.texture.rect().w, .y = 0 }, "Hello Worldjj! This is a test string of the test string\n new string line ☺☺☺ ♪♪", &ff, 64, 0xffffffff);
-        draw.textPx(.{ .x = font.texture.rect().w, .y = 400 }, "Hello Worldjj! This is a test string of the test string\n new string line ☺☺☺ ♪♪", &font, 64, 0xffffffff);
-        draw.textPx(.{ .x = font.texture.rect().w, .y = 600 }, "Hello Worldjj! This is a test string of the test string\n new string line ☺☺☺ ♪♪", &font, 80, 0xffffffff);
-        draw.textPx(.{ .x = font.texture.rect().w, .y = 700 }, "Hello Worldjj! This is a test string of the test string\n new string line ☺☺☺ ♪♪", &font, 20, 0xffffffff);
-        //draw.textPx(.{ .x = 0, .y = 200 }, "Hello Worldjj!", &font2, 12, 0xffffffff);
-        draw.textPx(.{ .x = font.texture.rect().w, .y = 800 }, "Hellow World😂", &font2, 64, 0xffffffff);
+        //draw.text(.{ .x = font.texture.rect().w, .y = 0 }, "Hello Worldjj! This is a test string of the test string\n new string line ☺☺☺ ♪♪", &ff, 64, 0xffffffff);
+        //draw.text(.{ .x = font.texture.rect().w, .y = 400 }, "Hello Worldjj! This is a test string of the test string\n new string line ☺☺☺ ♪♪", &font, 64, 0xffffffff);
+        //draw.text(.{ .x = font.texture.rect().w, .y = 600 }, "Hello Worldjj! This is a test string of the test string\n new string line ☺☺☺ ♪♪", &font, 80, 0xffffffff);
+        //draw.text(.{ .x = font.texture.rect().w, .y = 700 }, "Hello Worldjj!どうして This is a test string of the test string\n new string line ☺☺☺ ♪♪", &ofont, 80, 0xffffffff);
+        draw.text(.{ .x = font.texture.rect().w, .y = 700 }, "どうして猫 カラスノーフナタ", &ofont.font, 100, 0xffffffff);
+        draw.text(
+            .{ .x = font.texture.rect().w, .y = 900 },
+            type_string.items,
+            &ofont.font,
+            40,
+            0xffffffff,
+        );
+        //draw.tePx(.{ .x = 0, .y = 200 }, "Hello Worldjj!", &font2, 12, 0xffffffff);
+        draw.text(.{ .x = font.texture.rect().w, .y = 800 }, "Hellow World😂", &font2, 64, 0xffffffff);
         draw.rectTex(font.texture.rect(), font.texture.rect(), font.texture);
         try draw.end(null);
         win.swap();
     }
 }
 
-pub fn main() !void {
+pub const main = game_main;
+
+pub fn game_main() !void {
     const cwd = std.fs.cwd();
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.detectLeaks();
@@ -1173,10 +1207,10 @@ pub fn main() !void {
     //c.alSourcePlay(audio_source);
 
     const init_size = 72;
-    var font = try graph.Font.init(alloc, cwd, "fonts/roboto.ttf", init_size, win.getDpi(), .{});
+    var font = try graph.Font.init(alloc, cwd, "fonts/roboto.ttf", init_size, .{});
     defer font.deinit();
 
-    var draw = graph.ImmediateDrawingContext.init(alloc, win.getDpi());
+    var draw = graph.ImmediateDrawingContext.init(alloc);
     defer draw.deinit();
 
     var os9gui = try Os9Gui.init(alloc, cwd, 2);

@@ -1,6 +1,7 @@
 pub usingnamespace @cImport({
     //DLLs
-    @cInclude("SDL2/SDL.h");
+    @cInclude("SDL3/SDL_main.h");
+    @cInclude("SDL3/SDL.h");
     @cInclude("epoxy/gl.h");
     @cInclude("freetype_init.h");
     @cInclude("spng.h");

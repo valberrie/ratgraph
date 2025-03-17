@@ -595,7 +595,7 @@ pub const ImmediateDrawingContext = struct {
     textured_tri_shader: c_uint,
     textured_tri_3d_shader: c_uint,
     textured_tri_3d_shader_new: c_uint,
-    dpi: f32,
+    //dpi: f32,
 
     alloc: Alloc,
 
@@ -607,12 +607,11 @@ pub const ImmediateDrawingContext = struct {
 
     screen_dimensions: Vec2f = .{ .x = 0, .y = 0 },
 
-    pub fn init(alloc: Alloc, dpi: f32) Self {
+    pub fn init(alloc: Alloc) Self {
         const SD = "graphics/shader/";
         return Self{
             .alloc = alloc,
             .batches = MapT.init(alloc),
-            .dpi = dpi,
 
             .textured_tri_3d_shader = Shader.simpleShader(@embedFile(SD ++ "alpha_texturequad.vert"), @embedFile(SD ++ "texturequad.frag")),
 
@@ -686,7 +685,7 @@ pub const ImmediateDrawingContext = struct {
     }
 
     pub fn rectPt(self: *Self, rpt: Rect, color: u32) void {
-        self.rect(rpt.mul(self.dpi / 72.0), color);
+        self.rect(rpt.mul(80 / 72.0), color);
     }
 
     pub fn rectV(self: *Self, pos: Vec2f, dim: Vec2f, color: u32) void {
@@ -880,7 +879,7 @@ pub const ImmediateDrawingContext = struct {
         }) catch return;
     }
 
-    pub fn text(self: *Self, pos: Vec2f, str: []const u8, font: *Font, px_size: f32, col: u32) void {
+    pub fn text(self: *Self, pos: Vec2f, str: []const u8, font: anytype, px_size: f32, col: u32) void {
         const SF = (px_size / font.font_size);
         //const SF = (pxToPt(self.dpi, pt_size)) / font.font_size;
         const fac = 1;

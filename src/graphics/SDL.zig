@@ -82,15 +82,15 @@ pub fn getKeyFromScancode(scancode: keycodes.Scancode) keycodes.Keycode {
 }
 
 pub fn getScancodeFromKey(key: keycodes.Keycode) keycodes.Scancode {
-    return @enumFromInt(c.SDL_GetScancodeFromKey(@intFromEnum(key)));
+    return @enumFromInt(c.SDL_GetScancodeFromKey(@intFromEnum(key), null));
 }
 
 pub const Window = struct {
     const Self = @This();
-    pub const KeyboardStateT = std.bit_set.IntegerBitSet(c.SDL_NUM_SCANCODES);
+    pub const KeyboardStateT = std.bit_set.IntegerBitSet(c.SDL_SCANCODE_COUNT);
     pub const KeysT = std.BoundedArray(KeyState, 16);
-    pub const KeyStateT = [c.SDL_NUM_SCANCODES]ButtonState;
-    pub const EmptyKeyState: KeyStateT = [_]ButtonState{.low} ** c.SDL_NUM_SCANCODES;
+    pub const KeyStateT = [c.SDL_SCANCODE_COUNT]ButtonState;
+    pub const EmptyKeyState: KeyStateT = [_]ButtonState{.low} ** c.SDL_SCANCODE_COUNT;
 
     pub const ChildWindow = struct {
         win: *c.SDL_Window,
@@ -101,7 +101,7 @@ pub const Window = struct {
     };
 
     win: *c.SDL_Window,
-    ctx: *anyopaque,
+    ctx: c.SDL_GLContext,
 
     screen_dimensions: Vec2i = .{ .x = 0, .y = 0 },
     frame_time: std.time.Timer,
@@ -112,8 +112,8 @@ pub const Window = struct {
     mouse: MouseState = undefined,
     mod: keycodes.KeymodMask = 0,
 
-    //key_state: [c.SDL_NUM_SCANCODES]ButtonState = [_]ButtonState{.low} ** c.SDL_NUM_SCANCODES,
-    key_state: KeyStateT = [_]ButtonState{.low} ** c.SDL_NUM_SCANCODES,
+    //key_state: [c.SDL_SCANCODE_COUNT]ButtonState = [_]ButtonState{.low} ** c.SDL_NUM_SCANCODES,
+    key_state: KeyStateT = [_]ButtonState{.low} ** c.SDL_SCANCODE_COUNT,
     keys: KeysT = KeysT.init(0) catch unreachable,
     keyboard_state: KeyboardStateT = KeyboardStateT.initEmpty(),
     last_frame_keyboard_state: KeyboardStateT = KeyboardStateT.initEmpty(),
@@ -125,18 +125,21 @@ pub const Window = struct {
         log.err("{s}", .{c.SDL_GetError()});
     }
 
-    fn setAttr(attr: c.SDL_GLattr, val: c_int) !void {
-        if (c.SDL_GL_SetAttribute(attr, val) < 0) {
+    fn setAttr(attr: c.SDL_GLAttr, val: c_int) !void {
+        if (!c.SDL_GL_SetAttribute(attr, val)) {
             sdlLogErr();
             return error.SDLSetAttr;
         }
     }
 
     pub fn grabMouse(self: *const Self, should: bool) void {
-        _ = self;
-        _ = c.SDL_SetRelativeMouseMode(if (should) c.SDL_TRUE else c.SDL_FALSE);
+        _ = c.SDL_SetWindowRelativeMouseMode(self.win, if (should) true else false);
         //c.SDL_SetWindowMouseGrab(self.win, if (should) 1 else 0);
-        _ = c.SDL_ShowCursor(if (!should) 1 else 0);
+        if (should) {
+            _ = c.SDL_ShowCursor();
+        } else {
+            _ = c.SDL_HideCursor();
+        }
     }
 
     //pub fn screenshotGL(self: *const Self,alloc: Alloc,  )void{
@@ -158,12 +161,12 @@ pub const Window = struct {
             adaptive_vsync = -1,
             immediate = 0,
         } = .vsync,
-        extra_gl_attributes: []const struct { attr: c.SDL_GLattr, val: i32 } = &.{},
+        extra_gl_attributes: []const struct { attr: c.SDL_GLAttr, val: i32 } = &.{},
         gl_flags: []const u32 = &.{c.SDL_GL_CONTEXT_DEBUG_FLAG},
         window_flags: []const u32 = &.{},
     }) !Self {
         log.info("Attempting to create window: {s}", .{title});
-        if (c.SDL_Init(c.SDL_INIT_VIDEO) < 0) {
+        if (!c.SDL_Init(c.SDL_INIT_VIDEO)) {
             sdlLogErr();
             return error.SDLInit;
         }
@@ -186,8 +189,8 @@ pub const Window = struct {
 
         const win = c.SDL_CreateWindow(
             title,
-            c.SDL_WINDOWPOS_UNDEFINED,
-            c.SDL_WINDOWPOS_UNDEFINED,
+            //c.SDL_WINDOWPOS_UNDEFINED,
+            //c.SDL_WINDOWPOS_UNDEFINED,
             options.window_size.x,
             options.window_size.y,
             @as(u32, c.SDL_WINDOW_OPENGL | c.SDL_WINDOW_RESIZABLE) |
@@ -202,18 +205,18 @@ pub const Window = struct {
             sdlLogErr();
             return error.SDLCreatingContext;
         };
-        errdefer c.SDL_GL_DeleteContext(context);
+        errdefer _ = c.SDL_GL_DestroyContext(context);
 
         log.info("gl renderer: {s}", .{c.glGetString(c.GL_RENDERER)});
         log.info("gl vendor: {s}", .{c.glGetString(c.GL_VENDOR)});
         log.info("gl version: {s}", .{c.glGetString(c.GL_VERSION)});
         log.info("gl shader version: {s}", .{c.glGetString(c.GL_SHADING_LANGUAGE_VERSION)});
 
-        if (c.SDL_GL_SetSwapInterval(@intFromEnum(options.frame_sync)) < 0) {
+        if (!c.SDL_GL_SetSwapInterval(@intFromEnum(options.frame_sync))) {
             sdlLogErr();
             if (options.frame_sync == .adaptive_vsync) {
                 log.warn("Failed to set adaptive sync, attempting to set vsync", .{});
-                if (c.SDL_GL_SetSwapInterval(1) < 0) {
+                if (!c.SDL_GL_SetSwapInterval(1)) {
                     sdlLogErr();
                     return error.SetSwapInterval;
                 }
@@ -222,7 +225,8 @@ pub const Window = struct {
             }
         }
         {
-            const set_swap = c.SDL_GL_GetSwapInterval();
+            var set_swap: c_int = 0;
+            _ = c.SDL_GL_GetSwapInterval(&set_swap);
             log.info("set swap interval, desired: {s}, actual: {s}", .{
                 @tagName(options.frame_sync),
                 @tagName(@as(@TypeOf(options.frame_sync), @enumFromInt(set_swap))),
@@ -266,7 +270,7 @@ pub const Window = struct {
     }
 
     pub fn destroyWindow(self: Self) void {
-        c.SDL_GL_DeleteContext(self.ctx);
+        _ = c.SDL_GL_DestroyContext(self.ctx);
         c.SDL_DestroyWindow(self.win);
         c.SDL_Quit();
     }
@@ -285,7 +289,7 @@ pub const Window = struct {
     }
 
     pub fn swap(self: *Self) void {
-        c.SDL_GL_SwapWindow(self.win);
+        _ = c.SDL_GL_SwapWindow(self.win);
         if (self.target_frame_len_ns) |tft| {
             const frame_took = self.frame_time.read();
             if (frame_took < tft)
@@ -293,18 +297,19 @@ pub const Window = struct {
         }
     }
 
-    pub fn getDpi(self: *Self) f32 {
-        var dpi: f32 = 0;
+    pub fn getDpi(_: *Self) f32 {
+        @compileError("broken don't use");
+        //var dpi: f32 = 0;
 
-        var hdpi: f32 = 0;
-        var vdpi: f32 = 0;
-        _ = c.SDL_GetDisplayDPI(c.SDL_GetWindowDisplayIndex(self.win), &dpi, &hdpi, &vdpi);
-        return dpi;
+        //var hdpi: f32 = 0;
+        //var vdpi: f32 = 0;
+        //_ = c.SDL_GetDisplayDPI(c.SDL_GetWindowDisplayIndex(self.win), &dpi, &hdpi, &vdpi);
+        //return dpi;
     }
 
     pub fn setClipboard(alloc: std.mem.Allocator, text: []const u8) !void {
         const sl = try alloc.dupeZ(u8, text);
-        if (c.SDL_SetClipboardText(sl) != 0) {
+        if (!c.SDL_SetClipboardText(sl)) {
             sdlLogErr();
         }
         alloc.free(sl);
@@ -336,14 +341,14 @@ pub const Window = struct {
 
         c.SDL_PumpEvents();
         {
-            var x: c_int = undefined;
-            var y: c_int = undefined;
-            self.mouse.setButtonsSDL(c.SDL_GetMouseState(&x, &y));
-            self.mouse.pos = .{ .x = @floatFromInt(x), .y = @floatFromInt(y) };
+            var fx: f32 = undefined;
+            var fy: f32 = undefined;
+            self.mouse.setButtonsSDL(c.SDL_GetMouseState(&fx, &fy));
+            self.mouse.pos = .{ .x = fx, .y = fy };
 
-            _ = c.SDL_GetRelativeMouseState(&x, &y);
+            _ = c.SDL_GetRelativeMouseState(&fx, &fy);
 
-            self.mouse.delta = .{ .x = @floatFromInt(x), .y = @floatFromInt(y) };
+            self.mouse.delta = .{ .x = fx, .y = fy };
 
             self.mouse.wheel_delta = .{ .x = 0, .y = 0 };
         }
@@ -360,7 +365,7 @@ pub const Window = struct {
             const ret = c.SDL_GetKeyboardState(&l)[0..@intCast(l)];
             //ret[0..@intCast(usize, l)];
             for (ret, 0..) |key, i| {
-                if (key == 1) {
+                if (key) {
                     self.keyboard_state.set(i);
                     self.key_state[i] = .high;
                 }
@@ -372,14 +377,14 @@ pub const Window = struct {
         //would allow for a gui app to only render frames when needed
 
         var event: c.SDL_Event = undefined;
-        while (c.SDL_PollEvent(&event) != 0) {
+        while (c.SDL_PollEvent(&event)) {
             switch (event.type) {
-                c.SDL_QUIT => self.should_exit = true,
-                c.SDL_KEYDOWN => {
-                    if (event.key.keysym.sym == c.SDLK_ESCAPE)
+                c.SDL_EVENT_QUIT => self.should_exit = true,
+                c.SDL_EVENT_KEY_DOWN => {
+                    if (event.key.key == c.SDLK_ESCAPE)
                         self.should_exit = true;
 
-                    const scancode = c.SDL_GetScancodeFromKey(event.key.keysym.sym);
+                    const scancode = c.SDL_GetScancodeFromKey(event.key.key, null);
                     if (!self.last_frame_keyboard_state.isSet(scancode))
                         self.key_state[scancode] = .rising;
                     self.keys.append(.{
@@ -387,43 +392,35 @@ pub const Window = struct {
                         .scancode = @enumFromInt(scancode),
                     }) catch unreachable;
                 },
-                c.SDL_KEYUP => {
-                    const scancode = c.SDL_GetScancodeFromKey(event.key.keysym.sym);
+                c.SDL_EVENT_KEY_UP => {
+                    const scancode = c.SDL_GetScancodeFromKey(event.key.key, null);
                     self.key_state[scancode] = .falling;
                 },
-                c.SDL_TEXTEDITING => {
+                c.SDL_EVENT_TEXT_EDITING => {
                     const ed = event.edit;
-                    const slice = std.mem.sliceTo(&ed.text, 0);
+                    const slice = std.mem.sliceTo(ed.text, 0);
                     _ = slice;
                 },
-                c.SDL_TEXTINPUT => {
-                    const slice = std.mem.sliceTo(&event.text.text, 0);
+                c.SDL_EVENT_TEXT_INPUT => {
+                    const slice = std.mem.sliceTo(event.text.text, 0);
                     @memcpy(self.text_input_buffer[0..slice.len], slice);
                     self.text_input = self.text_input_buffer[0..slice.len];
                 },
-                c.SDL_KEYMAPCHANGED => {
+                c.SDL_EVENT_KEYMAP_CHANGED => {
                     log.warn("keymap changed", .{});
                 },
-                c.SDL_MOUSEWHEEL => {
-                    self.mouse.wheel_delta = Vec2f.new(event.wheel.preciseX, event.wheel.preciseY);
+                c.SDL_EVENT_MOUSE_WHEEL => {
+                    self.mouse.wheel_delta = Vec2f.new(event.wheel.x, event.wheel.y);
                 },
-                c.SDL_MOUSEMOTION => {},
-                c.SDL_MOUSEBUTTONDOWN => {},
-                c.SDL_MOUSEBUTTONUP => {},
-                c.SDL_WINDOWEVENT => {
-                    switch (event.window.event) {
-                        c.SDL_WINDOWEVENT_RESIZED => {
-                            self.screen_dimensions.x = event.window.data1;
-                            self.screen_dimensions.y = event.window.data2;
-                            c.glViewport(0, 0, self.screen_dimensions.x, self.screen_dimensions.y);
-                        },
-                        c.SDL_WINDOWEVENT_SIZE_CHANGED => {},
-                        c.SDL_WINDOWEVENT_CLOSE => self.should_exit = true,
-                        else => {},
-                    }
+                c.SDL_EVENT_MOUSE_MOTION => {},
+                c.SDL_EVENT_MOUSE_BUTTON_DOWN => {},
+                c.SDL_EVENT_MOUSE_BUTTON_UP => {},
+
+                c.SDL_EVENT_WINDOW_CLOSE_REQUESTED => self.should_exit = true,
+                c.SDL_EVENT_WINDOW_RESIZED, c.SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED => {
                     var x: c_int = undefined;
                     var y: c_int = undefined;
-                    c.SDL_GetWindowSize(self.win, &x, &y);
+                    _ = c.SDL_GetWindowSize(self.win, &x, &y);
                     self.screen_dimensions.x = x;
                     self.screen_dimensions.y = y;
                     c.glViewport(0, 0, self.screen_dimensions.x, self.screen_dimensions.y);
@@ -452,20 +449,18 @@ pub const Window = struct {
     }
 
     pub fn startTextInput(self: *const Self, ime_rect: ?ptypes.Rect) void {
-        _ = self;
         const rec = if (ime_rect) |r| c.SDL_Rect{
             .x = @intFromFloat(r.x),
             .y = @intFromFloat(r.x),
             .w = @intFromFloat(r.w),
             .h = @intFromFloat(r.h),
         } else c.SDL_Rect{ .x = 0, .y = 0, .w = 100, .h = 100 };
-        c.SDL_SetTextInputRect(&rec);
-        c.SDL_StartTextInput();
+        _ = c.SDL_SetTextInputArea(self.win, &rec, 0);
+        _ = c.SDL_StartTextInput(self.win);
     }
 
     pub fn stopTextInput(self: *const Self) void {
-        _ = self;
-        c.SDL_StopTextInput();
+        _ = c.SDL_StopTextInput(self.win);
     }
 
     pub fn keyRising(self: *const Self, scancode: keycodes.Scancode) bool {

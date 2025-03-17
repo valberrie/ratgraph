@@ -1196,7 +1196,6 @@ pub const Os9Gui = struct {
                 asset_dir,
                 "fonts/remix.ttf",
                 12,
-                163,
                 .{
                     .codepoints_to_load = &[_]graph.Font.CharMapEntry{.{ .list = &icon_list }},
                 },
@@ -2628,7 +2627,7 @@ pub fn main() anyerror!void {
 
     //const init_size = graph.pxToPt(win.getDpi(), 100);
     const init_size = 8;
-    var font = try graph.Font.init(alloc, std.fs.cwd(), "fonts/roboto.ttf", init_size, win.getDpi(), .{
+    var font = try graph.Font.init(alloc, std.fs.cwd(), "fonts/roboto.ttf", init_size, .{
         .debug_dir = debug_dir,
     });
     defer font.deinit();

@@ -13,6 +13,24 @@ const intToColor = ptypes.intToColor;
 const glID = SDL.glID;
 const Rec = Rect.NewAny;
 
+// TODO Make Font use PublicFontInterface and change ImmediateCtx to use font rather than generic
+/// Any font type must implement the following methods or fields
+pub const PublicFontInterface = struct {
+    const Self = @This();
+
+    font_size: f32,
+    height: f32,
+    ascent: f32,
+    descent: f32,
+    line_gap: f32,
+    texture: Texture,
+    getGlyphfn: *const fn (*Self, u21) Glyph,
+
+    pub fn getGlyph(self: *Self, codepoint: u21) Glyph {
+        return self.getGlyphfn(self, codepoint);
+    }
+};
+
 pub const OptionalFileWriter = struct {
     writer: ?std.fs.File.Writer = null,
 
@@ -53,22 +71,22 @@ pub const SubTileset = struct {
     }
 };
 
+//TODO document all the glyph fields
+pub const Glyph = struct {
+    offset_x: f32 = 0,
+    offset_y: f32 = 0,
+    advance_x: f32 = 0,
+    tr: Rect = .{ .x = 0, .y = 0, .w = 0, .h = 0 },
+    width: f32 = 0,
+    height: f32 = 0,
+};
+
 //TODO dynamic loading of fonts.
 //debug build, one glyph takes between 0.1 and .3 ms to pack
 //Don't rectangle pack, a 4k atlas of 64pixel high fonts can hold 4096 glyphs
 //dont keep a freelist, instead just a length
 //On calls to getGlyph, if the glyph does not exist, bake it. The only time this breaks is if a large amount of new glyphs show up at once, only stalls for one frame.
 pub const Font = struct {
-    //TODO document all the glyph fields
-    pub const Glyph = struct {
-        offset_x: f32 = 0,
-        offset_y: f32 = 0,
-        advance_x: f32 = 0,
-        tr: Rect = .{ .x = 0, .y = 0, .w = 0, .h = 0 },
-        width: f32 = 0,
-        height: f32 = 0,
-    };
-
     ///Used to specify what codepoints are to be loaded
     pub const CharMapEntry = union(enum) {
         unicode: u21, //A single codepoint
@@ -120,8 +138,6 @@ pub const Font = struct {
     max_advance: f32,
 
     texture: Texture,
-
-    dpi: f32,
 
     const Self = @This();
     //const START_CHAR: usize = 32;
@@ -248,7 +264,6 @@ pub const Font = struct {
         var result = Font{
             .height = 0,
             .max_advance = 0,
-            .dpi = 0,
             .glyphs = std.AutoHashMap(u21, Glyph).init(alloc),
             //.glyph_set = try (SparseSet(Glyph, u21).fromOwnedDenseSlice(alloc, dense_slice, codepoints_i)),
             .font_size = pixel_size,
@@ -343,7 +358,8 @@ pub const Font = struct {
         return result;
     }
 
-    pub fn init(alloc: Alloc, dir: Dir, filename: []const u8, point_size: f32, dpi: f32, options: InitOptions) !Self {
+    //TODO remove dpi from font, it is useless
+    pub fn init(alloc: Alloc, dir: Dir, filename: []const u8, point_size: f32, options: InitOptions) !Self {
         const codepoints_i: []u21 = blk: {
             var glyph_indices = std.ArrayList(u21).init(alloc);
             //try codepoint_list.append(.{ .i = std.unicode.replacement_character });
@@ -381,18 +397,15 @@ pub const Font = struct {
             const font_log = try ddir.createFile("fontgen.log", .{ .truncate = true });
             log.writer = font_log.writer();
             //defer font_log.close();
-            try log.print("zig: Init font with arguments:\nfilename: \"{s}\"\npoint_size: {d}\ndpi: {d}\n", .{
+            try log.print("zig: Init font with arguments:\nfilename: \"{s}\"\npoint_size: {d}\n", .{
                 filename,
                 point_size,
-                dpi,
             });
-            try log.print("px_size: {d}\n", .{point_size * (dpi / 72)});
         }
         //const dense_slice = try alloc.alloc(Glyph, codepoints_i.len);
         defer alloc.free(codepoints_i);
         var result = Font{
             .height = 0,
-            .dpi = dpi,
             .max_advance = 0,
             .glyphs = std.AutoHashMap(u21, Glyph).init(alloc),
             //.glyph_set = try (SparseSet(Glyph, u21).fromOwnedDenseSlice(alloc, dense_slice, codepoints_i)),
@@ -916,6 +929,21 @@ pub const Bitmap = struct {
 
     pub fn deinit(self: Self) void {
         self.data.deinit();
+    }
+
+    pub fn resize(self: *Self, new_width: anytype, new_height: anytype) !void {
+        const h = lcast(u32, new_height);
+        const w = lcast(u32, new_width);
+
+        self.w = w;
+        self.h = h;
+        const num_comp: u32 = switch (self.format) {
+            .rgba_8 => 4,
+            .g_8 => 1,
+            .rgb_8 => 3,
+            .ga_8 => 2,
+        };
+        try self.data.resize(num_comp * w * h);
     }
 
     pub fn replaceColor(self: *Self, color: u32, replacement: u32) void {
