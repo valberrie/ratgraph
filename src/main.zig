@@ -1039,7 +1039,7 @@ pub fn testMain() !void {
     defer _ = gpa.detectLeaks();
     const alloc = gpa.allocator();
 
-    _ = graph.c.SDL_SetHint("SDL_HINT_IME_IMPLEMENTED_UI", "0");
+    _ = graph.c.SDL_SetHint("SDL_HINT_IME_IMPLEMENTED_UI", "composition");
     var win = try graph.SDL.Window.createWindow("zig-game-engine", .{
         .window_flags = &.{graph.c.SDL_WINDOW_INPUT_FOCUS},
         //graph.c.SDL_WINDOW_KEYBOARD_GRABBED
@@ -1047,7 +1047,6 @@ pub fn testMain() !void {
     });
     defer win.destroyWindow();
     win.pumpEvents();
-    _ = graph.c.SDL_SetHint("SDL_HINT_IME_IMPLEMENTED_UI", "0");
     var draw = graph.ImmediateDrawingContext.init(alloc);
     defer draw.deinit();
 
@@ -1071,7 +1070,7 @@ pub fn testMain() !void {
     defer ff.deinit();
 
     cp437.deinit();
-    var ofont = try OFont.initFromBuffer(alloc, @embedFile("noto.ttc"), 64);
+    var ofont = try OFont.initFromBuffer(alloc, @embedFile("noto.ttc"), 64, .{});
     defer ofont.deinit();
     win.startTextInput(graph.Rec(900, 900, 900, 80));
     var type_string = std.ArrayList(u8).init(alloc);
@@ -1089,7 +1088,7 @@ pub fn testMain() !void {
     //const slice = try sl.reader().readAllAlloc(alloc, std.math.maxInt(usize));
 
     //sl.close();
-    var font2 = try graph.Font.init(alloc, std.fs.cwd(), "fonts/roboto.ttf", 64, 163, .{
+    var font2 = try graph.Font.init(alloc, std.fs.cwd(), "fonts/roboto.ttf", 64, .{
         .debug_dir = try std.fs.cwd().openDir("debug", .{}),
         //.codepoints_to_load = &[_]graph.Font.CharMapEntry{
         //    .{ .unicode = 0x1f602 },
@@ -1133,7 +1132,7 @@ pub fn testMain() !void {
     }
 }
 
-pub const main = game_main;
+pub const main = testMain;
 
 pub fn game_main() !void {
     const cwd = std.fs.cwd();

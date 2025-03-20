@@ -396,15 +396,19 @@ pub const Window = struct {
                     const scancode = c.SDL_GetScancodeFromKey(event.key.key, null);
                     self.key_state[scancode] = .falling;
                 },
+                c.SDL_EVENT_TEXT_EDITING_CANDIDATES => {
+                    std.debug.print("CANDIDATES\n", .{});
+                },
                 c.SDL_EVENT_TEXT_EDITING => {
                     const ed = event.edit;
                     const slice = std.mem.sliceTo(ed.text, 0);
-                    _ = slice;
+                    std.debug.print("TEXT EDIT{s}\n", .{slice});
                 },
                 c.SDL_EVENT_TEXT_INPUT => {
                     const slice = std.mem.sliceTo(event.text.text, 0);
                     @memcpy(self.text_input_buffer[0..slice.len], slice);
                     self.text_input = self.text_input_buffer[0..slice.len];
+                    std.debug.print("TEXT INPUT{s}\n", .{self.text_input});
                 },
                 c.SDL_EVENT_KEYMAP_CHANGED => {
                     log.warn("keymap changed", .{});
@@ -455,12 +459,13 @@ pub const Window = struct {
             .w = @intFromFloat(r.w),
             .h = @intFromFloat(r.h),
         } else c.SDL_Rect{ .x = 0, .y = 0, .w = 100, .h = 100 };
-        _ = c.SDL_SetTextInputArea(self.win, &rec, 0);
-        _ = c.SDL_StartTextInput(self.win);
+        _ = rec;
+        //if (!c.SDL_SetTextInputArea(self.win, &rec, 0)) sdlLogErr();
+        if (!c.SDL_StartTextInput(self.win)) sdlLogErr();
     }
 
     pub fn stopTextInput(self: *const Self) void {
-        _ = c.SDL_StopTextInput(self.win);
+        if (!c.SDL_StopTextInput(self.win)) sdlLogErr();
     }
 
     pub fn keyRising(self: *const Self, scancode: keycodes.Scancode) bool {

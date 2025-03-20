@@ -32,7 +32,9 @@ pub const OnlineFont = struct {
         alloc: std.mem.Allocator,
         buf: []const u8,
         pixel_size: f32,
+        params: struct { char_count: usize = 4096 },
     ) !Self {
+        _ = params;
         var finfo: c.stbtt_fontinfo = undefined;
         _ = c.stbtt_InitFont(&finfo, @as([*c]const u8, @ptrCast(buf)), c.stbtt_GetFontOffsetForIndex(&buf[0], 0));
 
@@ -92,9 +94,7 @@ pub const OnlineFont = struct {
         const glyph = self.glyphs.get(codepoint) orelse {
             const cpo = codepoint;
             const SF = self.SF;
-            if (c.stbtt_FindGlyphIndex(&self.finfo, codepoint) == 0) {
-                std.debug.print("DOES NOT EXIST {u}\n", .{codepoint});
-            }
+            if (c.stbtt_FindGlyphIndex(&self.finfo, codepoint) == 0) {}
             var x: c_int = 0;
             var y: c_int = 0;
             var xf: c_int = 0;

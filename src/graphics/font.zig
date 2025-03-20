@@ -198,7 +198,6 @@ pub const Font = struct {
         var result = Font{
             .height = @floatFromInt(options.sts.th),
             .max_advance = @floatFromInt(options.sts.tw),
-            .dpi = 0,
             .glyphs = std.AutoHashMap(u21, Glyph).init(alloc),
             .font_size = @floatFromInt(options.sts.th),
             .texture = .{ .id = 0, .w = 0, .h = 0 },
@@ -301,9 +300,7 @@ pub const Font = struct {
         }
 
         for (codepoints_i) |code_i| {
-            if (c.stbtt_FindGlyphIndex(&finfo, code_i) == 0) {
-                std.debug.print("DOES NOT EXIST {u}\n", .{code_i});
-            }
+            if (c.stbtt_FindGlyphIndex(&finfo, code_i) == 0) {}
             var x: c_int = 0;
             var y: c_int = 0;
             var xf: c_int = 0;
