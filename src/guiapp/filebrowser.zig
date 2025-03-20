@@ -359,13 +359,13 @@ pub const FileBrowser = struct {
                             else => .file,
                         },
                         else => .file,
-                    }), .{ .x = ico.x, .y = ico.y + ico.h / 3 }, ico.h * 0.7, Color.Black, &wrap.icon_font);
+                    }), .{ .x = ico.x, .y = ico.y + ico.h / 3 }, ico.h * 0.7, Color.Black, wrap.icon_font);
                     const ir = graph.Rec(r.x + ico.w, r.y, r.w - ico.w, r.h);
                     if (wrap.font.nearestGlyphX(entry.name, rec.h, .{ .x = col.width - ico.w, .y = rec.h / 2 })) |glyph_index| {
                         if (glyph_index > 2)
-                            gui.drawTextFmt("{s}…", .{entry.name[0..glyph_index]}, ir, rec.h, Color.Black, .{}, &wrap.font);
+                            gui.drawTextFmt("{s}…", .{entry.name[0..glyph_index]}, ir, rec.h, Color.Black, .{}, wrap.font);
                     } else {
-                        gui.drawTextFmt("{s}", .{entry.name}, ir, rec.h, Color.Black, .{}, &wrap.font);
+                        gui.drawTextFmt("{s}", .{entry.name}, ir, rec.h, Color.Black, .{}, wrap.font);
                     }
                     //const b = gui.font.textBounds(entry.name.len, rec.h);
                     //const trunc = b.y > ;
@@ -387,7 +387,7 @@ pub const FileBrowser = struct {
                         61...64 => .{ s >> 60, "E" },
                         else => .{ s, "" },
                     };
-                    gui.drawTextFmt("{d: >3}{s}", .{ val[0], val[1] }, r, rec.h, Color.Black, .{}, &wrap.font);
+                    gui.drawTextFmt("{d: >3}{s}", .{ val[0], val[1] }, r, rec.h, Color.Black, .{}, wrap.font);
                 },
                 .mtime => {
                     const epsec = std.time.epoch.EpochSeconds{ .secs = entry.mtime };
@@ -398,10 +398,10 @@ pub const FileBrowser = struct {
                         epmday.month.numeric(),
                         @as(u16, epmday.day_index) + 1,
                         epyear.year,
-                    }, r, r.h * 0.8, Color.Black, .{}, &wrap.font);
+                    }, r, r.h * 0.8, Color.Black, .{}, wrap.font);
                 },
                 .ftype => {
-                    gui.drawTextFmt("{s}", .{@tagName(entry.kind)}, r, r.h * 0.8, Color.Black, .{}, &wrap.font);
+                    gui.drawTextFmt("{s}", .{@tagName(entry.kind)}, r, r.h * 0.8, Color.Black, .{}, wrap.font);
                 },
             }
         }
@@ -568,8 +568,8 @@ pub const FileBrowser = struct {
                         break :blk rec;
                     }
                 };
-                gui.drawTextFmt("{s}", .{bookmark.name}, tr, tr.h, color, .{}, &wrap.font);
-                gui.tooltip(bookmark.abs_path, rec.h, &wrap.font);
+                gui.drawTextFmt("{s}", .{bookmark.name}, tr, tr.h, color, .{}, wrap.font);
+                gui.tooltip(bookmark.abs_path, rec.h, wrap.font);
                 const click = gui.clickWidget(rec);
                 if (click == .click) {
                     if (try self.cd(bookmark.abs_path)) {
@@ -642,11 +642,11 @@ pub const FileBrowser = struct {
                         .mtime => "Modified",
                         .ftype => "Kind",
                         .size => "Size",
-                    }, Vec2f.new(rec.x + cx, rec.y), rec.h, Color.Black, &wrap.font);
+                    }, Vec2f.new(rec.x + cx, rec.y), rec.h, Color.Black, wrap.font);
                     if (i == self.sorted_column_index) {
                         gui.drawIcon(Icons.get(
                             if (!self.sorted_column_ascending) .drop_up else .drop_down,
-                        ), .{ .x = rec.x + cx + cc.width - rec.h, .y = rec.y }, rec.h, Color.Black, &wrap.icon_font);
+                        ), .{ .x = rec.x + cx + cc.width - rec.h, .y = rec.y }, rec.h, Color.Black, wrap.icon_font);
                     }
                     if (gui.clickWidget(graph.Rec(rec.x + cx, rec.y, cc.width, rec.h)) == .click) {
                         if (i == self.sorted_column_index) {

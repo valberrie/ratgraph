@@ -29,6 +29,80 @@ pub const PublicFontInterface = struct {
     pub fn getGlyph(self: *Self, codepoint: u21) Glyph {
         return self.getGlyphfn(self, codepoint);
     }
+
+    pub fn textBounds(self: *Self, string: []const u8, size_px: anytype) Vec2f {
+        const scale = lcast(f32, size_px) / self.font_size;
+        //const scale = (lcast(f32, size_px) / self.dpi * 72) / self.font_size;
+        //const scale = size_px / @as(f32, @floatFromInt(self.height));
+        //const scale = size_px / self.font_size;
+
+        var x_bound: f32 = 0;
+        var bounds = Vec2f{ .x = 0, .y = self.line_gap * scale };
+
+        var it = std.unicode.Utf8Iterator{ .bytes = string, .i = 0 };
+        var char = it.nextCodepoint();
+        while (char != null) : (char = it.nextCodepoint()) {
+            switch (char.?) {
+                '\n' => {
+                    bounds.y += self.line_gap * scale;
+                    if (x_bound > bounds.x)
+                        bounds.x = x_bound;
+                    x_bound = 0;
+                },
+                else => {},
+            }
+
+            const glyph = self.getGlyph(char.?);
+
+            x_bound += (glyph.advance_x) * scale;
+        }
+
+        if (x_bound > bounds.x)
+            bounds.x = x_bound;
+
+        return bounds;
+    }
+
+    pub fn nearestGlyphX(self: *Self, string: []const u8, size_px: f32, rel_coord: Vec2f) ?usize {
+        //const scale = (size_px / self.dpi * 72) / self.font_size;
+        const scale = size_px / self.font_size;
+        //const scale = size_px / @as(f32, @floatFromInt(self.height));
+
+        var x_bound: f32 = 0;
+        var bounds = Vec2f{ .x = 0, .y = 0 };
+
+        var it = std.unicode.Utf8Iterator{ .bytes = string, .i = 0 };
+        var char = it.nextCodepoint();
+        while (char != null) : (char = it.nextCodepoint()) {
+            const glyph = self.getGlyph(char.?);
+            const xw = glyph.advance_x * scale;
+            const yw = self.line_gap * scale;
+
+            switch (char.?) {
+                '\n' => {
+                    bounds.y += yw;
+                    if (x_bound > bounds.x)
+                        bounds.x = x_bound;
+                    x_bound = 0;
+                },
+                else => {
+                    const x = rel_coord.x;
+                    //const y = rel_coord.y;
+                    //if (x < x_bound + xw and x > x_bound and y < bounds.y + yw and y > bounds.y) {
+                    if (x < x_bound + xw and x > x_bound) {
+                        return it.i;
+                    }
+                },
+            }
+
+            x_bound += xw;
+        }
+
+        if (x_bound > bounds.x)
+            bounds.x = x_bound;
+
+        return null;
+    }
 };
 
 pub const OptionalFileWriter = struct {

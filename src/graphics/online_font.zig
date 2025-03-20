@@ -14,10 +14,11 @@ pub const OnlineFont = struct {
     glyphs: std.AutoHashMap(u21, Glyph),
     cell_width: i32,
     cell_height: i32,
-    cx: i32 = 64,
-    cy: i32 = 64,
+    cx: i32 = 10,
+    cy: i32 = 10,
     cindex: i32 = 0,
     scratch_bmp: font.Bitmap,
+    bitmap: font.Bitmap,
 
     finfo: c.stbtt_fontinfo,
     SF: f32 = 0,
@@ -25,6 +26,7 @@ pub const OnlineFont = struct {
     pub fn deinit(self: *Self) void {
         self.glyphs.deinit();
         self.scratch_bmp.deinit();
+        self.bitmap.deinit();
         self.font.texture.deinit();
     }
 
@@ -55,6 +57,7 @@ pub const OnlineFont = struct {
             .SF = SF,
             .finfo = finfo,
             .scratch_bmp = try font.Bitmap.initBlank(alloc, 10, 10, .g_8),
+            .bitmap = undefined,
         };
 
         {
@@ -67,13 +70,15 @@ pub const OnlineFont = struct {
             result.cell_width = @intFromFloat(@abs(@ceil(@as(f32, @floatFromInt(x1)) * SF) - @ceil(@as(f32, @floatFromInt(x0)) * SF)));
             result.cell_height = @intFromFloat(@abs(@ceil(@as(f32, @floatFromInt(y1)) * SF) - @ceil(@as(f32, @floatFromInt(y0)) * SF)));
         }
-        result.font.texture = font.Texture.initFromBuffer(null, result.cell_width * 64, result.cell_height * 64, .{
+        const ww = 20;
+        result.font.texture = font.Texture.initFromBuffer(null, result.cell_width * ww, result.cell_height * ww, .{
             .pixel_store_alignment = 1,
             .internal_format = c.GL_RED,
             .pixel_format = c.GL_RED,
             .min_filter = c.GL_LINEAR,
             .mag_filter = c.GL_NEAREST_MIPMAP_NEAREST,
         });
+        result.bitmap = try font.Bitmap.initBlank(alloc, result.cell_width * ww, result.cell_height * ww, .g_8);
 
         {
             var ascent: c_int = 0;
@@ -86,6 +91,8 @@ pub const OnlineFont = struct {
             result.font.height = result.font.ascent - result.font.descent;
             result.font.line_gap = result.font.height + @as(f32, @floatFromInt(line_gap)) * SF;
         }
+        //_ = result.font.getGlyph(std.unicode.replacement_character);
+
         return result;
     }
 
@@ -117,6 +124,7 @@ pub const OnlineFont = struct {
                     cpo,
                 );
             }
+            std.debug.print("Building {u} {d} {d}\n", .{ codepoint, w, h });
 
             var adv_w: c_int = 0;
             var left_side_bearing: c_int = 0;
@@ -146,6 +154,17 @@ pub const OnlineFont = struct {
                     c.GL_UNSIGNED_BYTE,
                     //pixel_data
                     &self.scratch_bmp.data.items[0],
+                );
+                font.Bitmap.copySubR(
+                    1,
+                    &self.bitmap,
+                    @intCast(atlas_cx * self.cell_width),
+                    @intCast(atlas_cy * self.cell_height),
+                    &self.scratch_bmp,
+                    0,
+                    0,
+                    self.scratch_bmp.w,
+                    self.scratch_bmp.h,
                 );
 
                 glyph.tr.x = @floatFromInt(atlas_cx * self.cell_width);

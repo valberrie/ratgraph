@@ -3,6 +3,7 @@ const graph = @import("graphics.zig");
 const Rect = graph.Rect;
 const Rec = graph.Rec;
 const Pad = graph.Padding;
+const OFont = @import("graphics/online_font.zig").OnlineFont;
 const FileBrowser = @import("guiapp/filebrowser.zig").FileBrowser;
 
 const lua = @cImport({
@@ -486,7 +487,7 @@ pub const KeyboardDisplay = struct {
                             const tr = rr.inset(wrap.style.getRect(.err).w / 3 * wrap.scale + 3);
 
                             if (key.name) |n| {
-                                gui.drawTextFmt("{s}", .{n}, tr, 20 * wrap.scale, Color.Black, .{}, &wrap.font);
+                                gui.drawTextFmt("{s}", .{n}, tr, 20 * wrap.scale, Color.Black, .{}, wrap.font);
                             }
                         },
                         .spacing => {},
@@ -614,7 +615,7 @@ pub const AtlasEditor = struct {
                 {
                     const zf = 0.1;
                     const md = gui.input_state.mouse.wheel_delta.y;
-                    cam.zoom(zf * md, gui.input_state.mouse.pos);
+                    cam.zoom(zf * md, gui.input_state.mouse.pos, null, null);
 
                     if (gui.input_state.mouse.middle == .high) {
                         cam.pan(gui.input_state.mouse.delta);
@@ -749,7 +750,7 @@ pub const AtlasEditor = struct {
                                     col = Color.Green;
                                 }
                             }
-                            gui.drawText(if (ts.description.len > 0) ts.description else "{blank}", rec.pos(), rec.h, col, &wrap.font);
+                            gui.drawText(if (ts.description.len > 0) ts.description else "{blank}", rec.pos(), rec.h, col, wrap.font);
                             const click = gui.clickWidget(rec);
                             if (click == .click) {
                                 if (self.atlas_index != si) {
@@ -1164,42 +1165,59 @@ pub const Os9Gui = struct {
     scale: f32,
     gui: Gui.Context,
     gui_draw_ctx: Gui.GuiDrawContext,
-    font: graph.Font,
-    icon_font: graph.Font,
+    ofont: *OFont,
+    font: *graph.FontUtil.PublicFontInterface,
+    //icon_ofont: *OFont,
+    icon_font: *graph.FontUtil.PublicFontInterface,
+    alloc: std.mem.Allocator,
 
     drop_down: ?Gui.Context.WidgetId = null,
     drop_down_scroll: Vec2f = .{ .x = 0, .y = 0 },
 
     pub fn init(alloc: std.mem.Allocator, asset_dir: std.fs.Dir, scale: f32) !Self {
-        const icon_list = comptime blk: {
-            const info = @typeInfo(Icons);
-            var list: [info.Enum.fields.len]u21 = undefined;
+        //const icon_list = comptime blk: {
+        //    const info = @typeInfo(Icons);
+        //    var list: [info.Enum.fields.len]u21 = undefined;
 
-            for (info.Enum.fields, 0..) |f, i| {
-                list[i] = f.value;
-            }
-            break :blk list;
-        };
+        //    for (info.Enum.fields, 0..) |f, i| {
+        //        list[i] = f.value;
+        //    }
+        //    break :blk list;
+        //};
+        const ofont_ptr = try alloc.create(OFont);
+        //const ofont_icon_ptr = try alloc.create(OFont);
+        ofont_ptr.* = try OFont.initFromBuffer(
+            alloc,
+            @embedFile("font/noto.ttc"),
+            64,
+            .{},
+        );
+        //ofont_icon_ptr.* = try OFont.initFromBuffer(alloc, @embedFile("font/remix.ttf"), 12, .{});
         return .{
             .gui = try Gui.Context.init(alloc),
             .style = try GuiConfig.init(alloc, asset_dir, "asset/os9gui"),
             .gui_draw_ctx = try Gui.GuiDrawContext.init(alloc),
             .scale = scale,
+            .alloc = alloc,
             // .texture = try graph.Texture.initFromImgFile(alloc, asset_dir, "next_step.png", .{
             //     .mag_filter = graph.c.GL_NEAREST,
             // }),
             //TODO switch to stb font init
-            //.font = try graph.Font.init(alloc, asset_dir, "fonts/roboto.ttf", 64, 163, .{}),
-            .font = try graph.Font.initFromBuffer(alloc, @embedFile("font/roboto.ttf"), 64, .{}),
-            .icon_font = try graph.Font.init(
-                alloc,
-                asset_dir,
-                "fonts/remix.ttf",
-                12,
-                .{
-                    .codepoints_to_load = &[_]graph.Font.CharMapEntry{.{ .list = &icon_list }},
-                },
-            ),
+            .ofont = ofont_ptr,
+            .font = &ofont_ptr.font,
+            //.font = try graph.Font.initFromBuffer(alloc, @embedFile("font/roboto.ttf"), 64, .{}),
+            .icon_font = &ofont_ptr.font,
+            //.icon_font = &ofont_icon_ptr.font,
+            //.icon_ofont = ofont_icon_ptr,
+            //.icon_font = try graph.Font.init(
+            //    alloc,
+            //    asset_dir,
+            //    "fonts/remix.ttf",
+            //    12,
+            //    .{
+            //        .codepoints_to_load = &[_]graph.Font.CharMapEntry{.{ .list = &icon_list }},
+            //    },
+            //),
         };
     }
 
@@ -1207,8 +1225,11 @@ pub const Os9Gui = struct {
         self.style.deinit();
         self.gui.deinit();
         self.gui_draw_ctx.deinit();
-        self.font.deinit();
-        self.icon_font.deinit();
+        self.ofont.deinit();
+        self.alloc.destroy(self.ofont);
+        //self.font.deinit();
+        //self.icon_ofont.deinit();
+        //self.alloc.destroy(self.icon_ofont);
     }
 
     pub fn beginFrame(self: *Self, input_state: Gui.InputState, win: *graph.SDL.Window) !void {
@@ -1404,7 +1425,7 @@ pub const Os9Gui = struct {
             const _9s = if (f.value == @intFromEnum(selected.*)) active else inactive;
             self.gui.draw9Slice(d.area, _9s, self.style.texture, self.scale);
             const tarea = d.area.inset(self.scale * (_9s.w / 3));
-            self.gui.drawTextFmt("{s}", .{f.name}, tarea, tarea.h, Color.Black, .{ .justify = .center }, &self.font);
+            self.gui.drawTextFmt("{s}", .{f.name}, tarea, tarea.h, Color.Black, .{ .justify = .center }, self.font);
             //self.label("{s}", .{f.name});
         }
         self.endL(); // horiz
@@ -1769,7 +1790,7 @@ pub const Os9Gui = struct {
 
     pub fn labelEx(self: *Self, comptime fmt: []const u8, args: anytype, params: struct { justify: Gui.Justify = .left }) void {
         const area = self.gui.getArea() orelse return;
-        self.gui.drawTextFmt(fmt, args, area, area.h, Color.Black, .{ .justify = params.justify }, &self.font);
+        self.gui.drawTextFmt(fmt, args, area, area.h, Color.Black, .{ .justify = params.justify }, self.font);
     }
 
     pub fn label(self: *Self, comptime fmt: []const u8, args: anytype) void {
@@ -1788,7 +1809,7 @@ pub const Os9Gui = struct {
 
             gui.draw9Slice(d.area, sl, self.style.texture, self.scale);
             const texta = d.area.inset(3 * self.scale);
-            gui.drawTextFmt(fmt, args, texta, texta.h, color, .{ .justify = .center }, &self.font);
+            gui.drawTextFmt(fmt, args, texta, texta.h, color, .{ .justify = .center }, self.font);
             return d.changed;
         }
         return false;
@@ -1810,7 +1831,7 @@ pub const Os9Gui = struct {
         const color = if (params.disabled) self.style.config.colors.button_text_disabled else (self.style.config.colors.button_text);
         gui.draw9Slice(d.area, sl1, self.style.texture, self.scale);
         const texta = d.area.inset(3 * self.scale);
-        gui.drawTextFmt(fmt, args, texta, texta.h, color, .{ .justify = .center }, &self.font);
+        gui.drawTextFmt(fmt, args, texta, texta.h, color, .{ .justify = .center }, self.font);
 
         const is_cont = if (params.continuous) d.state == .held else false;
         return (d.state == .click or is_cont) and !params.disabled;
@@ -1878,7 +1899,7 @@ pub const Os9Gui = struct {
                 }
             }
             gui.draw9Slice(d.handle, shuttle, self.style.texture, self.scale);
-            gui.drawTextFmt("{d:.2}", .{value.*}, textb, textb.h, (0xff), .{ .justify = .center }, &self.font);
+            gui.drawTextFmt("{d:.2}", .{value.*}, textb, textb.h, (0xff), .{ .justify = .center }, self.font);
             //gui.draw9Slice(d.handle, os9shuttle, self.style.texture, self.scale);
         }
     }
@@ -1897,7 +1918,7 @@ pub const Os9Gui = struct {
                 self.style.texture,
             );
             const tarea = Rec(br.farX(), area.y, area.w - br.farX(), area.h);
-            gui.drawTextFmt("{s}", .{label_}, tarea, area.h, Color.Black, .{}, &self.font);
+            gui.drawTextFmt("{s}", .{label_}, tarea, area.h, Color.Black, .{}, self.font);
             return d.changed;
         }
         return false;
@@ -1921,7 +1942,7 @@ pub const Os9Gui = struct {
             const inactive = self.style.getRect(.radio);
             const tarea = Rec(d.area.x + d.area.h, d.area.y, d.area.w - d.area.h, d.area.h);
             const rr = d.area.replace(null, null, @min(d.area.h, inactive.w * self.scale), @min(d.area.w, inactive.h * self.scale));
-            self.gui.drawTextFmt("{s}", .{f.name}, tarea, tarea.h, Color.Black, .{ .justify = .left }, &self.font);
+            self.gui.drawTextFmt("{s}", .{f.name}, tarea, tarea.h, Color.Black, .{ .justify = .left }, self.font);
             const active = self.style.getRect(.radio_active);
             self.gui.drawRectTextured(rr, Color.White, if (@intFromEnum(enum_value.*) == f.value) active else inactive, self.style.texture);
         }
@@ -1955,7 +1976,7 @@ pub const Os9Gui = struct {
             const cb = self.style.getRect(.combo_background);
             self.gui.draw9Slice(d.area, cb, self.style.texture, self.scale);
             const texta = d.area.inset(cb.w / 3 * self.scale);
-            self.gui.drawTextFmt(fmt, args, texta, texta.h, 0xff, .{ .justify = .center }, &self.font);
+            self.gui.drawTextFmt(fmt, args, texta, texta.h, 0xff, .{ .justify = .center }, self.font);
             const cbb = self.style.getRect(.combo_button);
             const da = self.style.getRect(.down_arrow);
             const cbbr = d.area.replace(d.area.x + d.area.w - cbb.w * self.scale, null, cbb.w * self.scale, null).centerR(da.w * self.scale, da.h * self.scale);
@@ -2020,12 +2041,12 @@ pub const Os9Gui = struct {
     pub fn textboxNumber(self: *Self, number_ptr: anytype) !void {
         const gui = &self.gui;
         const inset = self.style.config.textbox_inset * self.scale;
-        if (try gui.textboxNumberGeneric(number_ptr, &self.font, .{ .text_inset = inset })) |d| {
+        if (try gui.textboxNumberGeneric(number_ptr, self.font, .{ .text_inset = inset })) |d| {
             const tr = d.text_area;
             gui.draw9Slice(d.area, self.style.getRect(.basic_inset), self.style.texture, self.scale);
             if (d.is_invalid)
                 gui.drawRectFilled(d.text_area, 0xff000086);
-            gui.drawTextFmt("{s}", .{d.slice}, d.text_area, d.text_area.h, Color.Black, .{}, &self.font);
+            gui.drawTextFmt("{s}", .{d.slice}, d.text_area, d.text_area.h, Color.Black, .{}, self.font);
             gui.drawRectFilled(Rect.new(
                 d.selection_pos_min + d.text_area.x,
                 d.text_area.y,
@@ -2058,10 +2079,10 @@ pub const Os9Gui = struct {
             const tr = a.inset(inset);
             gui.draw9Slice(a, self.style.getRect(.basic_inset), self.style.texture, self.scale);
             gui.drawRectFilled(a, self.style.config.colors.textbox_bg_disabled);
-            gui.drawTextFmt("{s}", .{tb.getSlice()}, tr, tr.h, self.style.config.colors.textbox_fg_disabled, .{}, &self.font);
+            gui.drawTextFmt("{s}", .{tb.getSlice()}, tr, tr.h, self.style.config.colors.textbox_fg_disabled, .{}, self.font);
             return;
         }
-        if (try gui.textboxGeneric2(tb, &self.font, .{ .text_inset = inset })) |d| {
+        if (try gui.textboxGeneric2(tb, self.font, .{ .text_inset = inset })) |d| {
             const tr = d.text_area;
             gui.draw9Slice(d.area, self.style.getRect(.basic_inset), self.style.texture, self.scale);
             if (params.invalid)
@@ -2078,7 +2099,7 @@ pub const Os9Gui = struct {
                     self.style.config.colors.textbox_caret,
                 );
             }
-            gui.drawTextFmt("{s}", .{d.slice}, d.text_area, d.text_area.h, Color.Black, .{}, &self.font);
+            gui.drawTextFmt("{s}", .{d.slice}, d.text_area, d.text_area.h, Color.Black, .{}, self.font);
         }
     }
 
@@ -2092,11 +2113,11 @@ pub const Os9Gui = struct {
             const a = self.gui.getArea() orelse return;
             const tr = a.inset(3 * self.scale);
             gui.draw9Slice(a, self.style.getRect(.basic_inset), self.style.texture, self.scale);
-            gui.drawTextFmt("{s}", .{contents.items}, tr, tr.h, 0x00aa, .{}, &self.font);
+            gui.drawTextFmt("{s}", .{contents.items}, tr, tr.h, 0x00aa, .{}, self.font);
             gui.drawRectFilled(a, 0xffffff75);
             return;
         }
-        if (try gui.textboxGeneric(contents, &self.font, .{ .text_inset = 3 * self.scale })) |d| {
+        if (try gui.textboxGeneric(contents, self.font, .{ .text_inset = 3 * self.scale })) |d| {
             const tr = d.text_area;
             gui.draw9Slice(d.area, self.style.getRect(.basic_inset), self.style.texture, self.scale);
             if (params.invalid)
@@ -2110,7 +2131,7 @@ pub const Os9Gui = struct {
             if (d.caret) |of| {
                 gui.drawRectFilled(Rect.new(of + tr.x, tr.y + 2, 3, tr.h - 4), Color.Black);
             }
-            gui.drawTextFmt("{s}", .{d.slice}, d.text_area, d.text_area.h, Color.Black, .{}, &self.font);
+            gui.drawTextFmt("{s}", .{d.slice}, d.text_area, d.text_area.h, Color.Black, .{}, self.font);
         }
     }
 
@@ -2626,18 +2647,17 @@ pub fn main() anyerror!void {
     graph.c.glLineWidth(1);
 
     //const init_size = graph.pxToPt(win.getDpi(), 100);
-    const init_size = 8;
-    var font = try graph.Font.init(alloc, std.fs.cwd(), "fonts/roboto.ttf", init_size, .{
-        .debug_dir = debug_dir,
-    });
-    defer font.deinit();
+    // var font = try graph.Font.init(alloc, std.fs.cwd(), "fonts/roboto.ttf", init_size, .{
+    //     .debug_dir = debug_dir,
+    // });
+    // defer font.deinit();
     var my_str = std.ArrayList(u8).init(alloc);
     defer my_str.deinit();
 
     Gui.hash_timer = try std.time.Timer.start();
     Gui.hash_time = 0;
 
-    var draw = graph.ImmediateDrawingContext.init(alloc, win.getDpi());
+    var draw = graph.ImmediateDrawingContext.init(alloc);
     defer draw.deinit();
 
     //var draw_line_debug: bool = false;
@@ -2677,11 +2697,14 @@ pub fn main() anyerror!void {
     var os9gui = try Os9Gui.init(alloc, std.fs.cwd(), scale);
     defer os9gui.deinit();
 
-    var os9gui2 = try Os9Gui.init(alloc, std.fs.cwd(), scale);
-    defer os9gui2.deinit();
+    //var os9gui2 = try Os9Gui.init(alloc, std.fs.cwd(), scale);
+    //defer os9gui2.deinit();
 
     var gamemenu = GameMenu.init(alloc);
     defer gamemenu.deinit();
+    defer {
+        os9gui.ofont.bitmap.writeToPngFile(std.fs.cwd(), "outFILE.png") catch unreachable;
+    }
 
     //NEEDS TO BE SET BEFORE LUA RUNS
     os9_ctx = os9gui;
@@ -2736,7 +2759,15 @@ pub fn main() anyerror!void {
                     try atlas_editor.update(&os9gui);
                 },
                 .gtest => {
-                    try gt.update(&os9gui);
+                    if (os9gui.gui.getArea()) |winar| {
+                        os9gui.gui.drawRectTextured(
+                            winar,
+                            0xffffffff,
+                            os9gui.font.texture.rect(),
+                            os9gui.font.texture,
+                        );
+                    }
+                    //try gt.update(&os9gui);
                 },
                 .filebrowser => {
                     try fb.update(&os9gui);
@@ -2835,6 +2866,8 @@ pub fn main() anyerror!void {
         try os9gui.endFrame(&draw);
         graph.c.glDisable(graph.c.GL_STENCIL_TEST);
 
+        //draw.rectTex(graph.Rec(0, 0, 400, 400), graph.Rec(0, 0, 4000, 4000), os9gui.ofont.font.texture);
+        draw.rectTex(os9gui.ofont.font.texture.rect(), os9gui.ofont.font.texture.rect(), os9gui.ofont.font.texture);
         try draw.end(null);
         win.swap();
 

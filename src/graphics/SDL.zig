@@ -435,11 +435,11 @@ pub const Window = struct {
     }
 
     pub fn centerWindow(self: *Self) void {
-        c.SDL_SetWindowPosition(self.win, c.SDL_WINDOWPOS_CENTERED, c.SDL_WINDOWPOS_CENTERED);
+        _ = c.SDL_SetWindowPosition(self.win, c.SDL_WINDOWPOS_CENTERED, c.SDL_WINDOWPOS_CENTERED);
     }
 
     pub fn setWindowSize(self: *Self, w: i32, h: i32) void {
-        c.SDL_SetWindowSize(self.win, w, h);
+        _ = c.SDL_SetWindowSize(self.win, w, h);
     }
 
     pub fn glScissor(self: *Self, x: i32, y: i32, w: i32, h: i32) void {

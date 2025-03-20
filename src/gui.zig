@@ -6,7 +6,7 @@ const graph = @import("graphics.zig");
 
 const json = std.json;
 const clamp = std.math.clamp;
-const Font = graph.Font;
+const Font = graph.FontUtil.PublicFontInterface;
 const Vec2f = graph.Vec2f;
 const Vec2i = struct {
     const Self = @This();
@@ -72,7 +72,7 @@ pub const DrawCommand = union(enum) {
     },
 
     text: struct {
-        font: *graph.Font,
+        font: *Font,
         pos: Vec2i,
         size: f32,
         string: []const u8,
