@@ -1046,7 +1046,7 @@ pub fn testMain() !void {
         //},
     });
     defer win.destroyWindow();
-    win.pumpEvents();
+    win.pumpEvents(.poll);
     var draw = graph.ImmediateDrawingContext.init(alloc);
     defer draw.deinit();
 
@@ -1099,7 +1099,7 @@ pub fn testMain() !void {
 
     while (!win.should_exit) {
         try draw.begin(0x00, win.screen_dimensions.toF());
-        win.pumpEvents();
+        win.pumpEvents(.poll);
         if (win.text_input.len > 0) {
             try type_string.appendSlice(win.text_input);
         }
@@ -1513,7 +1513,7 @@ pub fn game_main() !void {
             const cu = Cube.fromBounds(pencil.p1, pencil.p2);
             try cubes.cube(cu.pos.x(), cu.pos.y(), cu.pos.z(), cu.ext.x(), cu.ext.y(), cu.ext.z(), tex.rect(), 0);
         }
-        win.pumpEvents();
+        win.pumpEvents(.poll);
 
         const is: Gui.InputState = .{
             .mouse = win.mouse,

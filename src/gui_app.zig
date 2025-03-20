@@ -1234,7 +1234,7 @@ pub const Os9Gui = struct {
 
     pub fn beginFrame(self: *Self, input_state: Gui.InputState, win: *graph.SDL.Window) !void {
         switch (self.gui.text_input_state.state) {
-            .start => win.startTextInput(null),
+            .start => win.startTextInput(self.gui.text_input_state.rect),
             .stop => win.stopTextInput(),
             .cont => self.gui.text_input_state.buffer = win.text_input,
             .disabled => {},
@@ -2702,9 +2702,6 @@ pub fn main() anyerror!void {
 
     var gamemenu = GameMenu.init(alloc);
     defer gamemenu.deinit();
-    defer {
-        os9gui.ofont.bitmap.writeToPngFile(std.fs.cwd(), "outFILE.png") catch unreachable;
-    }
 
     //NEEDS TO BE SET BEFORE LUA RUNS
     os9_ctx = os9gui;
@@ -2723,13 +2720,13 @@ pub fn main() anyerror!void {
     var crass_scroll: graph.Vec2f = .{ .x = 0, .y = 0 };
 
     //END LUA
-    win.pumpEvents();
+    win.pumpEvents(.poll);
 
     if (cli_opts.wireframe != null)
         graph.c.glPolygonMode(graph.c.GL_FRONT_AND_BACK, graph.c.GL_LINE);
     while (!win.should_exit) {
         try draw.begin(0x2f2f2fff, win.screen_dimensions.toF());
-        win.pumpEvents(); //Important that this is called after beginDraw for input lag reasons
+        win.pumpEvents(.wait); //Important that this is called after beginDraw for input lag reasons
 
         const win_rect = graph.Rect.newV(.{ .x = 0, .y = 0 }, draw.screen_dimensions);
         gui_timer.reset();
@@ -2867,7 +2864,7 @@ pub fn main() anyerror!void {
         graph.c.glDisable(graph.c.GL_STENCIL_TEST);
 
         //draw.rectTex(graph.Rec(0, 0, 400, 400), graph.Rec(0, 0, 4000, 4000), os9gui.ofont.font.texture);
-        draw.rectTex(os9gui.ofont.font.texture.rect(), os9gui.ofont.font.texture.rect(), os9gui.ofont.font.texture);
+        //draw.rectTex(os9gui.ofont.font.texture.rect(), os9gui.ofont.font.texture.rect(), os9gui.ofont.font.texture);
         try draw.end(null);
         win.swap();
 

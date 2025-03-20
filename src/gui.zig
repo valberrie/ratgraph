@@ -23,6 +23,7 @@ const Rect = graph.Rect;
 const Hsva = graph.Hsva;
 const Color = u32;
 const Colori = graph.Colori;
+const utf8 = @import("utf8.zig");
 
 //TODO reduce memory footprint of these structs?
 //Colors could be aliased.
@@ -927,6 +928,7 @@ pub const Context = struct {
             disabled,
         };
 
+        rect: Rect = .{ .x = 0, .y = 0, .w = 0, .h = 0 },
         state: States = .disabled,
         buffer: []const u8 = "",
         active_id: ?WidgetId = null,
@@ -940,7 +942,8 @@ pub const Context = struct {
             };
         }
 
-        pub fn advanceStateActive(self: *TextInputState) void {
+        pub fn advanceStateActive(self: *TextInputState, text_rect: Rect) void {
+            self.rect = text_rect;
             self.state = switch (self.state) {
                 .start => .cont,
                 .disabled => .start,
@@ -1809,7 +1812,7 @@ pub const Context = struct {
         if (self.isActiveTextinput(id)) {
             if (self.keyState(.TAB) == .rising) {}
             const tb = &self.textbox_state;
-            self.text_input_state.advanceStateActive();
+            self.text_input_state.advanceStateActive(trect);
             try tb.handleEventsOpts(
                 self.text_input_state.buffer,
                 self.input_state,
@@ -1869,7 +1872,7 @@ pub const Context = struct {
         if (self.isActiveTextinput(id)) {
             if (self.keyState(.TAB) == .rising) {}
             const tb = &self.textbox_state;
-            self.text_input_state.advanceStateActive();
+            self.text_input_state.advanceStateActive(trect);
             try tb.handleEventsOpts(
                 self.text_input_state.buffer,
                 self.input_state,
@@ -1947,7 +1950,7 @@ pub const Context = struct {
                 .uint => "0123456789xabcdefABCDEF",
                 .float => "ainf.-0123456789",
             };
-            self.text_input_state.advanceStateActive();
+            self.text_input_state.advanceStateActive(tarea);
             try self.textbox_state.handleEventsOpts(
                 self.text_input_state.buffer,
                 self.input_state,

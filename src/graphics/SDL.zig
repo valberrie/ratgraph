@@ -105,6 +105,10 @@ pub const Window = struct {
 
     screen_dimensions: Vec2i = .{ .x = 0, .y = 0 },
     frame_time: std.time.Timer,
+
+    event_counter: usize = 0,
+    last_was_pushed: bool = false,
+
     target_frame_len_ns: ?u64 = null,
 
     should_exit: bool = false,
@@ -118,7 +122,7 @@ pub const Window = struct {
     keyboard_state: KeyboardStateT = KeyboardStateT.initEmpty(),
     last_frame_keyboard_state: KeyboardStateT = KeyboardStateT.initEmpty(),
 
-    text_input_buffer: [32]u8 = undefined,
+    text_input_buffer: [256]u8 = undefined,
     text_input: []const u8,
 
     pub fn sdlLogErr() void {
@@ -248,7 +252,7 @@ pub const Window = struct {
             .frame_time = try std.time.Timer.start(),
             .target_frame_len_ns = options.target_frame_len_ns,
         };
-        ret.pumpEvents();
+        ret.pumpEvents(.poll);
         return ret;
     }
 
@@ -336,8 +340,34 @@ pub const Window = struct {
         return ret[0..@intCast(l)];
     }
 
-    pub fn pumpEvents(self: *Self) void {
+    fn pollEvent(self: *Self, event: *c.SDL_Event) bool { //If true, continue to poll for events, otherwise exit
+        _ = self;
+        return c.SDL_PollEvent(event);
+    }
+
+    fn waitEvent(self: *Self, event: *c.SDL_Event) bool {
+        //Two conditions that lead to returning false
+        //we have slept atleast n seconds since last frame,
+        //waitEvent times out
+        const time = self.frame_time.read() / std.time.ns_per_ms;
+        const max_time_ms: u64 = if (self.event_counter > 0 or self.last_was_pushed) 16 else 1000;
+        const wait_time = if (time > max_time_ms) 1 else max_time_ms - time;
+
+        if (c.SDL_WaitEventTimeout(event, @intCast(wait_time))) {
+            self.event_counter += 1;
+            return true;
+        }
+        self.last_was_pushed = self.event_counter > 0;
+        return false;
+    }
+
+    pub fn pumpEvents(self: *Self, mode: enum { poll, wait }) void {
+        const event_fn = switch (mode) {
+            .wait => &waitEvent,
+            .poll => &pollEvent,
+        };
         self.frame_time.reset();
+        self.event_counter = 0;
 
         c.SDL_PumpEvents();
         {
@@ -377,7 +407,7 @@ pub const Window = struct {
         //would allow for a gui app to only render frames when needed
 
         var event: c.SDL_Event = undefined;
-        while (c.SDL_PollEvent(&event)) {
+        while (event_fn(self, &event)) {
             switch (event.type) {
                 c.SDL_EVENT_QUIT => self.should_exit = true,
                 c.SDL_EVENT_KEY_DOWN => {
@@ -455,12 +485,11 @@ pub const Window = struct {
     pub fn startTextInput(self: *const Self, ime_rect: ?ptypes.Rect) void {
         const rec = if (ime_rect) |r| c.SDL_Rect{
             .x = @intFromFloat(r.x),
-            .y = @intFromFloat(r.x),
+            .y = @intFromFloat(r.y),
             .w = @intFromFloat(r.w),
             .h = @intFromFloat(r.h),
         } else c.SDL_Rect{ .x = 0, .y = 0, .w = 100, .h = 100 };
-        _ = rec;
-        //if (!c.SDL_SetTextInputArea(self.win, &rec, 0)) sdlLogErr();
+        if (!c.SDL_SetTextInputArea(self.win, &rec, 0)) sdlLogErr();
         if (!c.SDL_StartTextInput(self.win)) sdlLogErr();
     }
 

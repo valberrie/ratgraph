@@ -140,21 +140,22 @@ pub const OnlineFont = struct {
             {
                 const atlas_cx = @mod(self.cindex, self.cx);
                 const atlas_cy = @divTrunc(self.cindex, self.cy);
-                c.glTextureSubImage2D(
-                    font_i.texture.id,
-                    0, //Level
-                    //x,y,w,h,
-                    @intCast(atlas_cx * self.cell_width),
-                    @intCast(atlas_cy * self.cell_height),
-                    @intCast(self.scratch_bmp.w),
-                    @intCast(self.scratch_bmp.h),
-                    //format,
-                    c.GL_RED,
-                    //type,
-                    c.GL_UNSIGNED_BYTE,
-                    //pixel_data
-                    &self.scratch_bmp.data.items[0],
-                );
+                //c.glTexSubImage2D(
+                //    c.GL_TEXTURE_2D,
+                //    //font_i.texture.id,
+                //    0, //Level
+                //    //x,y,w,h,
+                //    @intCast(atlas_cx * self.cell_width),
+                //    @intCast(atlas_cy * self.cell_height),
+                //    @intCast(self.scratch_bmp.w),
+                //    @intCast(self.scratch_bmp.h),
+                //    //format,
+                //    c.GL_RED,
+                //    //type,
+                //    c.GL_UNSIGNED_BYTE,
+                //    //pixel_data
+                //    &self.scratch_bmp.data.items[0],
+                //);
                 font.Bitmap.copySubR(
                     1,
                     &self.bitmap,
@@ -165,6 +166,18 @@ pub const OnlineFont = struct {
                     0,
                     self.scratch_bmp.w,
                     self.scratch_bmp.h,
+                );
+                c.glBindTexture(c.GL_TEXTURE_2D, font_i.texture.id);
+                c.glTexImage2D(
+                    c.GL_TEXTURE_2D,
+                    0,
+                    c.GL_RED,
+                    @intCast(self.bitmap.w),
+                    @intCast(self.bitmap.h),
+                    0,
+                    c.GL_RED,
+                    c.GL_UNSIGNED_BYTE,
+                    &self.bitmap.data.items[0],
                 );
 
                 glyph.tr.x = @floatFromInt(atlas_cx * self.cell_width);
