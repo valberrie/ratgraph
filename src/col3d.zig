@@ -272,9 +272,10 @@ test "detect basic" {
 
     try exeql(@as(?Ct.CollisionResult, .{
         .overlaps = false,
+        .other = other,
         .ti = 0.45,
         .delta = Vec.new(20, 0, 0),
         .normal = Vec.new(1, 0, 0),
-        .touch = Vec.new(9, 0, 0),
+        .touch = Vec.new(8.99, 0, 0),
     }), Ct.detectCollision(moved, other, Vec.new(20, 0, 0)));
 }

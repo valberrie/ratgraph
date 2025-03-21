@@ -54,16 +54,11 @@ pub inline fn pxToPt(dpi: f32, px: f32) f32 {
     return px * 72 / dpi;
 }
 
-pub fn basicGraphUsage() !void {
-    const graph = @This();
+test "basic graph usage" {
+    const graph = @This(); // const graph = @import("graph");
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.detectLeaks();
     const alloc = gpa.allocator();
-
-    var binds = graph.Bind(&.{
-        .{ "my_bind", "a" },
-        .{ "other_bind", "c" },
-    }).init();
 
     var win = try graph.SDL.Window.createWindow("My window", .{
         // Optional, see Window.createWindow definition for full list of options
@@ -71,34 +66,34 @@ pub fn basicGraphUsage() !void {
     });
     defer win.destroyWindow();
 
-    var draw = graph.ImmediateDrawingContext.init(alloc, win.getDpi());
+    var draw = graph.ImmediateDrawingContext.init(alloc);
     defer draw.deinit();
 
     var font = try graph.Font.init(alloc, std.fs.cwd(), "asset/fonts/roboto.ttf", 40, .{});
     defer font.deinit();
+    const r = Rec(0, 0, 100, 100);
+    const v1 = Vec2f.new(0, 0);
+    const v2 = Vec2f.new(3, 3);
+    const v3 = Vec2f.new(30, 30);
 
     while (!win.should_exit) {
         try draw.begin(0x2f2f2fff, win.screen_dimensions.toF());
-        win.pumpEvents(); //Important that this is called after draw.begin for input lag reasons
-        for (win.keys.slice()) |key| {
-            switch (binds.get(key.scancode)) {
-                .my_bind => std.debug.print("bind pressed\n", .{}),
-                else => {},
-            }
-        }
-
-        var kit = binds.heldIterator(&win);
-        while (kit.next()) |m| {
-            switch (m) {
-                .my_bind => std.debug.print("My bind held\n", .{}),
-                .other_bind => std.debug.print("other\n", .{}),
-                else => {},
-            }
-        }
+        win.pumpEvents(.poll); //Important that this is called after draw.begin for input lag reasons
 
         draw.text(.{ .x = 50, .y = 300 }, "Hello", &font.font, 20, 0xffffffff);
-        try draw.end();
+        draw.rect(r, 0xff00ffff);
+        draw.rectVertexColors(r, &.{ 0xff, 0xff, 0xff, 0xff });
+        draw.nineSlice(r, r, font.font.texture, 1);
+        draw.rectTex(r, r, font.font.texture);
+        draw.line(v1, v2, 0xff);
+        draw.triangle(v1, v2, v3, 0xfffffff0);
+
+        try draw.flush(null, null); //Flush any draw commands
+
+        draw.triangle(v1, v2, v3, 0xfffffff0);
+        try draw.end(null);
         win.swap();
+        win.should_exit = true;
     }
 }
 
