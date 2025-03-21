@@ -1088,7 +1088,7 @@ pub fn testMain() !void {
     //const slice = try sl.reader().readAllAlloc(alloc, std.math.maxInt(usize));
 
     //sl.close();
-    var font2 = try graph.Font.init(alloc, std.fs.cwd(), "fonts/roboto.ttf", 64, .{
+    var font2 = try graph.Font.init(alloc, std.fs.cwd(), "asset/fonts/roboto.ttf", 64, .{
         .debug_dir = try std.fs.cwd().openDir("debug", .{}),
         //.codepoints_to_load = &[_]graph.Font.CharMapEntry{
         //    .{ .unicode = 0x1f602 },
@@ -1207,7 +1207,7 @@ pub fn game_main() !void {
     //c.alSourcePlay(audio_source);
 
     const init_size = 72;
-    var roboto = try graph.Font.init(alloc, cwd, "fonts/roboto.ttf", init_size, .{});
+    var roboto = try graph.Font.init(alloc, cwd, "asset/fonts/roboto.ttf", init_size, .{});
     defer roboto.deinit();
     const font = &roboto.font;
 

@@ -16,5 +16,5 @@ gui_app.zig.Os9Gui provides a imgui.
 * [remix icon](https://github.com/Remix-Design/RemixIcon)
 * [Roboto font](https://fonts.google.com/specimen/Roboto)
 * [libepoxy](https://github.com/anholt/libepoxy)
-* [sdl2](https://www.libsdl.org/)
+* [sdl3](https://www.libsdl.org/)
 
