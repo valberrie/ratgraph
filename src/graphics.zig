@@ -74,7 +74,7 @@ pub fn basicGraphUsage() !void {
     var draw = graph.ImmediateDrawingContext.init(alloc, win.getDpi());
     defer draw.deinit();
 
-    var font = try graph.Font.init(alloc, std.fs.cwd(), "fonts/roboto.ttf", 14, win.getDpi(), .{});
+    var font = try graph.Font.init(alloc, std.fs.cwd(), "asset/fonts/roboto.ttf", 40, .{});
     defer font.deinit();
 
     while (!win.should_exit) {
@@ -96,7 +96,7 @@ pub fn basicGraphUsage() !void {
             }
         }
 
-        draw.text(.{ .x = 50, .y = 300 }, "Hello", &font, 16, 0xffffffff);
+        draw.text(.{ .x = 50, .y = 300 }, "Hello", &font.font, 20, 0xffffffff);
         try draw.end();
         win.swap();
     }
@@ -223,7 +223,6 @@ pub const ImmediateDrawingContext = struct {
     textured_tri_shader: c_uint,
     textured_tri_3d_shader: c_uint,
     textured_tri_3d_shader_new: c_uint,
-    //dpi: f32,
 
     alloc: Alloc,
 
@@ -304,8 +303,6 @@ pub const ImmediateDrawingContext = struct {
         try self.clearBuffers();
 
         self.zindex = 1;
-        //stupid, don't enable
-        //std.time.sleep(16 * std.time.ns_per_ms);
 
         const color = ptypes.intToColorF(bg_color);
         c.glClearColor(color[0], color[1], color[2], color[3]);

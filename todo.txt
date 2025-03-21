@@ -1,0 +1,17 @@
+Global todo
+
+Write a qoi de/serial, png is slow
+
+Limit the usage of sdl specific things as much as possible.
+
+Change the Gui Layouts to use a vtable interface.
+Same with registry.zig
+In general, move away from the excessive comptime usage within registry
+
+Cleanup the build script, make freetype an optional dependancy, have initFont get replaced with stb if freetype isn't linked
+
+Get the tests working.
+Write more tests
+
+Support tabbing to the next texbox
+
