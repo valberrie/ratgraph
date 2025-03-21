@@ -1192,7 +1192,7 @@ pub fn game_main() !void {
     var channels: c_int = 0;
     var sample_rate: c_int = 0;
     var output: ?*c_short = null;
-    const ogg = c.stb_vorbis_decode_filename("mono.ogg", &channels, &sample_rate, &output);
+    const ogg = c.stb_vorbis_decode_filename("3d_asset/mono.ogg", &channels, &sample_rate, &output);
 
     c.alBufferData(audio_buf, c.AL_FORMAT_MONO16, output, @intCast(ogg), sample_rate);
     c.alSourcei(audio_source, c.AL_BUFFER, @intCast(audio_buf));
@@ -1202,7 +1202,7 @@ pub fn game_main() !void {
 
     var footstep_timer = try std.time.Timer.start();
     //checkAl();
-    const ls = try loadOgg(lifetime_alloc, "stop.ogg", V3f.zero());
+    const ls = try loadOgg(lifetime_alloc, "3d_asset/stop.ogg", V3f.zero());
     checkAl();
     //c.alSourcePlay(audio_source);
 
@@ -1239,17 +1239,17 @@ pub fn game_main() !void {
     var camera = graph.Camera3D{};
     const camera_spawn = V3f.new(1, 3, 1);
     camera.pos = camera_spawn;
-    const woodtex = try graph.Texture.initFromImgFile(alloc, cwd, "asset/wood/color.png", .{});
+    const woodtex = try graph.Texture.initFromImgFile(alloc, cwd, "3d_asset/wood/color.png", .{});
     const files_to_load = [_][]const u8{
-        "asset/brickfloor001a.png",
-        "asset/wood/woodfloor007a.png",
-        "asset/wood/woodfloor007a_normal.png",
-        "asset/plastercieling002b.png",
-        "asset/plastercieling002b_normal.png",
-        "asset/concretefloor001a.png",
-        "asset/concretefloor001a_normal.png",
-        "asset/oil_drum.png",
-        "asset/oil_drum_normal.png",
+        "3d_asset/brickfloor001a.png",
+        "3d_asset/wood/woodfloor007a.png",
+        "3d_asset/wood/woodfloor007a_normal.png",
+        "3d_asset/plastercieling002b.png",
+        "3d_asset/plastercieling002b_normal.png",
+        "3d_asset/concretefloor001a.png",
+        "3d_asset/concretefloor001a_normal.png",
+        "3d_asset/oil_drum.png",
+        "3d_asset/oil_drum_normal.png",
     };
     var tarr = createTextureArray(512, 256);
     {
@@ -1263,10 +1263,10 @@ pub fn game_main() !void {
     var disp_cubes = graph.Cubes.init(alloc, woodtex, draw.textured_tri_3d_shader);
     defer disp_cubes.deinit();
 
-    const woodnormal = try graph.Texture.initFromImgFile(alloc, cwd, "asset/normal.png", .{});
-    const tex = try graph.Texture.initFromImgFile(alloc, cwd, "two4.png", .{});
-    const ggrid = try graph.Texture.initFromImgFile(alloc, cwd, "graygrid.png", .{});
-    const sky_tex = try graph.Texture.initFromImgFile(alloc, cwd, "sky06.png", .{
+    const woodnormal = try graph.Texture.initFromImgFile(alloc, cwd, "3d_asset/normal.png", .{});
+    const tex = try graph.Texture.initFromImgFile(alloc, cwd, "3d_asset/two4.png", .{});
+    const ggrid = try graph.Texture.initFromImgFile(alloc, cwd, "3d_asset/graygrid.png", .{});
+    const sky_tex = try graph.Texture.initFromImgFile(alloc, cwd, "3d_asset/sky06.png", .{
         .mag_filter = graph.c.GL_NEAREST,
     });
     const light_shader = try graph.Shader.loadFromFilesystem(alloc, cwd, &.{
@@ -1346,7 +1346,7 @@ pub fn game_main() !void {
     var world = World.init(alloc);
     defer world.deinit();
     {
-        if (cwd.openFile("lumber.json", .{}) catch null) |infile| {
+        if (cwd.openFile("3d_asset/lumber.json", .{}) catch null) |infile| {
             const sl = try infile.reader().readAllAlloc(alloc, std.math.maxInt(usize));
             defer alloc.free(sl);
             const j = try std.json.parseFromSlice(WorldSaveJson, alloc, sl, .{});
@@ -1369,7 +1369,7 @@ pub fn game_main() !void {
         }
     }
     defer {
-        const outfile = cwd.createFile("lumber.json", .{}) catch unreachable;
+        const outfile = cwd.createFile("3d_asset/lumber.json", .{}) catch unreachable;
         std.json.stringify(world, .{}, outfile.writer()) catch unreachable;
         outfile.close();
     }
@@ -1400,17 +1400,17 @@ pub fn game_main() !void {
     });
     libatch.pushVertexData();
 
-    var cubes_st = try loadObj(alloc, cwd, "sky.obj", 1, sky_tex, draw.textured_tri_3d_shader, &tarr);
+    var cubes_st = try loadObj(alloc, cwd, "3d_asset/sky.obj", 1, sky_tex, draw.textured_tri_3d_shader, &tarr);
     defer cubes_st.deinit();
 
     var models = [_]mesh_util.Model{
-        try mesh_util.loadObj(alloc, cwd, "asset/alyx/alyx.obj", 0.0254),
-        try mesh_util.loadObj(alloc, cwd, "asset/gman/gman.obj", 0.03),
+        try mesh_util.loadObj(alloc, cwd, "3d_asset/alyx/alyx.obj", 0.0254),
+        try mesh_util.loadObj(alloc, cwd, "3d_asset/gman/gman.obj", 0.03),
         //try mesh_util.loadObj(alloc, cwd, "asset/Sponza/sponza.obj", 0.01),
-        try mesh_util.loadObj(alloc, cwd, "asset/desk/desk.obj", 0.03),
-        try mesh_util.loadObj(alloc, cwd, "asset/bathtub/bathtub.obj", 0.03),
-        try mesh_util.loadObj(alloc, cwd, "asset/pistol2/untitled.obj", 0.06),
-        try mesh_util.loadObj(alloc, cwd, "asset/crap/chair.obj", 1.0),
+        try mesh_util.loadObj(alloc, cwd, "3d_asset/desk/desk.obj", 0.03),
+        try mesh_util.loadObj(alloc, cwd, "3d_asset/bathtub/bathtub.obj", 0.03),
+        try mesh_util.loadObj(alloc, cwd, "3d_asset/pistol2/untitled.obj", 0.06),
+        try mesh_util.loadObj(alloc, cwd, "3d_asset/crap/chair.obj", 1.0),
     };
     defer {
         for (&models) |*m|
@@ -1427,9 +1427,9 @@ pub fn game_main() !void {
         Mat4.fromTranslate(V3f.new(0, 2, 0)),
     };
 
-    var couch = try loadObj(alloc, cwd, "barrel.obj", 0.03, sky_tex, draw.textured_tri_3d_shader, &tarr);
+    var couch = try loadObj(alloc, cwd, "3d_asset/barrel.obj", 0.03, sky_tex, draw.textured_tri_3d_shader, &tarr);
     defer couch.deinit();
-    var soda = try loadObj(alloc, cwd, "asset/soda/bathtub.obj", 0.03, sky_tex, draw.textured_tri_3d_shader, &tarr);
+    var soda = try loadObj(alloc, cwd, "3d_asset/soda/bathtub.obj", 0.03, sky_tex, draw.textured_tri_3d_shader, &tarr);
     defer soda.deinit();
 
     const objs = [_]*graph.Cubes{ &couch, &soda };
