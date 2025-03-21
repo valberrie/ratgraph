@@ -1,5 +1,8 @@
 const std = @import("std");
 
+/// All the unicode codepoints is the [Zs] or Seperator, Space category
+pub const unicode_space_seperator = [_]u21{ 0x0020, 0x00A0, 0x1680, 0x2000, 0x2001, 0x2002, 0x2003, 0x2004, 0x2005, 0x2006, 0x2007, 0x2008, 0x2009, 0x200A, 0x202f, 0x205f, 0x3000 };
+
 ///Much of this is adapted from std.unicode.Utf8Iterator
 pub const BiDirectionalUtf8Iterator = struct {
     pub fn nextCodepointSlice(i: *usize, bytes: []const u8) ?[]const u8 {
@@ -15,6 +18,13 @@ pub const BiDirectionalUtf8Iterator = struct {
     pub fn nextCodepoint(i: *usize, bytes: []const u8) ?u21 {
         const slice = nextCodepointSlice(i, bytes) orelse return null;
         return std.unicode.utf8Decode(slice) catch unreachable;
+    }
+
+    pub fn currentCodepoint(i: usize, bytes: []const u8) ?u21 {
+        if (i >= bytes.len) return null;
+
+        const cp_len = std.unicode.utf8ByteSequenceLength(bytes[i]) catch unreachable;
+        return std.unicode.utf8Decode(bytes[i .. i + cp_len]) catch unreachable;
     }
 
     pub fn prevCodepointSlice(i: *usize, bytes: []const u8) ?[]const u8 {

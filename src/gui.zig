@@ -3,6 +3,7 @@ const Cache = @import("gui_cache.zig");
 const graph = @import("graphics.zig");
 //TODO write a backend using wasi
 //TODO write a backend using glfw
+//TODO gui should not depend on SDL. keys can be passed in an generic array. User must initialize keybindings with key ids
 
 const json = std.json;
 const clamp = std.math.clamp;
@@ -238,6 +239,8 @@ pub const HorizLayout = struct {
     }
 };
 
+//TODO Rather than having beginLayout be a ducktyped generic that fills out the Layout vtable,
+// declare a LayoutInterface struct that each layout implements
 pub const Layout = struct {
     const Self = @This();
     const HashFnSig = *const fn (*anyopaque, Rect) u64;
@@ -279,7 +282,6 @@ pub const Layout = struct {
     }
 };
 
-//TODO use a utf8 library to add utf8 support. check out the ziglyph library
 pub const RetainedState = struct {
     //Implementation of https://rxi.github.io/textbox_behaviour.html
     pub const TextInput = struct {
@@ -327,35 +329,41 @@ pub const RetainedState = struct {
         tail: usize,
 
         fn select_to(self: *Self, movement: SingleLineMovement) void {
+            const indexOfScalar = std.mem.indexOfScalar;
             switch (movement) {
                 .left => {
                     _ = Utf8It.prevCodepointSlice(&self.head, self.codepoints.items);
-                    //self.head = clamp(self.head - 1, 0, max);
                 },
                 .right => {
                     _ = Utf8It.nextCodepointSlice(&self.head, self.codepoints.items);
-                    //self.head = clamp(self.head + 1, 0, max);
                 },
-                .prev_word_end => {
-                    //const sl = self.codepoints.items;
-                    //while (self.head > 0 and std.ascii.isWhitespace(sl[@intCast(self.head - 1)])) : (self.head -= 1) {}
-                    //if (std.mem.lastIndexOfAny(u8, sl[0..@intCast(self.head)], &std.ascii.whitespace)) |ws| {
-                    //    self.head = @as(i32, @intCast(ws)) + 1;
-                    //} else {
-                    //    self.head = 0;
-                    //}
+                .prev_word_end => { //Move the caret to the first letter of the current word.
+                    while (Utf8It.prevCodepoint(&self.head, self.codepoints.items)) |cp| {
+                        _ = indexOfScalar(u21, &utf8.unicode_space_seperator, cp) orelse break;
+                    } //This moves head backward to the first non whitespace character
+
+                    while (Utf8It.currentCodepoint(self.head, self.codepoints.items)) |cp| {
+                        if (indexOfScalar(u21, &utf8.unicode_space_seperator, cp)) |_| {
+                            _ = Utf8It.nextCodepointSlice(&self.head, self.codepoints.items);
+                            break;
+                        }
+                        _ = Utf8It.prevCodepointSlice(&self.head, self.codepoints.items) orelse break;
+                    }
                 },
                 .next_word_end => {
-                    //const sl = self.codepoints.items;
-                    //while (self.head < sl.len and std.ascii.isWhitespace(sl[@intCast(self.head)])) : (self.head += 1) {}
-                    //if (std.mem.indexOfAny(u8, sl[@intCast(self.head)..sl.len], &std.ascii.whitespace)) |ws| {
-                    //    self.head += @intCast(ws);
-                    //} else {
-                    //    self.head = max;
-                    //}
+                    //First, skip over any whitespace, then seek till first whitespace or last char
+                    while (Utf8It.currentCodepoint(self.head, self.codepoints.items)) |cp| {
+                        _ = indexOfScalar(u21, &utf8.unicode_space_seperator, cp) orelse break;
+                        _ = Utf8It.nextCodepointSlice(&self.head, self.codepoints.items);
+                    } //This moves head forward to the first non whitespace character or end of string (len)
+
+                    while (Utf8It.currentCodepoint(self.head, self.codepoints.items)) |cp| {
+                        if (indexOfScalar(u21, &utf8.unicode_space_seperator, cp)) |_| break;
+                        _ = Utf8It.nextCodepointSlice(&self.head, self.codepoints.items);
+                    } //This moves head forward to the first whitespace character or eos
                 },
                 .start => self.head = 0,
-                .end => _ = Utf8It.lastCodepointSlice(&self.head, self.codepoints.items),
+                .end => self.head = self.codepoints.items.len,
             }
         }
 
@@ -381,13 +389,26 @@ pub const RetainedState = struct {
             return self.codepoints.items;
         }
 
-        pub fn setCaret(self: *Self, pos: usize) void {
-            //TODO fix;
-            _ = self;
-            _ = pos;
-            //if (pos > self.codepoints.items.len) return;
-            //self.head = @as(i32, @intCast(pos));
-            //self.tail = @as(i32, @intCast(pos));
+        pub fn setHead(self: *Self, pos: usize, codepoint_offset: i32, sync_tail: bool) void {
+            if (pos > self.codepoints.items.len) return;
+            //If the caret position isn't at the start of a codepoint, do nothing.
+            if (pos < self.codepoints.items.len) // pos == len is always a valid codepoint
+                _ = std.unicode.utf8ByteSequenceLength(self.codepoints.items[pos]) catch return;
+
+            self.head = pos;
+            if (codepoint_offset != 0) {
+                if (codepoint_offset > 0) {
+                    for (0..@abs(codepoint_offset)) |_| {
+                        _ = Utf8It.nextCodepointSlice(&self.head, self.codepoints.items) orelse break;
+                    }
+                } else {
+                    for (0..@abs(codepoint_offset)) |_| {
+                        _ = Utf8It.prevCodepointSlice(&self.head, self.codepoints.items) orelse break;
+                    }
+                }
+            }
+            if (sync_tail)
+                self.tail = self.head;
         }
 
         pub fn reset(self: *Self, new_str: []const u8) !void {
@@ -415,8 +436,7 @@ pub const RetainedState = struct {
         pub fn resetFmt(self: *Self, comptime fmt: []const u8, args: anytype) !void {
             try self.reset("");
             try self.codepoints.writer().print(fmt, args);
-            _ = Utf8It.lastCodepointSlice(&self.head, self.codepoints.items);
-            //@as(i32, @intCast(self.codepoints.items.len));
+            self.head = self.codepoints.items.len;
             self.tail = self.head;
         }
 
@@ -439,12 +459,16 @@ pub const RetainedState = struct {
                 StaticData.key_binds = edit_keys_list.init();
             }
 
-            for (text_input) |new_char| {
+            const view = try std.unicode.Utf8View.init(text_input);
+            var it = view.iterator();
+
+            while (it.nextCodepointSlice()) |new_cp| {
                 var new_len: usize = tb.codepoints.items.len;
                 if (options.restricted_charset) |cset| {
                     restricted_blk: {
                         for (cset) |achar| {
-                            if (achar == new_char)
+                            const cp = try std.unicode.utf8Decode(new_cp);
+                            if (achar == cp)
                                 break :restricted_blk;
                         }
                         continue;
@@ -458,8 +482,8 @@ pub const RetainedState = struct {
                     if (new_len >= ml)
                         break;
                 }
-                try tb.codepoints.insert(@intCast(tb.head), new_char);
-                tb.head += 1;
+                try tb.codepoints.insertSlice(@intCast(tb.head), new_cp);
+                tb.head += new_cp.len;
                 tb.tail = tb.head;
             }
 
@@ -487,6 +511,7 @@ pub const RetainedState = struct {
                     .select_all => {
                         tb.tail = 0;
                         tb.head = @intCast(tb.codepoints.items.len);
+                        //_ = Utf8It.lastCodepointSlice(&tb.head, tb.codepoints.items);
                     },
                     .copy => {
                         try setClipboard(tb.codepoints.allocator, tb.getSelectionSlice());
@@ -495,13 +520,22 @@ pub const RetainedState = struct {
                         try tb.deleteSelection();
                         const clip = try getClipboard(tb.codepoints.allocator);
                         defer tb.codepoints.allocator.free(clip);
-                        if (options.max_len) |ml| { //If the paste will exceed bounds don't paste anything
-                            if (tb.codepoints.items.len + clip.len > ml)
-                                continue;
+                        // creating a utf8view ensures the paste contains valid unicode and allows us to find the length
+                        if (std.unicode.Utf8View.init(clip)) |clip_view| {
+                            var clip_it = clip_view.iterator();
+                            var len: usize = 0;
+                            while (clip_it.nextCodepointSlice()) |_|
+                                len += 1;
+                            if (options.max_len) |ml| { //If the paste will exceed bounds don't paste anything
+                                if (tb.codepoints.items.len + len > ml)
+                                    continue;
+                            }
+                            try tb.codepoints.insertSlice(@intCast(tb.head), clip);
+                            tb.head += @intCast(clip.len);
+                            tb.tail = tb.head;
+                        } else |err| switch (err) {
+                            error.InvalidUtf8 => Context.log.err("Paste was not valid unicode!", .{}),
                         }
-                        try tb.codepoints.insertSlice(@intCast(tb.head), clip);
-                        tb.head += @intCast(clip.len);
-                        tb.tail = tb.head;
                     },
                 }
             }
@@ -725,7 +759,7 @@ pub const Console = struct {
 };
 
 pub const Context = struct {
-    const log = std.log.scoped(.GuiContext);
+    pub const log = std.log.scoped(.GuiContext);
     pub var dealloc_count: u32 = 0;
     pub var alloc_count: u32 = 0;
     const Self = @This();
@@ -1845,12 +1879,12 @@ pub const Context = struct {
             }
             const cin = font.nearestGlyphX(self.textbox_state.getSlice(), trect.h, self.input_state.mouse.pos.sub(trect.pos()));
             if (cin) |cc| {
-                self.textbox_state.setCaret(cc - 1);
+                self.textbox_state.setHead(cc, 0, true);
             }
         } else if (click == .held and self.held_timer > 4) {
             const cin = font.nearestGlyphX(self.textbox_state.getSlice(), trect.h, self.input_state.mouse.pos.sub(trect.pos()));
             if (cin) |cc|
-                self.textbox_state.head = @intCast(cc);
+                self.textbox_state.setHead(cc, 0, false);
         }
         ret.slice = contents.items;
         return ret;
@@ -1905,12 +1939,12 @@ pub const Context = struct {
             }
             const cin = font.nearestGlyphX(self.textbox_state.getSlice(), trect.h, self.input_state.mouse.pos.sub(trect.pos()));
             if (cin) |cc| {
-                self.textbox_state.setCaret(cc - 1);
+                self.textbox_state.setHead(cc, 0, true);
             }
         } else if (click == .held and self.held_timer > 4) {
             const cin = font.nearestGlyphX(self.textbox_state.getSlice(), trect.h, self.input_state.mouse.pos.sub(trect.pos()));
             if (cin) |cc|
-                self.textbox_state.head = @intCast(cc);
+                self.textbox_state.setHead(cc, 0, false);
         }
         ret.slice = contents.getSlice();
         return ret;
@@ -1996,7 +2030,7 @@ pub const Context = struct {
 
             const cin = font.nearestGlyphX(self.textbox_state.getSlice(), tarea.h, self.input_state.mouse.pos.sub(tarea.pos()));
             if (cin) |cc| {
-                self.textbox_state.setCaret(cc - 1);
+                self.textbox_state.setHead(cc, 0, true);
             }
         }
 

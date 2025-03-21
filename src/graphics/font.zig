@@ -90,7 +90,7 @@ pub const PublicFontInterface = struct {
                     //const y = rel_coord.y;
                     //if (x < x_bound + xw and x > x_bound and y < bounds.y + yw and y > bounds.y) {
                     if (x < x_bound + xw and x > x_bound) {
-                        return it.i;
+                        return it.i - 1;
                     }
                 },
             }
