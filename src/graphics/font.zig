@@ -4,13 +4,13 @@ const Alloc = std.mem.Allocator;
 const Dir = std.fs.Dir;
 const SparseSet = @import("sparse_set.zig").SparseSet;
 const ptypes = @import("types.zig");
-const SDL = @import("SDL.zig");
+const GL = @import("gl.zig");
 const Rect = ptypes.Rect;
 const Vec2f = ptypes.Vec2f;
 const Vec2i = ptypes.Vec2i;
 const lcast = std.math.lossyCast;
 const intToColor = ptypes.intToColor;
-const glID = SDL.glID;
+const glID = GL.glID;
 const Rec = Rect.NewAny;
 
 /// Any font type must implement the following methods or fields
@@ -378,7 +378,7 @@ pub const Font = struct {
             const bmx = @as(u32, @intCast(r.x)) + pad;
             const bmy = @as(u32, @intCast(r.y)) + pad;
             const gbmp = &bitmaps.items[@intCast(r.id)];
-            try Bitmap.copySubR(1, &out_bmp, bmx, bmy, gbmp, 0, 0, gbmp.w, gbmp.h);
+            try Bitmap.copySubR(&out_bmp, bmx, bmy, gbmp, 0, 0, gbmp.w, gbmp.h);
 
             const g = (result.glyphs.getPtr(@intCast(cop_lut.items[@intCast(r.id)]))).?;
             g.tr.x = @floatFromInt(bmx);
@@ -642,7 +642,7 @@ pub const Font = struct {
             const g = result.glyphs.getPtr(@as(u21, @intCast(rect.id))).?;
             g.tr.x = @floatFromInt(cx);
             g.tr.y = @floatFromInt(cy);
-            try Bitmap.copySubR(1, &texture_bitmap, cx, cy, gbmp, 0, 0, gbmp.w, gbmp.h);
+            try Bitmap.copySubR(&texture_bitmap, cx, cy, gbmp, 0, 0, gbmp.w, gbmp.h);
         }
         if (options.debug_dir) |ddir| {
             var out = std.ArrayList(u8).init(alloc);
@@ -967,9 +967,8 @@ pub const Bitmap = struct {
         }
     }
 
-    //TODO use self.format
-    pub fn copySubR(num_component: u8, dest: *Self, des_x: u32, des_y: u32, source: *Self, src_x: u32, src_y: u32, src_w: u32, src_h: u32) !void {
-        if (dest.format != source.format) return error.formatMismatch;
+    pub fn copySubR(dest: *Self, des_x: u32, des_y: u32, source: *Self, src_x: u32, src_y: u32, src_w: u32, src_h: u32) !void {
+        const num_component = ImageFormat.toChannelCount(dest.format);
         var sy = src_y;
         while (sy < src_y + src_h) : (sy += 1) {
             var sx = src_x;
@@ -983,31 +982,6 @@ pub const Bitmap = struct {
 
                 var i: usize = 0;
                 while (i < num_component) : (i += 1) {
-                    dest.data.items[dest_i + i] = source.data.items[source_i + i];
-                }
-            }
-        }
-    }
-
-    //TODO should the source and dest be swapped, copy functions usually have the destination argument before the source
-    pub fn copySub(source: *Self, srect_x: u32, srect_y: u32, srect_w: u32, srect_h: u32, dest: *Self, des_x: u32, des_y: u32) void {
-        if (source.format != dest.format) unreachable;
-        const num_comp = 4;
-
-        var sy = srect_y;
-
-        while (sy < srect_y + srect_h) : (sy += 1) {
-            var sx = srect_x;
-            while (sx < srect_x + srect_w) : (sx += 1) {
-                const source_i = ((sy * source.w) + sx) * num_comp;
-
-                const rel_y = sy - srect_y;
-                const rel_x = sx - srect_x;
-
-                const dest_i = (((des_y + rel_y) * dest.w) + rel_x + des_x) * num_comp;
-
-                var i: usize = 0;
-                while (i < num_comp) : (i += 1) {
                     dest.data.items[dest_i + i] = source.data.items[source_i + i];
                 }
             }

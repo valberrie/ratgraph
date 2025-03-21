@@ -161,18 +161,6 @@ pub const OnlineFont = struct {
                 .height = h,
             };
             {
-                //font.Bitmap.copySubR(
-                //    1,
-                //    &self.bitmap,
-                //    @intCast(atlas_cx * self.cell_width),
-                //    @intCast(atlas_cy * self.cell_height),
-                //    &self.scratch_bmp,
-                //    0,
-                //    0,
-                //    self.scratch_bmp.w,
-                //    self.scratch_bmp.h,
-                //) catch unreachable;
-
                 //    c.glBindTexture(c.GL_TEXTURE_2D, font_i.texture.id);
                 //    c.glTexImage2D(
                 //        c.GL_TEXTURE_2D,

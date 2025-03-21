@@ -487,7 +487,6 @@ pub fn assetBake(
         const w: u32 = @intCast(rect.w);
         const h: u32 = @intCast(rect.h);
         try graph.Bitmap.copySubR(
-            comp_count,
             &out_bmp,
             x + pixel_extrude,
             yy + pixel_extrude,
