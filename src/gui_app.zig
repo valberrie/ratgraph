@@ -1186,12 +1186,7 @@ pub const Os9Gui = struct {
         //};
         const ofont_ptr = try alloc.create(OFont);
         //const ofont_icon_ptr = try alloc.create(OFont);
-        ofont_ptr.* = try OFont.initFromBuffer(
-            alloc,
-            @embedFile("font/noto.ttc"),
-            64,
-            .{},
-        );
+        ofont_ptr.* = try OFont.init(alloc, asset_dir, "fonts/noto.ttc", 64, .{});
         //ofont_icon_ptr.* = try OFont.initFromBuffer(alloc, @embedFile("font/remix.ttf"), 12, .{});
         return .{
             .gui = try Gui.Context.init(alloc),

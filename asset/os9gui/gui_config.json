@@ -1,7 +1,10 @@
 {
   "default_item_h": 20,
   "default_v_pad": {
-    "bottom": 6
+    "bottom": 3,
+    "left": 5,
+    "right":5,
+    "top": 3
   },
   "pixel_per_line": 20,
   "textbox_caret_width":3,

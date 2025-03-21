@@ -1,60 +1,48 @@
 const std = @import("std");
 
-///Much of this is copied from std.unicode.Utf8Iterator
+///Much of this is adapted from std.unicode.Utf8Iterator
 pub const BiDirectionalUtf8Iterator = struct {
-    bytes: []const u8,
-    i: usize,
-
-    pub fn nextCodepointSlice(it: *BiDirectionalUtf8Iterator) ?[]const u8 {
-        if (it.i >= it.bytes.len) {
+    pub fn nextCodepointSlice(i: *usize, bytes: []const u8) ?[]const u8 {
+        if (i.* >= bytes.len) {
             return null;
         }
 
-        const cp_len = std.unicode.utf8ByteSequenceLength(it.bytes[it.i]) catch unreachable;
-        it.i += cp_len;
-        return it.bytes[it.i - cp_len .. it.i];
+        const cp_len = std.unicode.utf8ByteSequenceLength(bytes[i.*]) catch unreachable;
+        i.* += cp_len;
+        return bytes[i.* - cp_len .. i.*];
     }
 
-    pub fn nextCodepoint(it: *BiDirectionalUtf8Iterator) ?u21 {
-        const slice = it.nextCodepointSlice() orelse return null;
+    pub fn nextCodepoint(i: *usize, bytes: []const u8) ?u21 {
+        const slice = nextCodepointSlice(i, bytes) orelse return null;
         return std.unicode.utf8Decode(slice) catch unreachable;
     }
 
-    /// Look ahead at the next n codepoints without advancing the iterator.
-    /// If fewer than n codepoints are available, then return the remainder of the string.
-    pub fn peek(it: *BiDirectionalUtf8Iterator, n: usize) []const u8 {
-        const original_i = it.i;
-        defer it.i = original_i;
+    pub fn prevCodepointSlice(i: *usize, bytes: []const u8) ?[]const u8 {
+        if (i.* == 0) return null;
 
-        var end_ix = original_i;
-        var found: usize = 0;
-        while (found < n) : (found += 1) {
-            const next_codepoint = it.nextCodepointSlice() orelse return it.bytes[original_i..];
-            end_ix += next_codepoint.len;
-        }
+        const start_i: usize = i.*;
+        i.* -= 1;
+        //Every continuation byte starts with 0b10
+        while (i.* > 0 and (bytes[i.*] >> 6) ^ 0b10 == 0) : (i.* -= 1) {}
 
-        return it.bytes[original_i..end_ix];
+        return bytes[i.*..start_i];
     }
 
-    pub fn prevCodepointSlice(it: *BiDirectionalUtf8Iterator) ?[]const u8 {
-        if (it.i == 0) return null;
-
-        const start_i: usize = it.i;
-        it.i -= 1;
-        while (it.i > 0 and (it.bytes[it.i] >> 6) ^ 0b10 == 0) : (it.i -= 1) {}
-
-        return it.bytes[it.i..start_i];
-    }
-
-    pub fn prevCodepoint(it: *BiDirectionalUtf8Iterator) ?u21 {
-        if (it.i == 0) return null;
-        const slice = it.prevCodepointSlice() orelse return null;
+    pub fn prevCodepoint(i: *usize, bytes: []const u8) ?u21 {
+        if (i.* == 0) return null;
+        const slice = prevCodepointSlice(i, bytes) orelse return null;
         return std.unicode.utf8Decode(slice) catch unreachable;
+    }
+
+    pub fn lastCodepointSlice(i: *usize, bytes: []const u8) ?[]const u8 {
+        if (bytes.len == 0) return null;
+        i.* = bytes.len;
+        return prevCodepointSlice(i, bytes);
     }
 };
 
 test "backwards" {
-    std.debug.print("CRASS\n", .{});
+    //broken
     const str = "test strありがと 猫 more ";
     std.debug.print("{s}\n", .{str});
 

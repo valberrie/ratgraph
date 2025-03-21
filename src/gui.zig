@@ -283,6 +283,7 @@ pub const Layout = struct {
 pub const RetainedState = struct {
     //Implementation of https://rxi.github.io/textbox_behaviour.html
     pub const TextInput = struct {
+        const Utf8It = utf8.BiDirectionalUtf8Iterator;
         const Self = @This();
         const uni = std.unicode;
         const M = graph.SDL.keycodes.Keymod;
@@ -322,38 +323,39 @@ pub const RetainedState = struct {
 
         codepoints: std.ArrayList(u8),
 
-        head: i32,
-        tail: i32,
+        head: usize,
+        tail: usize,
 
         fn select_to(self: *Self, movement: SingleLineMovement) void {
-            const max = @as(i32, @intCast(self.codepoints.items.len));
             switch (movement) {
                 .left => {
-                    self.head = clamp(self.head - 1, 0, max);
+                    _ = Utf8It.prevCodepointSlice(&self.head, self.codepoints.items);
+                    //self.head = clamp(self.head - 1, 0, max);
                 },
                 .right => {
-                    self.head = clamp(self.head + 1, 0, max);
+                    _ = Utf8It.nextCodepointSlice(&self.head, self.codepoints.items);
+                    //self.head = clamp(self.head + 1, 0, max);
                 },
                 .prev_word_end => {
-                    const sl = self.codepoints.items;
-                    while (self.head > 0 and std.ascii.isWhitespace(sl[@intCast(self.head - 1)])) : (self.head -= 1) {}
-                    if (std.mem.lastIndexOfAny(u8, sl[0..@intCast(self.head)], &std.ascii.whitespace)) |ws| {
-                        self.head = @as(i32, @intCast(ws)) + 1;
-                    } else {
-                        self.head = 0;
-                    }
+                    //const sl = self.codepoints.items;
+                    //while (self.head > 0 and std.ascii.isWhitespace(sl[@intCast(self.head - 1)])) : (self.head -= 1) {}
+                    //if (std.mem.lastIndexOfAny(u8, sl[0..@intCast(self.head)], &std.ascii.whitespace)) |ws| {
+                    //    self.head = @as(i32, @intCast(ws)) + 1;
+                    //} else {
+                    //    self.head = 0;
+                    //}
                 },
                 .next_word_end => {
-                    const sl = self.codepoints.items;
-                    while (self.head < sl.len and std.ascii.isWhitespace(sl[@intCast(self.head)])) : (self.head += 1) {}
-                    if (std.mem.indexOfAny(u8, sl[@intCast(self.head)..sl.len], &std.ascii.whitespace)) |ws| {
-                        self.head += @intCast(ws);
-                    } else {
-                        self.head = max;
-                    }
+                    //const sl = self.codepoints.items;
+                    //while (self.head < sl.len and std.ascii.isWhitespace(sl[@intCast(self.head)])) : (self.head += 1) {}
+                    //if (std.mem.indexOfAny(u8, sl[@intCast(self.head)..sl.len], &std.ascii.whitespace)) |ws| {
+                    //    self.head += @intCast(ws);
+                    //} else {
+                    //    self.head = max;
+                    //}
                 },
                 .start => self.head = 0,
-                .end => self.head = max,
+                .end => _ = Utf8It.lastCodepointSlice(&self.head, self.codepoints.items),
             }
         }
 
@@ -380,9 +382,12 @@ pub const RetainedState = struct {
         }
 
         pub fn setCaret(self: *Self, pos: usize) void {
-            if (pos > self.codepoints.items.len) return;
-            self.head = @as(i32, @intCast(pos));
-            self.tail = @as(i32, @intCast(pos));
+            //TODO fix;
+            _ = self;
+            _ = pos;
+            //if (pos > self.codepoints.items.len) return;
+            //self.head = @as(i32, @intCast(pos));
+            //self.tail = @as(i32, @intCast(pos));
         }
 
         pub fn reset(self: *Self, new_str: []const u8) !void {
@@ -410,7 +415,8 @@ pub const RetainedState = struct {
         pub fn resetFmt(self: *Self, comptime fmt: []const u8, args: anytype) !void {
             try self.reset("");
             try self.codepoints.writer().print(fmt, args);
-            self.head = @as(i32, @intCast(self.codepoints.items.len));
+            _ = Utf8It.lastCodepointSlice(&self.head, self.codepoints.items);
+            //@as(i32, @intCast(self.codepoints.items.len));
             self.tail = self.head;
         }
 

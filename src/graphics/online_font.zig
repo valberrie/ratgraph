@@ -1,5 +1,6 @@
 const std = @import("std");
 const font = @import("font.zig");
+const sdl = @import("SDL.zig");
 const c = @import("c.zig");
 const Glyph = font.Glyph;
 
@@ -9,6 +10,10 @@ const Glyph = font.Glyph;
 
 pub const OnlineFont = struct {
     const Self = @This();
+
+    pub const InitParams = struct {
+        cell_count_w: i32 = 30,
+    };
 
     font: font.PublicFontInterface,
     glyphs: std.AutoHashMap(u21, Glyph),
@@ -23,20 +28,37 @@ pub const OnlineFont = struct {
     finfo: c.stbtt_fontinfo,
     SF: f32 = 0,
 
+    file_slice: ?std.ArrayList(u8) = null,
+    param: InitParams,
+
     pub fn deinit(self: *Self) void {
         self.glyphs.deinit();
         self.scratch_bmp.deinit();
         self.bitmap.deinit();
         self.font.texture.deinit();
+        if (self.file_slice) |fs|
+            fs.deinit();
+    }
+
+    pub fn init(alloc: std.mem.Allocator, dir: std.fs.Dir, filename: []const u8, pixel_size: f32, params: InitParams) !Self {
+        const infile = try dir.openFile(filename, .{});
+        defer infile.close();
+        var slice_list = std.ArrayList(u8).init(alloc);
+        try infile.reader().readAllArrayList(&slice_list, std.math.maxInt(usize));
+
+        var ret = try initFromBuffer(alloc, slice_list.items, pixel_size, params);
+        ret.file_slice = slice_list;
+        return ret;
     }
 
     pub fn initFromBuffer(
         alloc: std.mem.Allocator,
+        /// Buf must live as long as the returned object
         buf: []const u8,
         pixel_size: f32,
-        params: struct { char_count: usize = 4096 },
+        params: InitParams,
     ) !Self {
-        _ = params;
+        const ww = params.cell_count_w;
         var finfo: c.stbtt_fontinfo = undefined;
         _ = c.stbtt_InitFont(&finfo, @as([*c]const u8, @ptrCast(buf)), c.stbtt_GetFontOffsetForIndex(&buf[0], 0));
 
@@ -51,6 +73,7 @@ pub const OnlineFont = struct {
                 .descent = 0,
                 .line_gap = 0,
             },
+            .param = params,
             .glyphs = std.AutoHashMap(u21, Glyph).init(alloc),
             .cell_width = 0,
             .cell_height = 0,
@@ -70,7 +93,6 @@ pub const OnlineFont = struct {
             result.cell_width = @intFromFloat(@abs(@ceil(@as(f32, @floatFromInt(x1)) * SF) - @ceil(@as(f32, @floatFromInt(x0)) * SF)));
             result.cell_height = @intFromFloat(@abs(@ceil(@as(f32, @floatFromInt(y1)) * SF) - @ceil(@as(f32, @floatFromInt(y0)) * SF)));
         }
-        const ww = 20;
         result.font.texture = font.Texture.initFromBuffer(null, result.cell_width * ww, result.cell_height * ww, .{
             .pixel_store_alignment = 1,
             .internal_format = c.GL_RED,
@@ -91,7 +113,7 @@ pub const OnlineFont = struct {
             result.font.height = result.font.ascent - result.font.descent;
             result.font.line_gap = result.font.height + @as(f32, @floatFromInt(line_gap)) * SF;
         }
-        //_ = result.font.getGlyph(std.unicode.replacement_character);
+        _ = result.font.getGlyph(std.unicode.replacement_character);
 
         return result;
     }
@@ -99,6 +121,7 @@ pub const OnlineFont = struct {
     pub fn getGlyph(font_i: *font.PublicFontInterface, codepoint: u21) font.Glyph {
         const self: *@This() = @fieldParentPtr("font", font_i);
         const glyph = self.glyphs.get(codepoint) orelse {
+            const ww = self.param.cell_count_w;
             const cpo = codepoint;
             const SF = self.SF;
             if (c.stbtt_FindGlyphIndex(&self.finfo, codepoint) == 0) {}
@@ -140,22 +163,6 @@ pub const OnlineFont = struct {
             {
                 const atlas_cx = @mod(self.cindex, self.cx);
                 const atlas_cy = @divTrunc(self.cindex, self.cy);
-                //c.glTexSubImage2D(
-                //    c.GL_TEXTURE_2D,
-                //    //font_i.texture.id,
-                //    0, //Level
-                //    //x,y,w,h,
-                //    @intCast(atlas_cx * self.cell_width),
-                //    @intCast(atlas_cy * self.cell_height),
-                //    @intCast(self.scratch_bmp.w),
-                //    @intCast(self.scratch_bmp.h),
-                //    //format,
-                //    c.GL_RED,
-                //    //type,
-                //    c.GL_UNSIGNED_BYTE,
-                //    //pixel_data
-                //    &self.scratch_bmp.data.items[0],
-                //);
                 font.Bitmap.copySubR(
                     1,
                     &self.bitmap,
@@ -167,22 +174,40 @@ pub const OnlineFont = struct {
                     self.scratch_bmp.w,
                     self.scratch_bmp.h,
                 );
-                c.glBindTexture(c.GL_TEXTURE_2D, font_i.texture.id);
-                c.glTexImage2D(
-                    c.GL_TEXTURE_2D,
-                    0,
-                    c.GL_RED,
+
+                //    c.glBindTexture(c.GL_TEXTURE_2D, font_i.texture.id);
+                //    c.glTexImage2D(
+                //        c.GL_TEXTURE_2D,
+                //        0,
+                //        c.GL_RED,
+                //        @intCast(self.bitmap.w),
+                //        @intCast(self.bitmap.h),
+                //        0,
+                //        c.GL_RED,
+                //        c.GL_UNSIGNED_BYTE,
+                //        &self.bitmap.data.items[0],
+                //    );
+                //}
+                //Update the entire row, we have know idea when sync occurs so we must update every time.
+                c.glTextureSubImage2D(
+                    font_i.texture.id,
+                    0, //Level
+                    //x,y,w,h,
+                    0, //@intCast(atlas_cx * self.cell_width),
+                    @intCast(atlas_cy * self.cell_height),
                     @intCast(self.bitmap.w),
-                    @intCast(self.bitmap.h),
-                    0,
+                    @intCast(self.scratch_bmp.h),
+                    //format,
                     c.GL_RED,
+                    //type,
                     c.GL_UNSIGNED_BYTE,
-                    &self.bitmap.data.items[0],
+                    //pixel_data
+                    &self.bitmap.data.items[@as(usize, @intCast(atlas_cy * self.cell_height)) * self.bitmap.w],
                 );
 
                 glyph.tr.x = @floatFromInt(atlas_cx * self.cell_width);
                 glyph.tr.y = @floatFromInt(atlas_cy * self.cell_height);
-                self.cindex += 1;
+                self.cindex = @mod(self.cindex + 1, ww * ww);
             }
             self.glyphs.put(cpo, glyph) catch unreachable;
             return glyph;
