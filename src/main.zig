@@ -1133,7 +1133,7 @@ pub fn testMain() !void {
     }
 }
 
-pub const main = testMain;
+pub const main = game_main;
 
 pub fn game_main() !void {
     const cwd = std.fs.cwd();
@@ -1207,8 +1207,9 @@ pub fn game_main() !void {
     //c.alSourcePlay(audio_source);
 
     const init_size = 72;
-    var font = try graph.Font.init(alloc, cwd, "fonts/roboto.ttf", init_size, .{});
-    defer font.deinit();
+    var roboto = try graph.Font.init(alloc, cwd, "fonts/roboto.ttf", init_size, .{});
+    defer roboto.deinit();
+    const font = &roboto.font;
 
     var draw = graph.ImmediateDrawingContext.init(alloc);
     defer draw.deinit();
@@ -2228,7 +2229,7 @@ pub fn game_main() !void {
                                     lum.* = lum.addInDir(delta, sel_norm.?);
                                     sel_int.? = new_int;
                                 }
-                                draw.textFmt(.{ .x = 400, .y = 400 }, "pd {d}, od {d}", .{ pd, od }, &font, 12, 0xffffffff);
+                                draw.textFmt(.{ .x = 400, .y = 400 }, "pd {d}, od {d}", .{ pd, od }, font, 12, 0xffffffff);
                             } else { //Vertical faces
 
                             }
@@ -2366,7 +2367,7 @@ pub fn game_main() !void {
             @tagName(tool),
             sel_snap / 2.54 * 100,
             @tagName(keys.show_menu),
-        }, &font, 12, 0xffffffff);
+        }, font, 12, 0xffffffff);
 
         if (show_gui) {
             const gw = 1000; //Gui units
@@ -2477,7 +2478,7 @@ pub fn game_main() !void {
                         },
                         .info => {
                             if (os9gui.gui.getArea()) |area| {
-                                os9gui.gui.drawTextFmt("This is the game", .{}, area, 20 * os9gui.scale, graph.Colori.Black, .{ .justify = .left }, &os9gui.font);
+                                os9gui.gui.drawTextFmt("This is the game", .{}, area, 20 * os9gui.scale, graph.Colori.Black, .{ .justify = .left }, os9gui.font);
                             }
                         },
                         else => {},
