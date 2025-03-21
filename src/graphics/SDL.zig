@@ -402,9 +402,6 @@ pub const Window = struct {
             }
         }
         self.text_input = "";
-        //TODO mechanism for using sdl_waitevent instead.
-        //block on sdl_waitevent, then sdl_peekevent, check against interval and then return from this function
-        //would allow for a gui app to only render frames when needed
 
         var event: c.SDL_Event = undefined;
         while (event_fn(self, &event)) {
@@ -438,7 +435,6 @@ pub const Window = struct {
                     const slice = std.mem.sliceTo(event.text.text, 0);
                     @memcpy(self.text_input_buffer[0..slice.len], slice);
                     self.text_input = self.text_input_buffer[0..slice.len];
-                    std.debug.print("TEXT INPUT{s}\n", .{self.text_input});
                 },
                 c.SDL_EVENT_KEYMAP_CHANGED => {
                     log.warn("keymap changed", .{});

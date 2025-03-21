@@ -1070,7 +1070,7 @@ pub fn testMain() !void {
     defer ff.deinit();
 
     cp437.deinit();
-    var ofont = try OFont.initFromBuffer(alloc, @embedFile("font/noto.ttc"), 64, .{});
+    var ofont = try OFont.initFromBuffer(alloc, @embedFile("font/roboto.ttf"), 30, .{});
     defer ofont.deinit();
     win.startTextInput(graph.Rec(900, 900, 900, 80));
     var type_string = std.ArrayList(u8).init(alloc);
@@ -1116,18 +1116,18 @@ pub fn testMain() !void {
         //draw.text(.{ .x = font.texture.rect().w, .y = 400 }, "Hello Worldjj! This is a test string of the test string\n new string line ☺☺☺ ♪♪", &font, 64, 0xffffffff);
         //draw.text(.{ .x = font.texture.rect().w, .y = 600 }, "Hello Worldjj! This is a test string of the test string\n new string line ☺☺☺ ♪♪", &font, 80, 0xffffffff);
         //draw.text(.{ .x = font.texture.rect().w, .y = 700 }, "Hello Worldjj!どうして This is a test string of the test string\n new string line ☺☺☺ ♪♪", &ofont, 80, 0xffffffff);
-        draw.text(.{ .x = font.texture.rect().w, .y = 700 }, "どうして猫 カラスノーフナタ", &ofont.font, 100, 0xffffffff);
+        draw.text(.{ .x = font.font.texture.rect().w, .y = 700 }, "どうして猫 カラスノーフナタ", &ofont.font, 100, 0xffffffff);
         draw.text(
-            .{ .x = font.texture.rect().w, .y = 900 },
+            .{ .x = font.font.texture.rect().w, .y = 900 },
             type_string.items,
             &ofont.font,
             40,
             0xffffffff,
         );
         //draw.tePx(.{ .x = 0, .y = 200 }, "Hello Worldjj!", &font2, 12, 0xffffffff);
-        draw.text(.{ .x = font.texture.rect().w, .y = 800 }, "Hellow World😂", &font2, 64, 0xffffffff);
+        draw.text(.{ .x = font.font.texture.rect().w, .y = 800 }, "Hellow World😂", &font2.font, 64, 0xffffffff);
         //draw.rectTex(font.texture.rect(), font.texture.rect(), font.texture);
-        draw.rectTex(ofont.font.texture.rect(), ofont.font.texture.rect(), ofont.font.texture);
+        //draw.rectTex(ofont.font.texture.rect(), ofont.font.texture.rect(), ofont.font.texture);
         try draw.end(null);
         win.swap();
     }

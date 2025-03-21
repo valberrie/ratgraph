@@ -65,7 +65,7 @@ pub const OnlineFont = struct {
         const SF = c.stbtt_ScaleForPixelHeight(&finfo, pixel_size);
         var result = OnlineFont{
             .font = .{
-                .getGlyphfn = &OnlineFont.getGlyph,
+                .getGlyphFn = &OnlineFont.getGlyph,
                 .height = 0,
                 .font_size = pixel_size,
                 .texture = .{ .id = 0, .w = 0, .h = 0 },
@@ -132,22 +132,22 @@ pub const OnlineFont = struct {
             c.stbtt_GetCodepointBitmapBox(&self.finfo, cpo, SF, SF, &x, &y, &xf, &yf);
             const w: f32 = @floatFromInt(xf - x);
             const h: f32 = @floatFromInt(yf - y);
+            const atlas_cx = @mod(self.cindex, self.cx);
+            const atlas_cy = @divTrunc(self.cindex, self.cy);
             if (xf - x > 0 and yf - y > 0) {
                 //var bmp = try Bitmap.initBlank(alloc, xf - x, yf - y, .g_8);
-                self.scratch_bmp.resize(xf - x, yf - y) catch unreachable;
-                var bmp = &self.scratch_bmp;
                 c.stbtt_MakeCodepointBitmap(
                     &self.finfo,
-                    &bmp.data.items[0],
+                    &self.bitmap.data.items[@intCast(atlas_cy * self.cell_height * @as(i32, @intCast(self.bitmap.w)) + atlas_cx * self.cell_width)],
                     xf - x,
                     yf - y,
-                    xf - x,
+                    @intCast(self.bitmap.w),
+                    //xf - x,
                     SF,
                     SF,
                     cpo,
                 );
             }
-            std.debug.print("Building {u} {d} {d}\n", .{ codepoint, w, h });
 
             var adv_w: c_int = 0;
             var left_side_bearing: c_int = 0;
@@ -161,19 +161,17 @@ pub const OnlineFont = struct {
                 .height = h,
             };
             {
-                const atlas_cx = @mod(self.cindex, self.cx);
-                const atlas_cy = @divTrunc(self.cindex, self.cy);
-                font.Bitmap.copySubR(
-                    1,
-                    &self.bitmap,
-                    @intCast(atlas_cx * self.cell_width),
-                    @intCast(atlas_cy * self.cell_height),
-                    &self.scratch_bmp,
-                    0,
-                    0,
-                    self.scratch_bmp.w,
-                    self.scratch_bmp.h,
-                );
+                //font.Bitmap.copySubR(
+                //    1,
+                //    &self.bitmap,
+                //    @intCast(atlas_cx * self.cell_width),
+                //    @intCast(atlas_cy * self.cell_height),
+                //    &self.scratch_bmp,
+                //    0,
+                //    0,
+                //    self.scratch_bmp.w,
+                //    self.scratch_bmp.h,
+                //) catch unreachable;
 
                 //    c.glBindTexture(c.GL_TEXTURE_2D, font_i.texture.id);
                 //    c.glTexImage2D(
@@ -196,7 +194,7 @@ pub const OnlineFont = struct {
                     0, //@intCast(atlas_cx * self.cell_width),
                     @intCast(atlas_cy * self.cell_height),
                     @intCast(self.bitmap.w),
-                    @intCast(self.scratch_bmp.h),
+                    @intFromFloat(h),
                     //format,
                     c.GL_RED,
                     //type,

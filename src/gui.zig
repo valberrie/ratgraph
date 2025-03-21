@@ -94,6 +94,7 @@ pub const DrawCommand = union(enum) {
 pub const Justify = enum { right, left, center };
 pub const Orientation = graph.Orientation;
 
+//TODO InputState should have no SDL dependancy.
 pub const InputState = struct {
     pub const DefaultKeyboardState = graph.SDL.Window.KeyboardStateT.initEmpty();
     mouse: graph.SDL.MouseState = .{},
@@ -765,7 +766,6 @@ pub const Context = struct {
     const Self = @This();
     const LayoutStackT = std.SinglyLinkedList(Layout);
     const WindowStackT = std.SinglyLinkedList(usize); //Indicies into window array
-    const RetainedHashMapT = std.StringHashMap(RetainedState);
 
     //Used for hashing
     const WidgetTypes = enum {

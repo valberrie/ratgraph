@@ -30,6 +30,7 @@ pub const Camera2D = ptypes.Camera2D;
 pub const Camera3D = ptypes.Camera3D;
 pub const FontUtil = @import("graphics/font.zig");
 pub const Font = FontUtil.Font;
+pub const FontInterface = FontUtil.PublicFontInterface;
 pub const Texture = FontUtil.Texture;
 pub const Bitmap = FontUtil.Bitmap;
 pub const RectPack = FontUtil.RectPack;
@@ -879,7 +880,7 @@ pub const ImmediateDrawingContext = struct {
         }) catch return;
     }
 
-    pub fn text(self: *Self, pos: Vec2f, str: []const u8, font: anytype, px_size: f32, col: u32) void {
+    pub fn text(self: *Self, pos: Vec2f, str: []const u8, font: *FontInterface, px_size: f32, col: u32) void {
         const SF = (px_size / font.font_size);
         //const SF = (pxToPt(self.dpi, pt_size)) / font.font_size;
         const fac = 1;
@@ -934,7 +935,7 @@ pub const ImmediateDrawingContext = struct {
         self.zindex += 1;
     }
 
-    pub fn textFmt(self: *Self, pos: Vec2f, comptime fmt: []const u8, args: anytype, font: *Font, pt_size: f32, color: u32) void {
+    pub fn textFmt(self: *Self, pos: Vec2f, comptime fmt: []const u8, args: anytype, font: *FontInterface, pt_size: f32, color: u32) void {
         var fbs = std.io.FixedBufferStream([]u8){ .pos = 0, .buffer = &textFmtBuffer };
         fbs.writer().print(fmt, args) catch {
             log.warn("string exceeded textFmt buffer", .{});
