@@ -95,7 +95,7 @@ pub fn SparseSet(comptime child_type: type, comptime index_type: type) type {
 
             for (ret.dense_index_lut.items, 0..) |item, i| {
                 if (item == dense_null_marker)
-                    return error.invalidIndex;
+                    return error.InvalidIndex;
 
                 if (item >= ret.sparse.items.len)
                     try ret.sparse.appendNTimes(sparse_null_marker, item - ret.sparse.items.len + 1);
@@ -120,7 +120,7 @@ pub fn SparseSet(comptime child_type: type, comptime index_type: type) type {
 
         pub fn insert(self: *Self, index: index_type, item: child_type) !void {
             if (index < self.sparse.items.len and self.sparse.items[index] != sparse_null_marker)
-                return error.indexOccupied;
+                return error.IndexOccupied;
 
             if (index >= self.sparse.items.len)
                 try self.sparse.appendNTimes(sparse_null_marker, index - self.sparse.items.len + 1);
@@ -184,7 +184,7 @@ pub fn SparseSet(comptime child_type: type, comptime index_type: type) type {
 
         pub fn getDenseIndex(self: *Self, index: index_type) !index_type {
             if (index >= self.sparse.items.len or self.sparse.items[index] == sparse_null_marker) {
-                return error.invalidIndex;
+                return error.InvalidIndex;
             }
 
             return self.sparse.items[index];
