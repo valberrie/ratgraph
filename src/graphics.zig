@@ -14,6 +14,7 @@ pub const SparseSet = @import("graphics/sparse_set.zig").SparseSet;
 pub const Collision = @import("col.zig");
 pub const SpatialGrid = @import("spatial_grid.zig");
 pub const Ecs = @import("registry.zig");
+pub const Ecs2 = @import("newreg.zig");
 pub const Lua = @import("lua.zig");
 pub const V3 = za.Vec3;
 pub const AssetBake = @import("assetbake.zig");
@@ -56,9 +57,7 @@ pub inline fn pxToPt(dpi: f32, px: f32) f32 {
 
 test "basic graph usage" {
     const graph = @This(); // const graph = @import("graph");
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.detectLeaks();
-    const alloc = gpa.allocator();
+    const alloc = std.testing.allocator;
 
     var win = try graph.SDL.Window.createWindow("My window", .{
         // Optional, see Window.createWindow definition for full list of options

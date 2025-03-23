@@ -2,6 +2,7 @@ const std = @import("std");
 pub const a = @import("gui_cache.zig");
 pub const b = @import("col3d.zig");
 pub const g = @import("graphics.zig");
+pub const reg = @import("newreg.zig");
 test "new" {}
 
 test {

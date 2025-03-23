@@ -1,29 +1,20 @@
 const std = @import("std");
-const SparseSet = @import("graphics/sparse_set.zig").SparseSet;
-const CompId = ?usize;
+pub const SparseSet = @import("graphics/sparse_set.zig").SparseSet;
+pub const CompId = ?usize;
+pub const InitCompId: CompId = null;
 
-const Ta = struct {
-    var Component_id: CompId = null;
-    a: f32,
-    b: f32,
-};
-
-const Tb = struct {
-    var Component_id: CompId = null;
-
-    a: f32,
-};
-
-const VTable = struct {
+pub const VTable = struct {
     const CreateError = error{ IndexOccupied, OutOfMemory };
     const DestroyError = error{InvalidIndex};
     const DestroyAllError = error{OutOfMemory};
+    const GetPtrError = error{InvalidIndex};
 
     deinit: *const fn (*@This(), std.mem.Allocator) void,
 
     create: *const fn (*@This(), id: ID_TYPE, comp_ptr: *const anyopaque) CreateError!void,
     destroy: *const fn (*@This(), id: ID_TYPE) DestroyError!void,
     destroyAll: *const fn (*@This()) DestroyAllError!void,
+    getPtr: *const fn (*@This(), id: ID_TYPE) GetPtrError!*anyopaque,
 };
 
 fn wrapStruct(comptime child: type) type {
@@ -43,6 +34,7 @@ fn wrapStruct(comptime child: type) type {
                     .create = &@This().create,
                     .destroy = &@This().destroy,
                     .destroyAll = &@This().destroyAll,
+                    .getPtr = &@This().getPtr,
                 },
             };
         }
@@ -62,6 +54,11 @@ fn wrapStruct(comptime child: type) type {
             try self.set.empty();
         }
 
+        pub fn getPtr(vt: *VTable, id: ID_TYPE) !*anyopaque {
+            const self = Self(vt);
+            return @ptrCast(try self.set.getPtr(id));
+        }
+
         pub fn deinit(vtable: *VTable, alloc: std.mem.Allocator) void {
             const self: *@This() = @fieldParentPtr("vtable", vtable);
             self.set.deinit();
@@ -70,8 +67,8 @@ fn wrapStruct(comptime child: type) type {
     };
 }
 
-const ID_TYPE = u32;
-const Reg = struct {
+pub const ID_TYPE = u32;
+pub const Reg = struct {
     const Self = @This();
     const MAX_COMPONENT = 63;
     const tombstone_component = MAX_COMPONENT - 1;
@@ -103,31 +100,49 @@ const Reg = struct {
         return @alignCast(@ptrCast(self.vtables.items[comp_index]));
     }
 
-    pub fn register(self: *Self, comptime T: type) !void {
-        if (self.comp_counter >= MAX_COMPONENT) return error.OutOfComponentIds;
+    fn getComponentId(comptime T: type) CompId {
         if (@hasDecl(T, "Component_id")) {
             const cid = @field(T, "Component_id");
-            if (@TypeOf(cid) != CompId) @compileError("must be of type CompId");
-
-            if (@field(T, "Component_id") != null) {
-                return error.mustBeNull;
-            }
-            @field(T, "Component_id") = self.comp_counter;
-            const wrap = wrapStruct(T);
-            const new_set = try self.alloc.create(wrap);
-            new_set.* = try wrap.init(self.alloc);
-            try self.vtables.append(&new_set.vtable);
-
-            self.comp_counter += 1;
-        } else {
-            @compileError("Component must decl");
+            if (@TypeOf(cid) != CompId) @compileError("Component_id decl must be of type CompId!");
+            return cid;
         }
+        @compileError("Container does not have a Component_id decl!");
+    }
+
+    pub fn register(self: *Self, comptime T: type) !void {
+        if (self.comp_counter >= MAX_COMPONENT) return error.OutOfComponentIds;
+        const compid = getComponentId(T);
+
+        if (compid != null) {
+            return error.mustBeNull;
+        }
+        std.debug.print("Registering: {s} with id {d}\n", .{ @typeName(T), self.comp_counter });
+        @field(T, "Component_id") = self.comp_counter;
+        const wrap = wrapStruct(T);
+        const new_set = try self.alloc.create(wrap);
+        new_set.* = try wrap.init(self.alloc);
+        try self.vtables.append(&new_set.vtable);
+
+        self.comp_counter += 1;
+    }
+
+    /// Register a component with a custom vtable. vtable.deinit() will be called on registry deinit
+    /// User is responsible for keeping vtable alive.
+    pub fn registerCustom(self: *Self, comptime T: type, vtable: *VTable) !void {
+        if (self.comp_counter >= MAX_COMPONENT) return error.OutOfComponentIds;
+        const compid = getComponentId(T);
+
+        if (compid != null) {
+            return error.mustBeNull;
+        }
+        std.debug.print("Registering: {s} with id {d}\n", .{ @typeName(T), self.comp_counter });
+        @field(T, "Component_id") = self.comp_counter;
+        try self.vtables.append(vtable);
+        self.comp_counter += 1;
     }
 
     pub fn attach(self: *Self, id: u32, comp: anytype) !void {
-        const compT = @TypeOf(comp);
-        if (!@hasDecl(compT, "Component_id")) @compileError("not a component");
-        const cid = compT.Component_id orelse return error.ComponentNotRegistered;
+        const cid = getComponentId(@TypeOf(comp)) orelse return error.ComponentNotRegistered;
 
         const ent = try self.getEntity(id);
         if (ent.isSet(cid)) return error.ComponentAlreadyAttached;
@@ -163,18 +178,34 @@ const Reg = struct {
             if (ent.isSet(i))
                 try vt.destroy(vt, index);
         }
-        //inline for (field_names_l, 0..) |field, i| {
-        //    if (ent.isSet(i)) {
-        //        var d = (try @field(self.data, field.name).remove(index));
-        //        self.call_destroy_callback(@enumFromInt(i), &d, index);
-        //    }
-        //}
         ent.* = EntBitset.initEmpty();
         ent.set(tombstone_component);
     }
+
+    pub fn isEntity(self: *Self, index: ID_TYPE) bool {
+        return !((index >= self.entities.items.len) or self.entities.items[index].isSet(tombstone_component));
+    }
+
+    pub fn getPtr(self: *Self, index: ID_TYPE, comptime T: type) !*T {
+        const cid = getComponentId(T) orelse return error.ComponentNotRegistered;
+        const vt = self.getVtable(cid);
+        return @alignCast(@ptrCast(try vt.getPtr(vt, index)));
+    }
 };
 
-pub fn main() !void {
+const Ta = struct {
+    var Component_id: CompId = null;
+    a: f32,
+    b: f32,
+};
+
+const Tb = struct {
+    var Component_id: CompId = null;
+
+    a: f32,
+};
+
+test "basic ecs" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.detectLeaks();
     const alloc = gpa.allocator();
@@ -189,5 +220,7 @@ pub fn main() !void {
     const e2 = try reg.createEntity();
     try reg.attach(e1, Tb{ .a = 0 });
     try reg.attach(e2, Tb{ .a = 1 });
+    const ptr = try reg.getPtr(e2, Tb);
+    ptr.a = 22;
     try reg.destroyEntity(e2);
 }

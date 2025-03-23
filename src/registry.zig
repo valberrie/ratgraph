@@ -572,14 +572,14 @@ pub fn Registry(comptime field_names_l: FieldList) type {
 
         pub fn sleepEntity(self: *Self, index: ID_TYPE) !void {
             self.slept.insert(index, .{}) catch |err| switch (err) {
-                error.indexOccupied => {}, //We can sleep a sleeping entity
+                error.IndexOccupied => {}, //We can sleep a sleeping entity
                 else => return err,
             };
         }
 
         pub fn wakeEntity(self: *Self, index: ID_TYPE) !void {
             _ = self.slept.remove(index) catch |err| switch (err) {
-                error.invalidIndex => {}, //We can wake a non sleeping entity
+                error.InvalidIndex => {}, //We can wake a non sleeping entity
                 else => return err,
             };
         }

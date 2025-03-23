@@ -211,21 +211,17 @@ pub fn SparseSet(comptime child_type: type, comptime index_type: type) type {
     };
 }
 
-const ItemType = struct {
-    item: []const u8,
-    i: u32,
-};
-const SetType = SparseSet(ItemType, u32);
+const SetType = SparseSet([]const u8, u32);
 test "Sparse set basic usage" {
     const a = testing.allocator;
     var sset = try SetType.init(a);
     defer sset.deinit();
 
-    const first_id = try sset.add(.{ .item = "first item", .i = 0 });
+    try sset.insert(0, "first item");
 
     const next_id = 300;
-    try sset.insert(next_id, .{ .item = "my item", .i = 100 });
+    try sset.insert(next_id, "my item");
 
-    _ = try sset.remove(first_id);
+    _ = try sset.remove(0);
 }
 //TODO add more tests
