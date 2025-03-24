@@ -31,7 +31,8 @@ pub const PackageConfigJson = struct {
     //files
 };
 
-const IDT = u32;
+pub const AssetIdT = u32;
+const IDT = AssetIdT;
 pub const BakedManifestJson = struct {
     pub const IdRect = struct {
         id: IDT,
@@ -125,6 +126,25 @@ pub const AssetMap = struct {
 
     dir: std.fs.Dir,
     file_prefix: []const u8,
+
+    pub fn initTesting(alloc: std.mem.Allocator, test_names: []const []const u8) !Self {
+        var ret = Self{
+            .resource_rect_lut = std.ArrayList(?Rect).init(alloc),
+            .id_name_lut = std.ArrayList(?[]const u8).init(alloc),
+            .alloc = alloc,
+            .name_id_map = std.StringHashMap(u32).init(alloc),
+            .dir = undefined,
+            .file_prefix = try alloc.dupe(u8, "testing"),
+        };
+
+        for (test_names) |tn| {
+            const str = try alloc.dupe(u8, tn);
+            try ret.name_id_map.put(str, @intCast(ret.id_name_lut.items.len));
+            try ret.id_name_lut.append(str);
+        }
+
+        return ret;
+    }
 
     pub fn initFromManifest(alloc: std.mem.Allocator, dir: std.fs.Dir, file_prefix: []const u8) !Self {
         var arena = std.heap.ArenaAllocator.init(alloc);

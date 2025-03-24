@@ -14,7 +14,6 @@ pub const SparseSet = @import("graphics/sparse_set.zig").SparseSet;
 pub const Collision = @import("col.zig");
 pub const SpatialGrid = @import("spatial_grid.zig");
 pub const Ecs = @import("registry.zig");
-pub const Ecs2 = @import("newreg.zig");
 pub const Lua = @import("lua.zig");
 pub const V3 = za.Vec3;
 pub const AssetBake = @import("assetbake.zig");
