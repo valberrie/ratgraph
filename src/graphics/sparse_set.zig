@@ -177,6 +177,13 @@ pub fn SparseSet(comptime child_type: type, comptime index_type: type) type {
             return self.dense.items[self.sparse.items[index]];
         }
 
+        pub fn getOptPtr(self: *Self, index: index_type) ?*child_type {
+            if (index >= self.sparse.items.len or self.sparse.items[index] == sparse_null_marker)
+                return null;
+
+            return &self.dense.items[self.sparse.items[index]];
+        }
+
         pub fn getPtr(self: *Self, index: index_type) !*child_type {
             const di = try self.getDenseIndex(index);
             return &self.dense.items[di];

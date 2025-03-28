@@ -81,6 +81,29 @@ pub const TileMap = struct {
         file: []const u8,
         object: usize,
         bool: bool,
+
+        pub fn toString(self: @This(), alloc: std.mem.Allocator) ![]const u8 {
+            var big_slice = try alloc.alloc(u8, 100);
+            return switch (self) {
+                .string, .file => |s| s,
+                .bool => |b| if (b) "true" else "false",
+                .int => |i| {
+                    const ct = std.fmt.formatIntBuf(big_slice, i, 10, .lower, .{});
+                    return big_slice[0..ct];
+                },
+                .object => |i| {
+                    const ct = std.fmt.formatIntBuf(big_slice, i, 10, .lower, .{});
+                    return big_slice[0..ct];
+                },
+                .color => |i| {
+                    const ct = std.fmt.formatIntBuf(big_slice, i, 10, .lower, .{});
+                    return big_slice[0..ct];
+                },
+                .float => |i| {
+                    return try std.fmt.formatFloat(big_slice, i, .{});
+                },
+            };
+        }
     };
 
     pub const Chunk = struct { data: []u8, height: u32, width: u32, x: i32, y: i32 };
@@ -88,9 +111,46 @@ pub const TileMap = struct {
     pub const Property = struct {
         name: []const u8,
         //type: PropertyType,
-        value: PropertyValue,
+        //value: PropertyValue,
+        value: []const u8,
 
         pub fn jsonParse(alloc: std.mem.Allocator, source: anytype, options: std.json.ParseOptions) !@This() {
+            if (.object_begin != try source.next()) return error.UnexpectedToken;
+
+            var r: @This() = undefined;
+            var t: PropertyType = undefined;
+            while (true) {
+                const name_token: ?std.json.Token = try source.nextAllocMax(alloc, .alloc_if_needed, options.max_value_len.?);
+                const field_name = switch (name_token.?) {
+                    inline .string, .allocated_string => |slice| slice,
+                    .object_end => {
+                        break;
+                    },
+                    else => {
+                        return error.UnexpectedToken;
+                    },
+                };
+                const eql = std.mem.eql;
+                if (eql(u8, field_name, "name")) {
+                    r.name = try std.json.innerParse([]const u8, alloc, source, options);
+                } else if (eql(u8, field_name, "type")) {
+                    t = try std.json.innerParse(PropertyType, alloc, source, options);
+                } else if (eql(u8, field_name, "value")) {
+                    const token = try source.nextAllocMax(alloc, .alloc_always, options.max_value_len.?);
+                    const slice = switch (token) {
+                        inline .number, .allocated_number, .string, .allocated_string => |slice| slice,
+                        inline .true => "true",
+                        inline .false => "false",
+                        else => return error.UnexpectedToken,
+                    };
+                    r.value = slice;
+                }
+            }
+
+            return r;
+        }
+
+        pub fn jsonParseOld(alloc: std.mem.Allocator, source: anytype, options: std.json.ParseOptions) !@This() {
             if (.object_begin != try source.next()) return error.UnexpectedToken;
 
             var r: @This() = undefined;
@@ -148,6 +208,27 @@ pub const TileMap = struct {
             return r;
         }
 
+        fn firstNs(str: []const u8) []const u8 {
+            if (std.mem.indexOfScalar(u8, str, '.')) |in| {
+                return str[0..in];
+            }
+            return str;
+        }
+
+        pub fn lessThanName(ctx: []Property, a: usize, b: usize) bool {
+            const lhs = firstNs(ctx[a]);
+            const rhs = firstNs(ctx[b]);
+            const n = @min(lhs.len, rhs.len);
+            var i: usize = 0;
+            return blk: while (i < n) : (i += 1) {
+                switch (std.math.order(lhs[i], rhs[i])) {
+                    .eq => continue,
+                    .lt => break :blk .lt,
+                    .gt => break :blk .gt,
+                }
+            } == .lt;
+        }
+
         pub fn copy(self: *const Property, alloc: std.mem.Allocator) !Property {
             return .{
                 .name = try alloc.dupe(u8, self.name),
@@ -161,10 +242,7 @@ pub const TileMap = struct {
 
         pub fn deinit(self: *Property, alloc: std.mem.Allocator) void {
             alloc.free(self.name);
-            switch (self.value) {
-                .string, .file => |s| alloc.free(s),
-                else => {},
-            }
+            alloc.free(self.value);
         }
     };
 
@@ -321,8 +399,9 @@ pub fn parseField(
                     return switch (cinfo) {
                         .Bool => p.value.bool,
                         .Optional => |o| try parseField(field_name, o.child, null, properties, property_mask, namespace_offset),
-                        .Int => if (p.value == .int) std.math.lossyCast(field_type, p.value.int) else std.math.lossyCast(field_type, p.value.object),
-                        .Float => p.value.float,
+                        //.Int => if (p.value == .int) std.math.lossyCast(field_type, p.value.int) else std.math.lossyCast(field_type, p.value.object),
+                        .Int => try std.fmt.parseInt(field_type, p.value, 0),
+                        .Float => try std.fmt.parseFloat(field_type, p.value),
                         .Enum => |e| blk: {
                             inline for (e.fields) |ef| {
                                 if (std.mem.eql(u8, ef.name, p.value.string))
@@ -476,7 +555,7 @@ pub fn rebakeTileset(
     outfile.close();
 }
 
-pub fn setStructFromProperty(comptime stype: type, field_name: []const u8, ptr: *stype, name: []const u8, value: TileMap.PropertyValue) !void {
+pub fn setStructFromProperty(comptime stype: type, field_name: []const u8, ptr: *stype, name: []const u8, value: []const u8) !void {
     const info = @typeInfo(stype);
     if (!std.mem.eql(u8, name, field_name) and info != .Struct)
         return error.notGOOD;
@@ -537,7 +616,7 @@ pub fn setStructFromProperty(comptime stype: type, field_name: []const u8, ptr: 
         },
         .Pointer => |po| {
             if (po.size == .Slice and po.child == u8) {
-                ptr.* = value.string;
+                ptr.* = value;
                 return;
             }
             @compileError("unable to parse type" ++ @typeName(stype));
