@@ -147,6 +147,25 @@ pub const TileMap = struct {
                 }
             }
 
+            switch (t) {
+                .color => {
+                    //Tiled stores colors as #aarrggbb,
+                    //This replaces the '#' with 0x and moves the alpha channel to the end so it can be parsed
+                    //as a 4 component u32 -> rgba
+                    if (r.value[0] != '#') return error.UnexpectedToken;
+                    if (r.value.len != "#aarrggbb".len) return error.UnexpectedToken;
+                    r.value = r.value[1..];
+                    const new_color_str = try alloc.alloc(u8, r.value.len + "0x".len);
+                    //r.value now holds: aarrggbb
+
+                    @memcpy(new_color_str[0..2], "0x");
+                    @memcpy(new_color_str[2..8], r.value[2..8]);
+                    @memcpy(new_color_str[8..10], r.value[0..2]);
+                    r.value = new_color_str;
+                },
+                else => {},
+            }
+
             return r;
         }
 

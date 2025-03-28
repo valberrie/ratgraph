@@ -248,7 +248,7 @@ pub const AssetMap = struct {
             if (self.name_id_map.getEntry(path_buf.items)) |entry| {
                 try ret.name_map.put(entry.key_ptr.*, try self.alloc.dupe(u8, data_buf.items));
             } else {
-                std.debug.print("Can't find user resource {s}\n", .{path_buf.items});
+                log.err("Can't find user resource {s}", .{path_buf.items});
             }
         }
         return ret;
@@ -256,7 +256,7 @@ pub const AssetMap = struct {
 
     pub fn getIdFromName(self: *Self, name: []const u8) ?u32 {
         const id = self.name_id_map.get(name) orelse {
-            std.debug.print("Unkown asset {s}\n", .{name});
+            log.err("Unknown asset {s}", .{name});
             return null;
         };
         return id;
@@ -288,7 +288,7 @@ pub const AssetMap = struct {
 
     pub fn getRectFromName(self: *Self, name: []const u8) ?graph.Rect {
         const id = self.name_id_map.get(name) orelse {
-            std.debug.print("Unkown asset {s}\n", .{name});
+            log.err("Unknown asset {s}", .{name});
             return null;
         };
         return self.resource_rect_lut.items[id];
