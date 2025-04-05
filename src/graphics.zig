@@ -46,14 +46,6 @@ pub const glID = GL.glID;
 pub const SDL = @import("graphics/SDL.zig");
 pub const Bind = SDL.Bind;
 
-pub inline fn ptToPx(dpi: f32, pt: f32) f32 {
-    return pt / 72 * dpi;
-}
-
-pub inline fn pxToPt(dpi: f32, px: f32) f32 {
-    return px * 72 / dpi;
-}
-
 test "basic graph usage" {
     const graph = @This(); // const graph = @import("graph");
     const alloc = std.testing.allocator;
@@ -91,6 +83,8 @@ test "basic graph usage" {
         draw.triangle(v1, v2, v3, 0xfffffff0);
         try draw.end(null);
         win.swap();
+
+        //make the test exit, remove if copying
         win.should_exit = true;
     }
 }
@@ -499,7 +493,6 @@ pub const ImmediateDrawingContext = struct {
 
     pub fn text(self: *Self, pos: Vec2f, str: []const u8, font: *FontInterface, px_size: f32, col: u32) void {
         const SF = (px_size / font.font_size);
-        //const SF = (pxToPt(self.dpi, pt_size)) / font.font_size;
         const fac = 1;
         const x = pos.x;
         const y = pos.y;
