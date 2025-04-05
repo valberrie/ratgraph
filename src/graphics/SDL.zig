@@ -138,8 +138,7 @@ pub const Window = struct {
 
     pub fn grabMouse(self: *const Self, should: bool) void {
         _ = c.SDL_SetWindowRelativeMouseMode(self.win, if (should) true else false);
-        //c.SDL_SetWindowMouseGrab(self.win, if (should) 1 else 0);
-        if (should) {
+        if (!should) {
             _ = c.SDL_ShowCursor();
         } else {
             _ = c.SDL_HideCursor();
