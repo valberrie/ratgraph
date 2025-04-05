@@ -435,6 +435,17 @@ pub const Camera3D = struct {
     move_speed: f32 = 0.1,
     fov: f32 = 85,
 
+    //Good default:
+    //camera.updateDebugMove(.{
+    //        .down = win.keyHigh(.LSHIFT),
+    //        .up = win.keyHigh(.SPACE),
+    //        .left = win.keyHigh(.A),
+    //        .right = win.keyHigh(.D),
+    //        .fwd = win.keyHigh(.W),
+    //        .bwd = win.keyHigh(.S),
+    //        .mouse_delta = win.mouse.delta,
+    //        .scroll_delta = win.mouse.wheel_delta.y,
+    //    });
     pub fn updateDebugMove(self: *Self, state: struct {
         down: bool,
         up: bool,

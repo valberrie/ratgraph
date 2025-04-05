@@ -64,6 +64,12 @@ pub const Mesh = struct {
         c.glUseProgram(shader);
         GL.passUniform(shader, "view", view);
         GL.passUniform(shader, "model", model);
+        if (b.diffuse_texture != 0) {
+            const diffuse_loc = c.glGetUniformLocation(shader, "diffuse_texture");
+
+            c.glUniform1i(diffuse_loc, 0);
+            c.glBindTextureUnit(0, b.diffuse_texture);
+        }
 
         c.glBindVertexArray(b.vao);
         c.glDrawElements(c.GL_TRIANGLES, @as(c_int, @intCast(b.indicies.items.len)), c.GL_UNSIGNED_INT, null);

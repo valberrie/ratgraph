@@ -18,6 +18,7 @@ pub const Lua = @import("lua.zig");
 pub const V3 = za.Vec3;
 pub const AssetBake = @import("assetbake.zig");
 
+pub const meshutil = @import("mesh.zig");
 pub const ptypes = @import("graphics/types.zig");
 pub const Rect = ptypes.Rect;
 pub const Rec = Rect.NewAny;
@@ -66,10 +67,14 @@ test "basic graph usage" {
     const v2 = Vec2f.new(3, 3);
     const v3 = Vec2f.new(30, 30);
 
+    var cam = graph.Camera3D{};
+
     while (!win.should_exit) {
         try draw.begin(0x2f2f2fff, win.screen_dimensions.toF());
         win.pumpEvents(.poll); //Important that this is called after draw.begin for input lag reasons
 
+        //The following are all drawn in 2d using the default orthographic camera.
+        //The bounds of the camera are the window dimensions
         draw.text(.{ .x = 50, .y = 300 }, "Hello", &font.font, 20, 0xffffffff);
         draw.rect(r, 0xff00ffff);
         draw.rectVertexColors(r, &.{ 0xff, 0xff, 0xff, 0xff });
@@ -81,7 +86,22 @@ test "basic graph usage" {
         try draw.flush(null, null); //Flush any draw commands
 
         draw.triangle(v1, v2, v3, 0xfffffff0);
-        try draw.end(null);
+
+        cam.updateDebugMove(.{
+            .down = win.keyHigh(.LSHIFT),
+            .up = win.keyHigh(.SPACE),
+            .left = win.keyHigh(.A),
+            .right = win.keyHigh(.D),
+            .fwd = win.keyHigh(.W),
+            .bwd = win.keyHigh(.S),
+            .mouse_delta = win.mouse.delta,
+            .scroll_delta = win.mouse.wheel_delta.y,
+        });
+
+        //Drawn in 3d using 'cam'
+        draw.cube(za.Vec3.new(0, 0, 0), za.Vec3.new(1, 1, 1), 0xffffffff);
+
+        try draw.end(cam);
         win.swap();
 
         //make the test exit, remove if copying
