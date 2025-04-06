@@ -1016,6 +1016,7 @@ pub const Texture = struct {
         min_filter: c.GLint = c.GL_LINEAR_MIPMAP_LINEAR,
         mag_filter: c.GLint = c.GL_LINEAR,
         border_color: [4]f32 = .{ 0, 0, 0, 1.0 },
+        is_compressed: bool = false,
     };
 
     //Todo write tests does this actually work
@@ -1043,17 +1044,30 @@ pub const Texture = struct {
         c.glPixelStorei(c.GL_UNPACK_ALIGNMENT, o.pixel_store_alignment);
         c.glGenTextures(1, &tex_id);
         c.glBindTexture(o.target, tex_id);
-        c.glTexImage2D(
-            o.target,
-            0, //Level of detail number
-            o.internal_format,
-            w,
-            h,
-            0, //khronos.org: this value must be 0
-            o.pixel_format,
-            o.pixel_type,
-            if (buffer) |bmp| &bmp[0] else null,
-        );
+        if (o.is_compressed) {
+            c.glCompressedTexImage2D(
+                o.target,
+                0,
+                o.pixel_format,
+                w,
+                h,
+                0,
+                @intCast(if (buffer) |bmp| bmp.len else 0),
+                if (buffer) |bmp| &bmp[0] else null,
+            );
+        } else {
+            c.glTexImage2D(
+                o.target,
+                0, //Level of detail number
+                o.internal_format,
+                w,
+                h,
+                0, //khronos.org: this value must be 0
+                o.pixel_format,
+                o.pixel_type,
+                if (buffer) |bmp| &bmp[0] else null,
+            );
+        }
         if (o.generate_mipmaps)
             c.glGenerateMipmap(o.target);
 

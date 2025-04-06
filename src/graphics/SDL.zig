@@ -286,6 +286,17 @@ pub const Window = struct {
         }
     }
 
+    pub fn glHasExtension(name: []const u8) bool {
+        var num_ext: i64 = 0;
+        c.glGetInteger64v(c.GL_NUM_EXTENSIONS, &num_ext);
+        for (0..@intCast(num_ext)) |i| {
+            const str = std.mem.span(c.glGetStringi(c.GL_EXTENSIONS, @intCast(i)));
+            if (std.mem.eql(u8, name, str))
+                return true;
+        }
+        return false;
+    }
+
     pub fn getScancodeFromName(self: *Self, name: [*c]const u8) usize {
         _ = self;
         return c.SDL_GetScancodeFromName(name);
