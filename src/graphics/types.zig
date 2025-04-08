@@ -436,6 +436,8 @@ pub const Camera3D = struct {
     max_move_speed: f32 = 10,
     fov: f32 = 85,
 
+    up: enum { x, y, z } = .y,
+
     //Good default:
     //camera.updateDebugMove(.{
     //        .down = win.keyHigh(.LSHIFT),
@@ -457,19 +459,20 @@ pub const Camera3D = struct {
         mouse_delta: Vec2f,
         scroll_delta: f32,
     }) void {
+        const up = self.getUp();
         var move_vec = za.Vec3.new(0, 0, 0);
         if (state.down)
-            move_vec = move_vec.add(za.Vec3.new(0, -1, 0));
+            move_vec = move_vec.add(up.scale(-1));
         if (state.up)
-            move_vec = move_vec.add(za.Vec3.new(0, 1, 0));
+            move_vec = move_vec.add(up);
         if (state.fwd)
             move_vec = move_vec.add(self.front);
         if (state.bwd)
             move_vec = move_vec.add(self.front.scale(-1));
         if (state.left)
-            move_vec = move_vec.add(self.front.cross(.{ .data = .{ 0, 1, 0 } }).norm().scale(-1));
+            move_vec = move_vec.add(self.front.cross(up).norm().scale(-1));
         if (state.right)
-            move_vec = move_vec.add(self.front.cross(.{ .data = .{ 0, 1, 0 } }).norm());
+            move_vec = move_vec.add(self.front.cross(up).norm());
 
         self.pos = self.pos.add(move_vec.norm().scale(self.move_speed));
         const mdelta = state.mouse_delta.smul(0.1);
@@ -479,19 +482,34 @@ pub const Camera3D = struct {
         self.yaw = @mod(self.yaw, 360);
         self.pitch = std.math.clamp(self.pitch - mdelta.y, -89, 89);
 
+        self.setFront();
+    }
+
+    fn getUp(self: Self) za.Vec3 {
+        return switch (self.up) {
+            .x => za.Vec3.new(1, 0, 0),
+            .y => za.Vec3.new(0, 1, 0),
+            .z => za.Vec3.new(0, 0, 1),
+        };
+    }
+
+    fn setFront(self: *Self) void {
         const sin = std.math.sin;
         const rad = std.math.degreesToRadians;
         const cos = std.math.cos;
-        const dir = za.Vec3.new(
-            cos(rad(self.yaw)) * cos(rad(self.pitch)),
-            sin(rad(self.pitch)),
-            sin(rad(self.yaw)) * cos(rad(self.pitch)),
-        );
+        const xf = cos(rad(self.yaw)) * cos(rad(self.pitch));
+        const zf = sin(rad(self.pitch));
+        const yf = sin(rad(self.yaw)) * cos(rad(self.pitch));
+        const dir = switch (self.up) {
+            .x => za.Vec3.new(zf, xf, yf), //TODO this might be wrong
+            .y => za.Vec3.new(xf, zf, yf),
+            .z => za.Vec3.new(yf, xf, zf),
+        };
         self.front = dir.norm();
     }
 
     pub fn getViewMatrix(self: Self) za.Mat4 {
-        const la = za.lookAt(self.pos, self.pos.add(self.front), za.Vec3.new(0, 1, 0));
+        const la = za.lookAt(self.pos, self.pos.add(self.front), self.getUp());
         return la;
     }
 
