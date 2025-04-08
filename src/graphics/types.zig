@@ -433,6 +433,7 @@ pub const Camera3D = struct {
     yaw: f32 = 0,
     pitch: f32 = 0,
     move_speed: f32 = 0.1,
+    max_move_speed: f32 = 10,
     fov: f32 = 85,
 
     //Good default:
@@ -472,7 +473,7 @@ pub const Camera3D = struct {
 
         self.pos = self.pos.add(move_vec.norm().scale(self.move_speed));
         const mdelta = state.mouse_delta.smul(0.1);
-        self.move_speed = std.math.clamp(self.move_speed + state.scroll_delta * (self.move_speed / 10), 0.01, 10);
+        self.move_speed = std.math.clamp(self.move_speed + state.scroll_delta * (self.move_speed / 10), 0.01, self.max_move_speed);
 
         self.yaw += mdelta.x;
         self.yaw = @mod(self.yaw, 360);
