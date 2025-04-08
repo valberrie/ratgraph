@@ -526,13 +526,15 @@ pub const ImmediateDrawingContext = struct {
         b.vertices.ensureUnusedCapacity(str.len * 4) catch unreachable;
         b.indicies.ensureUnusedCapacity(str.len * 6) catch unreachable;
 
-        var it = std.unicode.Utf8Iterator{ .bytes = str, .i = 0 };
+        const view = std.unicode.Utf8View.init(str) catch {
+            std.debug.print("broke :{s}\n", .{str});
+            return;
+        };
+        var it = view.iterator();
 
         var vx = x * fac;
         var vy = y * fac + ((font.ascent + font.descent) * SF);
-        var cho = it.nextCodepoint();
-        while (cho != null) : (cho = it.nextCodepoint()) {
-            const ch = cho orelse unreachable;
+        while (it.nextCodepoint()) |ch| {
             if (ch == '\n') {
                 vy += font.line_gap * SF;
                 vx = x * fac;
