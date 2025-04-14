@@ -485,7 +485,7 @@ pub const Camera3D = struct {
         self.setFront();
     }
 
-    fn getUp(self: Self) za.Vec3 {
+    pub fn getUp(self: Self) za.Vec3 {
         return switch (self.up) {
             .x => za.Vec3.new(1, 0, 0),
             .y => za.Vec3.new(0, 1, 0),

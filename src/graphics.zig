@@ -206,6 +206,7 @@ pub const ImmediateDrawingContext = struct {
         color_line3D: NewBatch(VtxFmt.Color_3D, .{ .index_buffer = false, .primitive_mode = .lines }),
         color_point3D: NewBatch(VtxFmt.Color_3D, .{ .index_buffer = false, .primitive_mode = .points }),
         color_cube: NewBatch(VtxFmt.Color_3D, .{ .index_buffer = true, .primitive_mode = .triangles }),
+        billboard: NewBatch(VtxFmt.Textured_3D, .{ .index_buffer = true, .primitive_mode = .triangles }),
     };
 
     const MapT = std.AutoArrayHashMap(MapKey, Batches);
@@ -231,6 +232,8 @@ pub const ImmediateDrawingContext = struct {
     textured_tri_3d_shader: c_uint,
     textured_tri_3d_shader_new: c_uint,
 
+    billboard_shader: c_uint,
+
     alloc: Alloc,
 
     //TODO actually check this and log or panic
@@ -254,6 +257,7 @@ pub const ImmediateDrawingContext = struct {
             .colored_point3d_shader = Shader.simpleShader(@embedFile(SD ++ "line3d.vert"), @embedFile(SD ++ "point.fsh")),
             .textured_tri_shader = Shader.simpleShader(@embedFile(SD ++ "tex_tri2d.vert"), @embedFile(SD ++ "tex_tri2d.frag")),
             .textured_tri_3d_shader_new = Shader.simpleShader(@embedFile(SD ++ "tex_tri3d.vsh"), @embedFile(SD ++ "tex_tri3d.fsh")),
+            .billboard_shader = Shader.simpleShader(@embedFile(SD ++ "billboard_tex.vsh"), @embedFile(SD ++ "tex_tri3d.fsh")),
 
             .font_shader = Shader.simpleShader(@embedFile(SD ++ "tex_tri2d.vert"), @embedFile(SD ++ "tex_tri2d_alpha.frag")),
         };
@@ -586,6 +590,44 @@ pub const ImmediateDrawingContext = struct {
         const b = &(self.getBatch(.{ .batch_kind = .color_line3D, .params = .{ .shader = self.colored_line3d_shader, .camera = ._3d } }) catch unreachable).color_line3D;
         b.vertices.append(.{ .pos = .{ .x = start_point.x(), .y = start_point.y(), .z = start_point.z() }, .color = color }) catch return;
         b.vertices.append(.{ .pos = .{ .x = end_point.x(), .y = end_point.y(), .z = end_point.z() }, .color = color }) catch return;
+    }
+
+    //vec3 vertexPosition_worldspace =
+    //billboardCenter_wordspace
+    //+ CameraRight_worldspace * billboardVertices.x * BillboardSize.x
+    //+ CameraUp_worldspace * billboardVertices.y * BillboardSize.y;
+
+    pub fn billboard(self: *Self, pos: za.Vec3, size: Vec2f, tr: Rect, texture: Texture, cam: Camera3D) void {
+        const b = &(self.getBatch(.{ .batch_kind = .billboard, .params = .{
+            .shader = self.billboard_shader,
+            .texture = texture.id,
+            .camera = ._3d,
+        } }) catch unreachable).billboard;
+        const o: u32 = @intCast(b.vertices.items.len);
+        const up = cam.getUp();
+        const right = cam.front.cross(up).norm();
+        b.indicies.appendSlice(&genQuadIndices(o)) catch return;
+        const un = GL.normalizeTexRect(tr, texture.w, texture.h);
+        const co = 0xffffffff;
+
+        const sz = size.x;
+        const po = pos.sub(cam.pos);
+        const A = po.sub(right.add(up).scale(sz));
+        const B = po.add(right.sub(up).scale(sz));
+        const C = po.add(right.add(up).scale(sz));
+        const D = po.sub(right.sub(up).scale(sz));
+
+        // zig fmt: off
+        b.vertices.appendSlice(&.{
+            VtxFmt.textured3D(B.x() , B.y() , B.z(),un.x + un.w,un.y + un.h,co ),
+            VtxFmt.textured3D(C.x() , C.y() , C.z(),un.x + un.w ,un.y ,co ),
+            VtxFmt.textured3D(D.x() , D.y() , D.z(),un.x,un.y ,co ),
+            VtxFmt.textured3D(A.x() , A.y() , A.z(),un.x,un.y + un.h,co ),
+            //VtxFmt.textured3D(pos.x() + size.x, pos.y() + size.y, pos.z(),un.x + un.w,un.y + un.h,co ),
+            //VtxFmt.textured3D(pos.x() + size.x, pos.y() , pos.z(),un.x + un.w ,un.y ,co ),
+            //VtxFmt.textured3D(pos.x() , pos.y() , pos.z(),un.x,un.y ,co ),
+            //VtxFmt.textured3D(pos.x() , pos.y() + size.y, pos.z(),un.x,un.y + un.h,co ),
+        }) catch return;
     }
 
     pub fn cube(self: *Self, pos: za.Vec3, ext: za.Vec3, color: u32) void {
