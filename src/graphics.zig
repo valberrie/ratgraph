@@ -203,7 +203,7 @@ pub const ImmediateDrawingContext = struct {
         color_tri: NewBatch(VtxFmt.Color_2D, .{ .index_buffer = true, .primitive_mode = .triangles }),
         color_tri_tex: NewBatch(VtxFmt.Color_Texture_2D, .{ .index_buffer = true, .primitive_mode = .triangles }),
         color_line: NewBatch(VtxFmt.Color_2D, .{ .index_buffer = false, .primitive_mode = .lines }),
-        color_line3D: NewBatch(VtxFmt.Color_3D, .{ .index_buffer = false, .primitive_mode = .lines }),
+        color_line3D: NewBatch(VtxFmt.Color_3D, .{ .index_buffer = true, .primitive_mode = .lines }),
         color_point3D: NewBatch(VtxFmt.Color_3D, .{ .index_buffer = false, .primitive_mode = .points }),
         color_cube: NewBatch(VtxFmt.Color_3D, .{ .index_buffer = true, .primitive_mode = .triangles }),
         billboard: NewBatch(VtxFmt.Textured_3D, .{ .index_buffer = true, .primitive_mode = .triangles }),
@@ -586,10 +586,38 @@ pub const ImmediateDrawingContext = struct {
         b.vertices.append(.{ .pos = .{ .x = point.x(), .y = point.y(), .z = point.z() }, .color = color }) catch return;
     }
 
+    pub fn cubeFrame(self: *Self, pos: za.Vec3, ext: za.Vec3, color: u32) void {
+        const b = &(self.getBatch(.{ .batch_kind = .color_line3D, .params = .{ .shader = self.colored_line3d_shader, .camera = ._3d } }) catch unreachable).color_line3D;
+        const v = &b.vertices;
+        const i: u32 = @intCast(v.items.len);
+
+        const z1 = pos.z();
+        v.append(.{ .color = color, .pos = .{ .z = z1, .x = pos.x(), .y = pos.y() } }) catch return;
+        v.append(.{ .color = color, .pos = .{ .z = z1, .x = pos.x() + ext.x(), .y = pos.y() } }) catch return;
+        v.append(.{ .color = color, .pos = .{ .z = z1, .x = pos.x() + ext.x(), .y = pos.y() + ext.y() } }) catch return;
+        v.append(.{ .color = color, .pos = .{ .z = z1, .x = pos.x(), .y = pos.y() + ext.y() } }) catch return;
+
+        const z2 = pos.z() + ext.z();
+        v.append(.{ .color = color, .pos = .{ .z = z2, .x = pos.x(), .y = pos.y() } }) catch return;
+        v.append(.{ .color = color, .pos = .{ .z = z2, .x = pos.x() + ext.x(), .y = pos.y() } }) catch return;
+        v.append(.{ .color = color, .pos = .{ .z = z2, .x = pos.x() + ext.x(), .y = pos.y() + ext.y() } }) catch return;
+        v.append(.{ .color = color, .pos = .{ .z = z2, .x = pos.x(), .y = pos.y() + ext.y() } }) catch return;
+        const in = &b.indicies;
+
+        in.appendSlice(&.{
+            i, i + 1, i + 1, i + 2, i + 2, i + 3, i + 3, i, //bottom layer
+            i, i + 4, i + 1, i + 5, i + 2, i + 6, i + 3, i + 7, //Verticals
+            i + 4, i + 5, i + 5, i + 6, i + 6, i + 7, i + 7, i + 4, //top layer
+        }) catch return;
+    }
+
     pub fn line3D(self: *Self, start_point: za.Vec3, end_point: za.Vec3, color: u32) void {
         const b = &(self.getBatch(.{ .batch_kind = .color_line3D, .params = .{ .shader = self.colored_line3d_shader, .camera = ._3d } }) catch unreachable).color_line3D;
+        const i = b.vertices.items.len;
         b.vertices.append(.{ .pos = .{ .x = start_point.x(), .y = start_point.y(), .z = start_point.z() }, .color = color }) catch return;
         b.vertices.append(.{ .pos = .{ .x = end_point.x(), .y = end_point.y(), .z = end_point.z() }, .color = color }) catch return;
+        b.indicies.append(@intCast(i)) catch return;
+        b.indicies.append(@intCast(i + 1)) catch return;
     }
 
     //vec3 vertexPosition_worldspace =
@@ -611,22 +639,17 @@ pub const ImmediateDrawingContext = struct {
         const co = 0xffffffff;
 
         const sz = size.x;
-        const po = pos.sub(cam.pos);
+        const po = pos.scale(2).sub(cam.pos);
         const A = po.sub(right.add(up).scale(sz));
         const B = po.add(right.sub(up).scale(sz));
         const C = po.add(right.add(up).scale(sz));
         const D = po.sub(right.sub(up).scale(sz));
 
-        // zig fmt: off
         b.vertices.appendSlice(&.{
-            VtxFmt.textured3D(B.x() , B.y() , B.z(),un.x + un.w,un.y + un.h,co ),
-            VtxFmt.textured3D(C.x() , C.y() , C.z(),un.x + un.w ,un.y ,co ),
-            VtxFmt.textured3D(D.x() , D.y() , D.z(),un.x,un.y ,co ),
-            VtxFmt.textured3D(A.x() , A.y() , A.z(),un.x,un.y + un.h,co ),
-            //VtxFmt.textured3D(pos.x() + size.x, pos.y() + size.y, pos.z(),un.x + un.w,un.y + un.h,co ),
-            //VtxFmt.textured3D(pos.x() + size.x, pos.y() , pos.z(),un.x + un.w ,un.y ,co ),
-            //VtxFmt.textured3D(pos.x() , pos.y() , pos.z(),un.x,un.y ,co ),
-            //VtxFmt.textured3D(pos.x() , pos.y() + size.y, pos.z(),un.x,un.y + un.h,co ),
+            VtxFmt.textured3D(B.x(), B.y(), B.z(), un.x + un.w, un.y + un.h, co),
+            VtxFmt.textured3D(C.x(), C.y(), C.z(), un.x + un.w, un.y, co),
+            VtxFmt.textured3D(D.x(), D.y(), D.z(), un.x, un.y, co),
+            VtxFmt.textured3D(A.x(), A.y(), A.z(), un.x, un.y + un.h, co),
         }) catch return;
     }
 
