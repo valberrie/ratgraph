@@ -539,7 +539,7 @@ pub const GuiConfig = struct {
         textbox_caret_width: f32 = 3,
         textbox_inset: f32 = 3,
         //All units are counts
-        enum_combo_item_count_scroll_threshold: u32 = 7,
+        enum_combo_item_count_scroll_threshold: u32 = 15,
 
         colors: struct {
             pub const ColorWrap = struct {
@@ -1618,6 +1618,85 @@ pub const Os9Gui = struct {
             return true;
         }
         return false;
+    }
+
+    pub fn combo(
+        self: *Self,
+        comptime fmt: []const u8,
+        args: anytype,
+        index: *usize,
+        count: usize,
+        ctx: anytype,
+        next: *const fn (@TypeOf(ctx)) ?struct { usize, []const u8 },
+    ) !void {
+        const id = self.gui.getId();
+
+        {
+            const d = self.gui.buttonGeneric();
+            const cb = self.style.getRect(.combo_background);
+            self.gui.draw9Slice(d.area, cb, self.style.texture, self.scale);
+            const texta = d.area.inset(cb.w / 3 * self.scale);
+            self.gui.drawTextFmt(fmt, args, texta, texta.h, 0xff, .{ .justify = .center }, self.font);
+            const cbb = self.style.getRect(.combo_button);
+            const da = self.style.getRect(.down_arrow);
+            const cbbr = d.area.replace(d.area.x + d.area.w - cbb.w * self.scale, null, cbb.w * self.scale, null).centerR(da.w * self.scale, da.h * self.scale);
+            //const sp = d.area.split(.horizontal, @min(d.area.w, d.area.w - 16 * self.scale));
+            //const right = sp[1];
+            self.gui.drawRectTextured(cbbr, Color.White, da, self.style.texture);
+            //const icon_rect =
+
+            if (d.state == .click) {
+                self.drop_down = id;
+                self.drop_down_scroll = .{ .x = 0, .y = 0 };
+                return;
+            }
+        }
+
+        if (self.drop_down) |dd| {
+            if (dd.eql(id)) {
+                const scrth = self.style.config.enum_combo_item_count_scroll_threshold;
+                const do_scroll = count > scrth;
+                const pa = self.gui.layout.last_requested_bounds.?;
+                const dd_area = graph.Rect.newV(pa.pos(), .{
+                    .x = pa.w,
+                    .y = if (do_scroll) pa.h * @as(f32, @floatFromInt(scrth)) else @as(f32, @floatFromInt(count)) * pa.h,
+                });
+                if (self.gui.input_state.mouse.left == .rising and !self.gui.isCursorInRect(dd_area)) {
+                    self.drop_down = null;
+                    return;
+                }
+                var buf: [256]u8 = undefined;
+                var sb = StaticTextbox.init(&buf);
+                if (try self.beginTlWindow(dd_area)) {
+                    defer self.endTlWindow();
+
+                    const ar = self.gui.getArea().?;
+                    //self.gui.drawRectFilled(dd_area, Color.Red);
+                    //const ar = dd_area.inset(14 * self.scale);
+                    _ = try self.gui.beginLayout(Gui.SubRectLayout, .{ .rect = ar }, .{});
+                    defer self.gui.endLayout();
+                    const vl = try self.beginV();
+                    defer self.endL();
+                    const old_len = sb.len;
+                    try self.textbox2(&sb, .{});
+                    if (old_len != sb.len)
+                        self.drop_down_scroll.y = 0;
+                    vl.pushRemaining();
+                    if (try self.beginScroll(&self.drop_down_scroll, .{ .sw = ar.w }, Gui.VerticalLayout{ .item_height = 20 * self.scale })) |file_scroll| {
+                        defer self.endScroll(file_scroll, file_scroll.child.current_h);
+                        while (next(ctx)) |fname| {
+                            //inline for (enum_info.Enum.fields) |f| {
+                            if (std.mem.startsWith(u8, fname[1], sb.getSlice())) {
+                                if (self.buttonEx("{s}", .{fname[1]}, .{})) {
+                                    index.* = fname[0];
+                                    self.drop_down = null;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     pub fn enumCombo(self: *Self, comptime fmt: []const u8, args: anytype, enum_value: anytype) !void {
