@@ -902,6 +902,7 @@ pub const Os9Gui = struct {
 
     pub fn endFrame(self: *Self, draw: *graph.ImmediateDrawingContext) !void {
         try self.gui_draw_ctx.drawGui(draw, &self.gui);
+        graph.c.glDisable(graph.c.GL_STENCIL_TEST);
     }
 
     pub fn beginTlWindow(self: *Self, parea: Rect) !bool {

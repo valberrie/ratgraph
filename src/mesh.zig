@@ -6,6 +6,14 @@ pub const za = @import("zalgebra");
 
 const log = std.log.scoped(.mesh_import);
 
+pub const iMesh = struct {
+    draw_fn: *const fn (*@This(), view_mat: za.Mat4) void,
+
+    pub fn draw(vt: *@This(), view_mat: za.Mat4) void {
+        vt.draw_fn(vt, view_mat);
+    }
+};
+
 /// A mesh is a piece of geometry that can be drawn with one api call.
 pub const MeshVert = packed struct {
     x: f32,
