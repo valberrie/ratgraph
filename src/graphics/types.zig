@@ -669,6 +669,15 @@ pub const CharColor = struct {
     b: u8,
     a: u8,
 
+    pub fn newFloat(r: f32, g: f32, b: f32, a: f32) CharColor {
+        return .{
+            .r = @intFromFloat(r * 255),
+            .g = @intFromFloat(g * 255),
+            .b = @intFromFloat(b * 255),
+            .a = @intFromFloat(a * 255),
+        };
+    }
+
     pub fn new(r: u8, g: u8, b: u8, a: u8) CharColor {
         return .{ .r = r, .g = g, .b = b, .a = a };
     }

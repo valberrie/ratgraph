@@ -429,9 +429,9 @@ pub const Shader = struct {
         }
     }
 
-    fn compShader(src: [*c]const u8, s_type: c_uint) glID {
+    fn compShader(src: [*c]const [*c]const u8, s_type: c_uint) glID {
         const vert = c.glCreateShader(s_type);
-        c.glShaderSource(vert, 1, &src, null);
+        c.glShaderSource(vert, 1, src, null);
         c.glCompileShader(vert);
         checkShaderErr(vert, c.GL_COMPILE_STATUS);
         return vert;
@@ -460,10 +460,10 @@ pub const Shader = struct {
     }
 
     pub fn simpleShader(vert_src: [*c]const u8, frag_src: [*c]const u8) glID {
-        const vert = compShader(vert_src, c.GL_VERTEX_SHADER);
+        const vert = compShader(&vert_src, c.GL_VERTEX_SHADER);
         defer c.glDeleteShader(vert);
 
-        const frag = compShader(frag_src, c.GL_FRAGMENT_SHADER);
+        const frag = compShader(&frag_src, c.GL_FRAGMENT_SHADER);
         defer c.glDeleteShader(frag);
 
         const shader = c.glCreateProgram();
@@ -480,7 +480,7 @@ pub const Shader = struct {
         var stage_del: [@typeInfo(Type).Enum.fields.len]c_uint = undefined;
         var i: usize = 0;
         for (stages) |stage| {
-            const st = compShader(stage.src, @as(c_uint, @intCast(@intFromEnum(stage.t))));
+            const st = compShader(&stage.src, @as(c_uint, @intCast(@intFromEnum(stage.t))));
             stage_del[i] = st;
             i += 1;
             c.glAttachShader(shader, st);

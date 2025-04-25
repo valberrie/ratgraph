@@ -111,6 +111,12 @@ pub const Model = struct {
         };
     }
 
+    pub fn drawSimple(self: *Self, view_3d: graph.za.Mat4, model_mat: graph.za.Mat4, shader: c_uint) void {
+        for (self.meshes.items) |*mesh| {
+            mesh.drawSimple(view_3d, model_mat, shader);
+        }
+    }
+
     pub fn deinit(self: *Self) void {
         self.textures.deinit();
         for (self.meshes.items) |*mesh| {
@@ -127,7 +133,11 @@ pub const Model = struct {
 pub fn loadObj(alloc: std.mem.Allocator, dir: std.fs.Dir, filename: []const u8, scale: f32) !Model {
     var uvs = std.ArrayList(graph.Vec2f).init(alloc);
     defer uvs.deinit();
-    var verts = std.ArrayList(graph.Vec3f).init(alloc);
+    const Vert = struct {
+        p: graph.Vec3f,
+        color: u32,
+    };
+    var verts = std.ArrayList(Vert).init(alloc);
     defer verts.deinit();
     var norms = std.ArrayList(graph.Vec3f).init(alloc);
     defer norms.deinit();
@@ -167,13 +177,27 @@ pub fn loadObj(alloc: std.mem.Allocator, dir: std.fs.Dir, filename: []const u8, 
             const x = try std.fmt.parseFloat(f32, tok.next().?);
             const y = try std.fmt.parseFloat(f32, tok.next().?);
             const z = try std.fmt.parseFloat(f32, tok.next().?);
+            const color = blk: {
+                const red = tok.next();
+                const green = tok.next();
+                const blue = tok.next();
+                const r = @min(1, try std.fmt.parseFloat(f32, red.?));
+                const g = @min(1, try std.fmt.parseFloat(f32, green.?));
+                const b = @min(1, try std.fmt.parseFloat(f32, blue.?));
+                if (blue != null) {
+                    const col = graph.ptypes.charColorToInt(graph.ptypes.CharColor.newFloat(r, g, b, 1));
+                    std.debug.print("new color {x}\n", .{col});
+                    break :blk col;
+                }
+                break :blk 0xff_ff_ff_ff;
+            };
             minx = @min(minx, x);
             miny = @min(miny, y);
             minz = @min(minz, z);
             maxx = @max(maxx, x);
             maxy = @max(maxy, y);
             maxz = @max(maxz, z);
-            try verts.append(.{ .x = x, .y = y, .z = z });
+            try verts.append(.{ .p = .{ .x = x, .y = y, .z = z }, .color = color });
         } else if (eql(u8, com, "vt")) { //vertex uv
             const u = try std.fmt.parseFloat(f32, tok.next().?);
             const v = try std.fmt.parseFloat(f32, tok.next().?);
@@ -212,15 +236,15 @@ pub fn loadObj(alloc: std.mem.Allocator, dir: std.fs.Dir, filename: []const u8, 
                         break :blk graph.Vec3f{ .x = 0, .y = 1, .z = 0 };
                     };
                     try m.vertices.append(.{
-                        .x = scale * ver.x,
-                        .y = scale * ver.y,
-                        .z = scale * ver.z,
+                        .x = scale * ver.p.x,
+                        .y = scale * ver.p.y,
+                        .z = scale * ver.p.z,
                         .u = uv.x,
                         .v = 1 - uv.y,
                         .nx = norm.x,
                         .ny = norm.y,
                         .nz = norm.z,
-                        .color = 0xffffffff,
+                        .color = ver.color,
                     });
                     //try cubes.indicies.append(@intCast(cubes.vertices.items.len - 1));
                 }
