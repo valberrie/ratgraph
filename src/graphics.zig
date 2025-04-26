@@ -177,6 +177,7 @@ pub const ImmediateDrawingContext = struct {
         pub const Color_Texture_2D = packed struct { pos: Vec2f, uv: Vec2f, z: u16, color: u32 }; // 22 bytes
         pub const Color_3D = packed struct { pos: Vec3f, color: u32 };
         pub const Textured_3D = packed struct { pos: Vec3f, uv: Vec2f, color: u32 };
+        pub const Textured_3D_NC = packed struct { pos: Vec3f, uv: Vec2f };
 
         //idea for a small vertex, xy are 14.2 or 13.3 fixed point. 2^13 allows for up to 8k with 8 subpixel positions
         //uv are also some fixed point maybe 13.3. These would not be normalized?
@@ -837,6 +838,7 @@ pub fn NewBatch(comptime vertex_type: type, comptime batch_options: BatchOptions
     const IndexType = u32;
     return struct {
         pub const Self = @This();
+        pub const VtxType = vertex_type;
 
         vbo: c_uint,
         vao: c_uint,

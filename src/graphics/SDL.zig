@@ -515,6 +515,10 @@ pub const Window = struct {
         return self.keyboard_state.isSet(@intFromEnum(scancode));
     }
 
+    pub fn keystate(self: *const Self, scancode: keycodes.Scancode) ButtonState {
+        return self.key_state[@intFromEnum(scancode)];
+    }
+
     pub fn rect(self: *const Self) ptypes.Rect {
         return ptypes.Rect.NewAny(0, 0, self.screen_dimensions.x, self.screen_dimensions.y);
     }

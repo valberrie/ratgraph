@@ -23,11 +23,11 @@ pub const MeshVert = packed struct {
     u: f32,
     v: f32,
 
-    nx: f32,
-    ny: f32,
-    nz: f32,
+    nx: f32 = 0,
+    ny: f32 = 1,
+    nz: f32 = 0,
 
-    color: u32,
+    color: u32 = 0xffffffff,
 
     tx: f32 = 0,
     ty: f32 = 0,
@@ -186,7 +186,6 @@ pub fn loadObj(alloc: std.mem.Allocator, dir: std.fs.Dir, filename: []const u8, 
                 const b = @min(1, try std.fmt.parseFloat(f32, blue.?));
                 if (blue != null) {
                     const col = graph.ptypes.charColorToInt(graph.ptypes.CharColor.newFloat(r, g, b, 1));
-                    std.debug.print("new color {x}\n", .{col});
                     break :blk col;
                 }
                 break :blk 0xff_ff_ff_ff;
