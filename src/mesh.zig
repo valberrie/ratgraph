@@ -89,6 +89,11 @@ pub const Mesh = struct {
         GL.bufferData(c.GL_ELEMENT_ARRAY_BUFFER, self.ebo, u32, self.indicies.items);
     }
 
+    pub fn clearRetainingCapacity(self: *Self) void {
+        self.vertices.clearRetainingCapacity();
+        self.indicies.clearRetainingCapacity();
+    }
+
     pub fn deinit(self: *Self) void {
         self.vertices.deinit();
         self.indicies.deinit();
