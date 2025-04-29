@@ -1536,7 +1536,9 @@ pub const Os9Gui = struct {
         self.sliderParam(value, min, max, 1);
     }
 
-    pub fn sliderParam(self: *Self, value: anytype, min: anytype, max: anytype, base: f32) void {
+    pub fn sliderParam(self: *Self, value: anytype, min_: anytype, max_: anytype, base: f32) void {
+        const min = std.math.lossyCast(f32, min_);
+        const max = std.math.lossyCast(f32, max_);
         const gui = &self.gui;
         const box = self.style.getRect(.slider_box);
         const shuttle = self.style.getRect(.slider_shuttle);
