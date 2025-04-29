@@ -222,18 +222,20 @@ pub const ImmediateDrawingContext = struct {
         }
     };
 
+    /// These are globals rather than members so multiple instances of ImmediateDrawingContext can exist without creating duplicate resources.
+    threadlocal var shaders_are_set = false;
+    pub threadlocal var font_shader: c_uint = 0;
+    pub threadlocal var colored_tri_shader: c_uint = 0;
+    pub threadlocal var colored_line3d_shader: c_uint = 0;
+    pub threadlocal var colored_point3d_shader: c_uint = 0;
+    pub threadlocal var textured_tri_shader: c_uint = 0;
+    pub threadlocal var textured_tri_3d_shader: c_uint = 0;
+    pub threadlocal var textured_tri_3d_shader_new: c_uint = 0;
+    pub threadlocal var billboard_shader: c_uint = 0;
+
     batches: MapT,
 
     zindex: u16 = 0,
-    font_shader: c_uint,
-    colored_tri_shader: c_uint,
-    colored_line3d_shader: c_uint,
-    colored_point3d_shader: c_uint,
-    textured_tri_shader: c_uint,
-    textured_tri_3d_shader: c_uint,
-    textured_tri_3d_shader_new: c_uint,
-
-    billboard_shader: c_uint,
 
     alloc: Alloc,
 
@@ -247,20 +249,22 @@ pub const ImmediateDrawingContext = struct {
 
     pub fn init(alloc: Alloc) Self {
         const SD = "graphics/shader/";
+        if (!shaders_are_set) {
+            shaders_are_set = true;
+            textured_tri_3d_shader = Shader.simpleShader(@embedFile(SD ++ "alpha_texturequad.vert"), @embedFile(SD ++ "texturequad.frag"));
+
+            colored_tri_shader = Shader.simpleShader(@embedFile(SD ++ "newtri.vert"), @embedFile(SD ++ "colorquad.frag"));
+            colored_line3d_shader = Shader.simpleShader(@embedFile(SD ++ "line3d.vert"), @embedFile(SD ++ "colorquad.frag"));
+            colored_point3d_shader = Shader.simpleShader(@embedFile(SD ++ "line3d.vert"), @embedFile(SD ++ "point.fsh"));
+            textured_tri_shader = Shader.simpleShader(@embedFile(SD ++ "tex_tri2d.vert"), @embedFile(SD ++ "tex_tri2d.frag"));
+            textured_tri_3d_shader_new = Shader.simpleShader(@embedFile(SD ++ "tex_tri3d.vsh"), @embedFile(SD ++ "tex_tri3d.fsh"));
+            billboard_shader = Shader.simpleShader(@embedFile(SD ++ "billboard_tex.vsh"), @embedFile(SD ++ "tex_tri3d.fsh"));
+
+            font_shader = Shader.simpleShader(@embedFile(SD ++ "tex_tri2d.vert"), @embedFile(SD ++ "tex_tri2d_alpha.frag"));
+        }
         return Self{
             .alloc = alloc,
             .batches = MapT.init(alloc),
-
-            .textured_tri_3d_shader = Shader.simpleShader(@embedFile(SD ++ "alpha_texturequad.vert"), @embedFile(SD ++ "texturequad.frag")),
-
-            .colored_tri_shader = Shader.simpleShader(@embedFile(SD ++ "newtri.vert"), @embedFile(SD ++ "colorquad.frag")),
-            .colored_line3d_shader = Shader.simpleShader(@embedFile(SD ++ "line3d.vert"), @embedFile(SD ++ "colorquad.frag")),
-            .colored_point3d_shader = Shader.simpleShader(@embedFile(SD ++ "line3d.vert"), @embedFile(SD ++ "point.fsh")),
-            .textured_tri_shader = Shader.simpleShader(@embedFile(SD ++ "tex_tri2d.vert"), @embedFile(SD ++ "tex_tri2d.frag")),
-            .textured_tri_3d_shader_new = Shader.simpleShader(@embedFile(SD ++ "tex_tri3d.vsh"), @embedFile(SD ++ "tex_tri3d.fsh")),
-            .billboard_shader = Shader.simpleShader(@embedFile(SD ++ "billboard_tex.vsh"), @embedFile(SD ++ "tex_tri3d.fsh")),
-
-            .font_shader = Shader.simpleShader(@embedFile(SD ++ "tex_tri2d.vert"), @embedFile(SD ++ "tex_tri2d_alpha.frag")),
         };
     }
 
@@ -310,6 +314,12 @@ pub const ImmediateDrawingContext = struct {
         }
     }
 
+    pub fn beginNoClear(self: *Self, screen_dim: Vec2f) !void {
+        self.screen_dimensions = screen_dim;
+        try self.clearBuffers();
+        self.zindex = 1;
+    }
+
     pub fn begin(self: *Self, bg_color: u32, screen_dim: Vec2f) !void {
         self.screen_dimensions = screen_dim;
         try self.clearBuffers();
@@ -332,7 +342,7 @@ pub const ImmediateDrawingContext = struct {
     pub fn rect(self: *Self, rpt: Rect, color: u32) void {
         drawErr(e: {
             const r = rpt;
-            const b = &(self.getBatch(.{ .batch_kind = .color_tri, .params = .{ .shader = self.colored_tri_shader } }) catch |err| break :e err).color_tri;
+            const b = &(self.getBatch(.{ .batch_kind = .color_tri, .params = .{ .shader = colored_tri_shader } }) catch |err| break :e err).color_tri;
             const z = self.zindex;
             self.zindex += 1;
             b.indicies.appendSlice(&genQuadIndices(@as(u32, @intCast(b.vertices.items.len)))) catch |err| break :e err;
@@ -349,7 +359,7 @@ pub const ImmediateDrawingContext = struct {
     pub fn rectVertexColors(self: *Self, r: Rect, vert_colors: []const u32) void {
         drawErr(e: {
             const b = &(self.getBatch(.{ .batch_kind = .color_tri, .params = .{
-                .shader = self.colored_tri_shader,
+                .shader = colored_tri_shader,
             } }) catch |err| break :e err).color_tri;
             const z = self.zindex;
             self.zindex += 1;
@@ -391,7 +401,7 @@ pub const ImmediateDrawingContext = struct {
             .{ .y = un.y + un.h, .x = un.x + un.w - tbw },
             .{ .y = un.y + un.h, .x = un.x + un.w },
         };
-        const b = &(self.getBatch(.{ .batch_kind = .color_tri_tex, .params = .{ .shader = self.textured_tri_shader, .texture = texture.id } }) catch return).color_tri_tex;
+        const b = &(self.getBatch(.{ .batch_kind = .color_tri_tex, .params = .{ .shader = textured_tri_shader, .texture = texture.id } }) catch return).color_tri_tex;
         const z = self.zindex;
         self.zindex += 1;
         //br, tr, tl, bl
@@ -479,12 +489,12 @@ pub const ImmediateDrawingContext = struct {
     }
 
     pub fn rectTexTint(self: *Self, r: Rect, tr: Rect, col: u32, texture: Texture) void {
-        self.rectTexTintShader(r, tr, col, texture, self.textured_tri_shader);
+        self.rectTexTintShader(r, tr, col, texture, textured_tri_shader);
     }
 
     pub fn rectTexTintUvOffset(self: *Self, r: Rect, tr: Rect, col: u32, texture: Texture, uv_offset: u8) void {
         //FIXME support flip flags again
-        const b = &(self.getBatch(.{ .batch_kind = .color_tri_tex, .params = .{ .shader = self.textured_tri_shader, .texture = texture.id } }) catch return).color_tri_tex;
+        const b = &(self.getBatch(.{ .batch_kind = .color_tri_tex, .params = .{ .shader = textured_tri_shader, .texture = texture.id } }) catch return).color_tri_tex;
         const z = self.zindex;
         self.zindex += 1;
         const un = GL.normalizeTexRect(tr, texture.w, texture.h);
@@ -525,7 +535,7 @@ pub const ImmediateDrawingContext = struct {
         const b = &(self.getBatch(.{
             .batch_kind = .color_tri_tex,
             //Text should always be drawn last for best transparency
-            .params = .{ .shader = self.font_shader, .texture = font.texture.id, .draw_priority = 0xff },
+            .params = .{ .shader = font_shader, .texture = font.texture.id, .draw_priority = 0xff },
         }) catch unreachable).color_tri_tex;
 
         b.vertices.ensureUnusedCapacity(str.len * 4) catch unreachable;
@@ -583,12 +593,12 @@ pub const ImmediateDrawingContext = struct {
     }
 
     pub fn point3D(self: *Self, point: za.Vec3, color: u32) void {
-        const b = &(self.getBatch(.{ .batch_kind = .color_point3D, .params = .{ .shader = self.colored_point3d_shader, .camera = ._3d } }) catch unreachable).color_point3D;
+        const b = &(self.getBatch(.{ .batch_kind = .color_point3D, .params = .{ .shader = colored_point3d_shader, .camera = ._3d } }) catch unreachable).color_point3D;
         b.vertices.append(.{ .pos = .{ .x = point.x(), .y = point.y(), .z = point.z() }, .color = color }) catch return;
     }
 
     pub fn cubeFrame(self: *Self, pos: za.Vec3, ext: za.Vec3, color: u32) void {
-        const b = &(self.getBatch(.{ .batch_kind = .color_line3D, .params = .{ .shader = self.colored_line3d_shader, .camera = ._3d } }) catch unreachable).color_line3D;
+        const b = &(self.getBatch(.{ .batch_kind = .color_line3D, .params = .{ .shader = colored_line3d_shader, .camera = ._3d } }) catch unreachable).color_line3D;
         const v = &b.vertices;
         const i: u32 = @intCast(v.items.len);
 
@@ -613,7 +623,7 @@ pub const ImmediateDrawingContext = struct {
     }
 
     pub fn line3D(self: *Self, start_point: za.Vec3, end_point: za.Vec3, color: u32) void {
-        const b = &(self.getBatch(.{ .batch_kind = .color_line3D, .params = .{ .shader = self.colored_line3d_shader, .camera = ._3d } }) catch unreachable).color_line3D;
+        const b = &(self.getBatch(.{ .batch_kind = .color_line3D, .params = .{ .shader = colored_line3d_shader, .camera = ._3d } }) catch unreachable).color_line3D;
         const i = b.vertices.items.len;
         b.vertices.append(.{ .pos = .{ .x = start_point.x(), .y = start_point.y(), .z = start_point.z() }, .color = color }) catch return;
         b.vertices.append(.{ .pos = .{ .x = end_point.x(), .y = end_point.y(), .z = end_point.z() }, .color = color }) catch return;
@@ -628,7 +638,7 @@ pub const ImmediateDrawingContext = struct {
 
     pub fn billboard(self: *Self, pos: za.Vec3, size: Vec2f, tr: Rect, texture: Texture, cam: Camera3D) void {
         const b = &(self.getBatch(.{ .batch_kind = .billboard, .params = .{
-            .shader = self.billboard_shader,
+            .shader = billboard_shader,
             .texture = texture.id,
             .camera = ._3d,
         } }) catch unreachable).billboard;
@@ -654,6 +664,20 @@ pub const ImmediateDrawingContext = struct {
         }) catch return;
     }
 
+    pub fn triangle3D(self: *Self, vs: []const za.Vec3, color: u32) void {
+        const b = &(self.getBatch(.{ .batch_kind = .color_cube, .params = .{
+            .shader = colored_line3d_shader,
+            .camera = ._3d,
+        } }) catch unreachable).color_cube;
+        const of: u32 = @intCast(b.vertices.items.len);
+        b.indicies.appendSlice(&.{ of, of + 1, of + 2 }) catch return;
+        b.vertices.appendSlice(&.{
+            VtxFmt.color3D(vs[2].x(), vs[2].y(), vs[2].z(), color),
+            VtxFmt.color3D(vs[1].x(), vs[1].y(), vs[1].z(), color),
+            VtxFmt.color3D(vs[0].x(), vs[0].y(), vs[0].z(), color),
+        }) catch return;
+    }
+
     pub fn cube(self: *Self, pos: za.Vec3, ext: za.Vec3, color: u32) void {
         const px = pos.x();
         const py = pos.y();
@@ -662,7 +686,7 @@ pub const ImmediateDrawingContext = struct {
         const sy = ext.y();
         const sz = ext.z();
         const b = &(self.getBatch(.{ .batch_kind = .color_cube, .params = .{
-            .shader = self.colored_line3d_shader,
+            .shader = colored_line3d_shader,
             .camera = ._3d,
         } }) catch unreachable).color_cube;
         b.indicies.appendSlice(&GL.genCubeIndicies(@as(u32, @intCast(b.vertices.items.len)))) catch return;
@@ -708,7 +732,7 @@ pub const ImmediateDrawingContext = struct {
 
     // Winding order should be CCW
     pub fn triangle(self: *Self, v1: Vec2f, v2: Vec2f, v3: Vec2f, color: u32) void {
-        const b = &(self.getBatch(.{ .batch_kind = .color_tri, .params = .{ .shader = self.colored_tri_shader } }) catch unreachable).color_tri;
+        const b = &(self.getBatch(.{ .batch_kind = .color_tri, .params = .{ .shader = colored_tri_shader } }) catch unreachable).color_tri;
         const z = self.zindex;
         const i: u32 = @intCast(b.vertices.items.len);
         b.indicies.appendSlice(&.{ i, i + 1, i + 2 }) catch return;
@@ -724,7 +748,7 @@ pub const ImmediateDrawingContext = struct {
         const b = &(self.getBatch(.{
             .batch_kind = .color_tri_tex,
             //Text should always be drawn last for best transparency
-            .params = .{ .shader = self.textured_tri_shader, .texture = font.texture.id, .draw_priority = 0xff },
+            .params = .{ .shader = textured_tri_shader, .texture = font.texture.id, .draw_priority = 0xff },
         }) catch unreachable).color_tri_tex;
         const z = self.zindex;
         self.zindex += 1;
@@ -756,7 +780,7 @@ pub const ImmediateDrawingContext = struct {
 
     pub fn line(self: *Self, start_p: Vec2f, end_p: Vec2f, color: u32) void {
         const b = &(self.getBatch(.{ .batch_kind = .color_line, .params = .{
-            .shader = self.colored_tri_shader,
+            .shader = colored_tri_shader,
         } }) catch unreachable).color_line;
         const z = self.zindex;
         self.zindex += 1;
