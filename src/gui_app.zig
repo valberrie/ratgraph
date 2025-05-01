@@ -1811,6 +1811,7 @@ pub const Os9Gui = struct {
     pub fn textbox2(self: *Self, tb: anytype, params: struct {
         disabled: bool = false,
         invalid: bool = false,
+        make_active: bool = false,
     }) !void {
         const gui = &self.gui;
         const inset = self.style.config.textbox_inset * self.scale;
@@ -1822,7 +1823,7 @@ pub const Os9Gui = struct {
             gui.drawTextFmt("{s}", .{tb.getSlice()}, tr, tr.h, self.style.config.colors.textbox_fg_disabled, .{}, self.font);
             return;
         }
-        if (try gui.textboxGeneric2(tb, self.font, .{ .text_inset = inset })) |d| {
+        if (try gui.textboxGeneric2(tb, self.font, .{ .text_inset = inset, .make_active = params.make_active })) |d| {
             const tr = d.text_area;
             gui.draw9Slice(d.area, self.style.getRect(.basic_inset), self.style.texture, self.scale);
             if (params.invalid)

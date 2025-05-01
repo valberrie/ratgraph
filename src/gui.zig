@@ -1042,7 +1042,7 @@ pub const Context = struct {
     tooltip_state: TooltipState,
 
     scratch_buf_pos: usize = 0,
-    scratch_buf: [4096]u8 = undefined,
+    scratch_buf: []u8,
 
     input_state: InputState = .{},
 
@@ -1174,6 +1174,7 @@ pub const Context = struct {
         aa.* = std.heap.ArenaAllocator.init(alloc);
         return Self{
             .arena_alloc = aa,
+            .scratch_buf = try alloc.alloc(u8, 4096 * 4),
             .layout = .{ .bounds = graph.Rec(0, 0, 0, 0) },
             .windows = std.ArrayList(Window).init(alloc),
             .frame_alloc = aa.allocator(),
@@ -1236,6 +1237,7 @@ pub const Context = struct {
             w.deinit();
         }
         self.windows.deinit();
+        self.retained_alloc.free(self.scratch_buf);
         self.textbox_state.deinit();
         self.arena_alloc.deinit();
         self.retained_alloc.destroy(self.arena_alloc);
@@ -1893,6 +1895,7 @@ pub const Context = struct {
     pub fn textboxGeneric2(self: *Self, contents: anytype, font: *Font, params: struct {
         text_inset: f32,
         restrict_chars_to: ?[]const u8 = null,
+        make_active: bool = false,
     }) !?GenericWidget.Textbox {
         const area = self.getArea() orelse return null;
         const cw = self.clickWidgetEx(area, .{});
@@ -1908,6 +1911,8 @@ pub const Context = struct {
             .selection_pos_min = 0,
             .selection_pos_max = 0,
         };
+        if (params.make_active)
+            self.text_input_state.active_id = id;
 
         if (self.isActiveTextinput(id)) {
             if (self.keyState(.TAB) == .rising) {}
