@@ -44,12 +44,15 @@ pub fn linkLibrary(b: *std.Build, mod: *std.Build.Module) void {
     mod.link_libc = true;
     if (mod.resolved_target) |rt| {
         if (rt.result.os.tag == .windows) {
+            //TODO the Windows build depends heavily on msys.
+            //I have no clue how windows applications are supposed to be built.
+            //distrubuting the binary requries, a setting lib path to msys/mingw64/bin, or copying the relevant dlls into the working dir.
             mod.addSystemIncludePath(.{ .cwd_relative = "/msys64//mingw64/include" });
             mod.addSystemIncludePath(.{ .cwd_relative = "/msys64//mingw64/include/freetype2" });
             mod.addLibraryPath(.{ .cwd_relative = "/msys64/mingw64/lib" });
             mod.linkSystemLibrary("epoxy", .{});
             mod.linkSystemLibrary("mingw32", .{});
-            mod.linkSystemLibrary("sdl2.dll", .{});
+            mod.linkSystemLibrary("SDL3.dll", .{});
             mod.linkSystemLibrary("c", .{});
             mod.linkSystemLibrary("opengl32", .{});
             mod.linkSystemLibrary("openal.dll", .{});
