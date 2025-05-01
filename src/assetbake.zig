@@ -314,6 +314,16 @@ fn suffix(alloc: std.mem.Allocator, str: []const u8, _suffix: []const u8) ![]con
     return sl;
 }
 
+/// This may lead to odd cases on unix where filenames can contain a backslash.
+pub fn sanitizePath(buf: []u8) void {
+    for (buf) |*char| {
+        char.* = switch (char.*) {
+            '\\' => '/', //Windoze is great
+            else => continue,
+        };
+    }
+}
+
 //This function walks a directory, adding png files to a single packed atlas, all other files get packed into a userdata.bin.
 //A manifest file describing the directory is created.
 //The main reason for its existence to is:
@@ -419,6 +429,8 @@ pub fn assetBake(
         alloc,
     );
     defer walker.deinit();
+    var path_scratch = std.ArrayList(u8).init(alloc);
+    defer path_scratch.deinit();
 
     { //Make the tiled scratch directory
         dir.makeDir(TILED_SCRATCH_NAME) catch |err| switch (err) {
@@ -430,11 +442,15 @@ pub fn assetBake(
     defer tiled_scratch_dir.close();
 
     while (try walker.next()) |w| {
+        path_scratch.clearRetainingCapacity();
+        try path_scratch.appendSlice(w.path);
+        sanitizePath(path_scratch.items);
+        const wpath = path_scratch.items;
         switch (w.kind) {
             .file => {
                 const ind = blk: {
                     if (old_bake) |ob| {
-                        if (ob.name_id_map.map.get(w.path)) |id|
+                        if (ob.name_id_map.map.get(wpath)) |id|
                             break :blk id.id;
                     }
                     var range = &freelist.items[0];
@@ -447,11 +463,11 @@ pub fn assetBake(
                     defer range.start += 1;
                     break :blk range.start;
                 };
-                const nameid = try talloc.dupe(u8, w.path);
+                const nameid = try talloc.dupe(u8, wpath);
                 try out_name_id_map.put(nameid, .{
                     .id = @intCast(ind),
                 });
-                if (std.mem.startsWith(u8, w.path, ignore_tiled_name)) {
+                if (std.mem.startsWith(u8, wpath, ignore_tiled_name)) {
                     try tiled_exclude.put(ind, {});
                 }
                 if (std.mem.endsWith(u8, w.basename, ".png")) {
@@ -468,7 +484,7 @@ pub fn assetBake(
                     try bmps.append(bmp);
                     try rpack.appendRect(index, bmps.items[index].w + pixel_extrude * 2, bmps.items[index].h + pixel_extrude * 2);
                     try uid_bmp_index_map.put(@intCast(index), @intCast(ind));
-                    const dirname = w.path[0 .. w.path.len - w.basename.len];
+                    const dirname = wpath[0 .. wpath.len - w.basename.len];
                     tiled_scratch_dir.makePath(dirname) catch |err| switch (err) {
                         error.PathAlreadyExists => {},
                         else => return err,
@@ -481,11 +497,11 @@ pub fn assetBake(
                     try bmp.writeToPngFile(tiled_scratch_dir, fbs.getWritten());
                     try tiled_substite_path.put(nameid, try talloc.dupe(u8, fbs.getWritten()));
                 } else {
-                    const path = try talloc.dupe(u8, w.path);
+                    const path = try talloc.dupe(u8, wpath);
                     try json_files.append(.{
                         .path = path,
-                        .dir_path = path[0 .. w.path.len - w.basename.len],
-                        .basename = path[w.path.len - w.basename.len ..],
+                        .dir_path = path[0 .. wpath.len - w.basename.len],
+                        .basename = path[wpath.len - w.basename.len ..],
                     });
                 }
             },
