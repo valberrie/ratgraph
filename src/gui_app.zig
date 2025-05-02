@@ -2379,7 +2379,7 @@ pub fn main() anyerror!void {
         .window_size = .{ .x = 1920, .y = 1080 },
     });
     defer win.destroyWindow();
-    var debug_dir = try std.fs.cwd().openDir("debug", .{});
+    var debug_dir = try std.fs.cwd().makeOpenPath("debug", .{});
     defer debug_dir.close();
 
     //var cwin = try win.createChildWindow("HELLO", 1000, 500);

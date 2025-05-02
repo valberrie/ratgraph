@@ -11,6 +11,7 @@ const Rec = graph.Rec;
 const NewCol = @import("newcol.zig");
 const ColType = NewCol.ColCtx(3, f32);
 const OFont = @import("graphics/online_font.zig").OnlineFont;
+const DCtx = graph.ImmediateDrawingContext;
 
 //const Col3d = @import("col3d.zig");
 //const ColType = Col3d.CollisionType(graph.Rect, graph.za.Vec3);
@@ -1260,7 +1261,7 @@ pub fn game_main() !void {
         c.glGenerateMipmap(c.GL_TEXTURE_2D_ARRAY);
     }
 
-    var disp_cubes = graph.Cubes.init(alloc, woodtex, draw.textured_tri_3d_shader);
+    var disp_cubes = graph.Cubes.init(alloc, woodtex, DCtx.textured_tri_3d_shader);
     defer disp_cubes.deinit();
 
     const woodnormal = try graph.Texture.initFromImgFile(alloc, cwd, "3d_asset/normal.png", .{});
@@ -1336,7 +1337,7 @@ pub fn game_main() !void {
     graph.c.glEnable(graph.c.GL_CULL_FACE);
     graph.c.glCullFace(graph.c.GL_BACK);
 
-    var cubes_grnd = graph.Cubes.init(alloc, ggrid, draw.textured_tri_3d_shader);
+    var cubes_grnd = graph.Cubes.init(alloc, ggrid, DCtx.textured_tri_3d_shader);
     defer cubes_grnd.deinit();
     cubes_grnd.setData();
 
@@ -1374,7 +1375,7 @@ pub fn game_main() !void {
         outfile.close();
     }
 
-    var ico = try loadObj(alloc, cwd, "asset/icosphere.obj", 1, sky_tex, draw.textured_tri_3d_shader, &tarr);
+    var ico = try loadObj(alloc, cwd, "asset/icosphere.obj", 1, sky_tex, DCtx.textured_tri_3d_shader, &tarr);
     defer ico.deinit();
     ico.setData();
 
@@ -1400,7 +1401,7 @@ pub fn game_main() !void {
     });
     libatch.pushVertexData();
 
-    var cubes_st = try loadObj(alloc, cwd, "3d_asset/sky.obj", 1, sky_tex, draw.textured_tri_3d_shader, &tarr);
+    var cubes_st = try loadObj(alloc, cwd, "3d_asset/sky.obj", 1, sky_tex, DCtx.textured_tri_3d_shader, &tarr);
     defer cubes_st.deinit();
 
     var models = [_]mesh_util.Model{
@@ -1427,9 +1428,9 @@ pub fn game_main() !void {
         Mat4.fromTranslate(V3f.new(0, 2, 0)),
     };
 
-    var couch = try loadObj(alloc, cwd, "3d_asset/barrel.obj", 0.03, sky_tex, draw.textured_tri_3d_shader, &tarr);
+    var couch = try loadObj(alloc, cwd, "3d_asset/barrel.obj", 0.03, sky_tex, DCtx.textured_tri_3d_shader, &tarr);
     defer couch.deinit();
-    var soda = try loadObj(alloc, cwd, "3d_asset/soda/bathtub.obj", 0.03, sky_tex, draw.textured_tri_3d_shader, &tarr);
+    var soda = try loadObj(alloc, cwd, "3d_asset/soda/bathtub.obj", 0.03, sky_tex, DCtx.textured_tri_3d_shader, &tarr);
     defer soda.deinit();
 
     const objs = [_]*graph.Cubes{ &couch, &soda };
