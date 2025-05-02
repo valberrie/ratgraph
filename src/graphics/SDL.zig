@@ -78,7 +78,7 @@ pub const KeyState = struct {
 };
 
 pub fn getKeyFromScancode(scancode: keycodes.Scancode) keycodes.Keycode {
-    return @enumFromInt(c.SDL_GetKeyFromScancode(@intFromEnum(scancode)));
+    return @enumFromInt(c.SDL_GetKeyFromScancode(@intFromEnum(scancode), 0, false));
 }
 
 pub fn getScancodeFromKey(key: keycodes.Keycode) keycodes.Scancode {
