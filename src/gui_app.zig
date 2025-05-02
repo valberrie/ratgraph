@@ -4,7 +4,7 @@ const Rect = graph.Rect;
 const Rec = graph.Rec;
 const Pad = graph.Padding;
 const OFont = @import("graphics/online_font.zig").OnlineFont;
-const FileBrowser = @import("guiapp/filebrowser.zig").FileBrowser;
+pub const FileBrowser = @import("guiapp/filebrowser.zig").FileBrowser;
 
 const lua = @cImport({
     @cInclude("lua.h");
@@ -830,7 +830,7 @@ pub const Os9Gui = struct {
     gui_draw_ctx: Gui.GuiDrawContext,
     ofont: *OFont,
     font: *graph.FontUtil.PublicFontInterface,
-    //icon_ofont: *OFont,
+    icon_ofont: *OFont,
     icon_font: *graph.FontUtil.PublicFontInterface,
     alloc: std.mem.Allocator,
 
@@ -848,8 +848,9 @@ pub const Os9Gui = struct {
         //    break :blk list;
         //};
         const ofont_ptr = try alloc.create(OFont);
-        //const ofont_icon_ptr = try alloc.create(OFont);
+        const ofont_icon_ptr = try alloc.create(OFont);
         ofont_ptr.* = try OFont.init(alloc, asset_dir, "asset/fonts/noto.ttc", 64, .{});
+        ofont_icon_ptr.* = try OFont.init(alloc, asset_dir, "asset/fonts/remix.ttf", 64, .{});
         //ofont_icon_ptr.* = try OFont.initFromBuffer(alloc, @embedFile("font/remix.ttf"), 12, .{});
         return .{
             .gui = try Gui.Context.init(alloc),
@@ -864,7 +865,8 @@ pub const Os9Gui = struct {
             .ofont = ofont_ptr,
             .font = &ofont_ptr.font,
             //.font = try graph.Font.initFromBuffer(alloc, @embedFile("font/roboto.ttf"), 64, .{}),
-            .icon_font = &ofont_ptr.font,
+            .icon_ofont = ofont_icon_ptr,
+            .icon_font = &ofont_icon_ptr.font,
             //.icon_font = &ofont_icon_ptr.font,
             //.icon_ofont = ofont_icon_ptr,
             //.icon_font = try graph.Font.init(
@@ -886,8 +888,8 @@ pub const Os9Gui = struct {
         self.ofont.deinit();
         self.alloc.destroy(self.ofont);
         //self.font.deinit();
-        //self.icon_ofont.deinit();
-        //self.alloc.destroy(self.icon_ofont);
+        self.icon_ofont.deinit();
+        self.alloc.destroy(self.icon_ofont);
     }
 
     pub fn beginFrame(self: *Self, input_state: Gui.InputState, win: *graph.SDL.Window) !void {

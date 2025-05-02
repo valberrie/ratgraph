@@ -519,6 +519,18 @@ pub const Window = struct {
         return self.key_state[@intFromEnum(scancode)];
     }
 
+    pub fn isBindState(self: *const Self, bind: NewBind, state: ButtonState) bool {
+        if (bind.mod == 0 or bind.mod ^ self.mod == 0) {
+            return self.key_state[
+                switch (bind.key) {
+                    .scancode => |s| @intFromEnum(s),
+                    .keycode => |k| @intFromEnum(getScancodeFromKey(k)),
+                }
+            ] == state;
+        }
+        return false;
+    }
+
     pub fn bindHigh(self: *const Self, bind: NewBind) bool {
         if (bind.mod == 0 or bind.mod ^ self.mod == 0) {
             return self.key_state[
