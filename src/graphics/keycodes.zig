@@ -733,4 +733,21 @@ pub const Keymod = enum(KeymodMask) {
             ret |= @intFromEnum(t);
         return ret;
     }
+
+    pub fn fromScancode(scancode: Scancode) KeymodMask {
+        return @intFromEnum(switch (scancode) {
+            else => Keymod.NONE,
+            .LSHIFT => Keymod.LSHIFT,
+            .RSHIFT => Keymod.RSHIFT,
+            .LCTRL => Keymod.LCTRL,
+            .RCTRL => Keymod.RCTRL,
+            .LALT => Keymod.LALT,
+            .RALT => Keymod.RALT,
+            .LGUI => Keymod.LGUI,
+            .RGUI => Keymod.RGUI,
+            .NUMLOCKCLEAR => Keymod.NUM,
+            .CAPSLOCK => Keymod.CAPS,
+            .SCROLLLOCK => Keymod.SCROLL,
+        });
+    }
 };

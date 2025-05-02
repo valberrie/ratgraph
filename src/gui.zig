@@ -1089,6 +1089,18 @@ pub const Context = struct {
         return s == .high or s == .rising;
     }
 
+    pub fn isBindState(self: *Self, bind: graph.SDL.NewBind, state: graph.SDL.ButtonState) bool {
+        if (bind.mod == 0 or bind.mod ^ self.input_state.mod_state == 0) {
+            return self.input_state.key_state.*[
+                switch (bind.key) {
+                    .scancode => |s| @intFromEnum(s),
+                    .keycode => |k| @intFromEnum(graph.SDL.getScancodeFromKey(k)),
+                }
+            ] == state;
+        }
+        return false;
+    }
+
     pub fn keyState(self: *Self, scancode: graph.SDL.keycodes.Scancode) graph.SDL.ButtonState {
         if (self.text_input_state.state != .disabled) return .low;
 

@@ -428,6 +428,16 @@ pub const Camera2D = struct {
 
 pub const Camera3D = struct {
     const Self = @This();
+    pub const MoveState = struct {
+        down: bool = false,
+        up: bool = false,
+        fwd: bool = false,
+        bwd: bool = false,
+        left: bool = false,
+        right: bool = false,
+        mouse_delta: Vec2f = .{ .x = 0, .y = 0 },
+        scroll_delta: f32 = 0,
+    };
     pos: za.Vec3 = za.Vec3.new(0, 0, 0),
     front: za.Vec3 = za.Vec3.new(0, 0, 0),
     yaw: f32 = 0,
@@ -449,16 +459,7 @@ pub const Camera3D = struct {
     //        .mouse_delta = win.mouse.delta,
     //        .scroll_delta = win.mouse.wheel_delta.y,
     //    });
-    pub fn updateDebugMove(self: *Self, state: struct {
-        down: bool,
-        up: bool,
-        fwd: bool,
-        bwd: bool,
-        left: bool,
-        right: bool,
-        mouse_delta: Vec2f,
-        scroll_delta: f32,
-    }) void {
+    pub fn updateDebugMove(self: *Self, state: MoveState) void {
         const up = self.getUp();
         var move_vec = za.Vec3.new(0, 0, 0);
         if (state.down)

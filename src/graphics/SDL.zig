@@ -418,8 +418,8 @@ pub const Window = struct {
             switch (event.type) {
                 c.SDL_EVENT_QUIT => self.should_exit = true,
                 c.SDL_EVENT_KEY_DOWN => {
-                    if (event.key.key == c.SDLK_ESCAPE)
-                        self.should_exit = true;
+                    //if (event.key.key == c.SDLK_ESCAPE)
+                    //    self.should_exit = true;
 
                     const scancode = c.SDL_GetScancodeFromKey(event.key.key, null);
                     if (!self.last_frame_keyboard_state.isSet(scancode))
@@ -519,9 +519,31 @@ pub const Window = struct {
         return self.key_state[@intFromEnum(scancode)];
     }
 
+    pub fn bindHigh(self: *const Self, bind: NewBind) bool {
+        if (bind.mod == 0 or bind.mod ^ self.mod == 0) {
+            return self.key_state[
+                switch (bind.key) {
+                    .scancode => |s| @intFromEnum(s),
+                    .keycode => |k| @intFromEnum(getScancodeFromKey(k)),
+                }
+            ] == .high;
+        }
+        return false;
+    }
+
     pub fn rect(self: *const Self) ptypes.Rect {
         return ptypes.Rect.NewAny(0, 0, self.screen_dimensions.x, self.screen_dimensions.y);
     }
+};
+
+pub const AnyKey = union(enum) {
+    keycode: keycodes.Keycode,
+    scancode: keycodes.Scancode,
+};
+
+pub const NewBind = struct {
+    key: AnyKey,
+    mod: keycodes.KeymodMask = 0,
 };
 
 pub const BindType = struct {
