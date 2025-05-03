@@ -1090,6 +1090,7 @@ pub const Context = struct {
     }
 
     pub fn isBindState(self: *Self, bind: graph.SDL.NewBind, state: graph.SDL.ButtonState) bool {
+        if (self.text_input_state.state != .disabled) return state == .low;
         if (bind.mod == 0 or bind.mod ^ self.input_state.mod_state == 0) {
             return self.input_state.key_state.*[
                 switch (bind.key) {
@@ -1098,7 +1099,7 @@ pub const Context = struct {
                 }
             ] == state;
         }
-        return false;
+        return state == .low;
     }
 
     pub fn keyState(self: *Self, scancode: graph.SDL.keycodes.Scancode) graph.SDL.ButtonState {
@@ -1908,6 +1909,7 @@ pub const Context = struct {
         text_inset: f32,
         restrict_chars_to: ?[]const u8 = null,
         make_active: bool = false,
+        make_inactive: bool = false,
     }) !?GenericWidget.Textbox {
         const area = self.getArea() orelse return null;
         const cw = self.clickWidgetEx(area, .{});
@@ -1923,8 +1925,12 @@ pub const Context = struct {
             .selection_pos_min = 0,
             .selection_pos_max = 0,
         };
-        if (params.make_active)
-            self.text_input_state.active_id = id;
+        if (params.make_active) {
+            if (!self.isActiveTextinput(id)) {
+                self.text_input_state.active_id = id;
+                try self.textbox_state.resetFmt("{s}", .{contents.getSlice()});
+            }
+        }
 
         if (self.isActiveTextinput(id)) {
             if (self.keyState(.TAB) == .rising) {}
@@ -1948,6 +1954,8 @@ pub const Context = struct {
                 const l = try contents.setSlice(sl);
                 if (l > 0) {}
             }
+            if (params.make_inactive)
+                self.text_input_state.active_id = null;
         }
         if (click == .click) {
             if (!self.isActiveTextinput(id)) {

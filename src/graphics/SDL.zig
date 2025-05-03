@@ -556,6 +556,14 @@ pub const AnyKey = union(enum) {
 pub const NewBind = struct {
     key: AnyKey,
     mod: keycodes.KeymodMask = 0,
+
+    pub fn Scancode(key: keycodes.Scancode, mod: keycodes.KeymodMask) @This() {
+        return .{ .key = .{ .scancode = key }, .mod = mod };
+    }
+
+    pub fn Keycode(key: keycodes.Keycode, mod: keycodes.KeymodMask) @This() {
+        return .{ .key = .{ .keycode = key }, .mod = mod };
+    }
 };
 
 pub const BindType = struct {
