@@ -437,6 +437,7 @@ pub const Camera3D = struct {
         right: bool = false,
         mouse_delta: Vec2f = .{ .x = 0, .y = 0 },
         scroll_delta: f32 = 0,
+        speed_perc: f32 = 1, // The percentage of move speed we move at
     };
     pos: za.Vec3 = za.Vec3.new(0, 0, 0),
     front: za.Vec3 = za.Vec3.new(0, 0, 0),
@@ -475,7 +476,7 @@ pub const Camera3D = struct {
         if (state.right)
             move_vec = move_vec.add(self.front.cross(up).norm());
 
-        self.pos = self.pos.add(move_vec.norm().scale(self.move_speed));
+        self.pos = self.pos.add(move_vec.norm().scale(self.move_speed * state.speed_perc));
         const mdelta = state.mouse_delta.smul(0.1);
         self.move_speed = std.math.clamp(self.move_speed + state.scroll_delta * (self.move_speed / 10), 0.01, self.max_move_speed);
 
