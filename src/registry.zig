@@ -401,6 +401,9 @@ pub fn Registry(comptime field_names_l: FieldList) type {
                 if (ent.isSet(i)) {
                     var d = (try @field(self.data, field.name).remove(index));
                     self.call_destroy_callback(@enumFromInt(i), &d, index);
+                    if (std.meta.hasFn(field.ftype, "deinit")) {
+                        d.deinit();
+                    }
                 }
             }
             ent.* = Types.component_bit_set.initEmpty();
