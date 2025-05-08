@@ -261,10 +261,11 @@ pub fn Registry(comptime field_names_l: FieldList) type {
                 i: ID_TYPE,
 
                 slept: *SleptT,
+                allow_slept: bool = false,
 
                 pub fn next(self: *@This()) ?*childT {
                     while (self.child_it.next()) |item| {
-                        if (self.slept.getOpt(self.child_it.i) == null) {
+                        if (self.allow_slept or self.slept.getOpt(self.child_it.i) == null) {
                             self.i = self.child_it.i;
                             return item;
                         }
@@ -290,6 +291,7 @@ pub fn Registry(comptime field_names_l: FieldList) type {
             inline for (field_names_l, 0..) |field, i| {
                 if (std.meta.hasFn(field.ftype, "deinit")) {
                     var t_it = self.iterator(@enumFromInt(i));
+                    t_it.allow_slept = true;
                     while (t_it.next()) |item|
                         item.deinit();
                 }
