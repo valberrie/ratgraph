@@ -678,6 +678,55 @@ pub const ImmediateDrawingContext = struct {
         }) catch return;
     }
 
+    /// Draw a convex polygon, 'vs' is ordered winding. direction is unimportant as both sides are drawn
+    pub fn convexPoly(self: *Self, vs: []const za.Vec3, color: u32) void {
+        const b = &(self.getBatch(.{ .batch_kind = .color_cube, .params = .{
+            .shader = colored_line3d_shader,
+            .camera = ._3d,
+        } }) catch unreachable).color_cube;
+        const of: u32 = @intCast(b.vertices.items.len);
+        b.vertices.ensureUnusedCapacity(vs.len) catch return;
+        for (vs) |v|
+            b.vertices.append(VtxFmt.color3D(v.x(), v.y(), v.z(), color)) catch return;
+
+        for (1..vs.len - 1) |i| {
+            const ii: u32 = @intCast(i);
+            b.indicies.appendSlice(&.{
+                (0 + of),
+                (ii + 1 + of),
+                (ii + of),
+                (ii + of), //Back face too
+                (ii + 1 + of),
+                (0 + of),
+            }) catch return;
+        }
+    }
+
+    pub fn convexPolyIndexed(self: *Self, index: []const u32, vs: []const za.Vec3, color: u32) void {
+        const b = &(self.getBatch(.{ .batch_kind = .color_cube, .params = .{
+            .shader = colored_line3d_shader,
+            .camera = ._3d,
+        } }) catch unreachable).color_cube;
+        const of: u32 = @intCast(b.vertices.items.len);
+        b.vertices.ensureUnusedCapacity(index.len) catch return;
+        for (index) |i| {
+            const v = vs[i];
+            b.vertices.append(VtxFmt.color3D(v.x(), v.y(), v.z(), color)) catch return;
+        }
+
+        for (1..index.len - 1) |i| {
+            const ii: u32 = @intCast(i);
+            b.indicies.appendSlice(&.{
+                (0 + of),
+                (ii + 1 + of),
+                (ii + of),
+                (ii + of), //Back face too
+                (ii + 1 + of),
+                (0 + of),
+            }) catch return;
+        }
+    }
+
     pub fn cube(self: *Self, pos: za.Vec3, ext: za.Vec3, color: u32) void {
         const px = pos.x();
         const py = pos.y();
