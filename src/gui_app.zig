@@ -628,22 +628,23 @@ pub const GuiConfig = struct {
     config: ConfigJson = .{},
     texture: graph.Texture,
 
-    pub fn init(alloc: std.mem.Allocator, dir: std.fs.Dir, path: []const u8) !Self {
+    pub fn init(alloc: std.mem.Allocator, dir: std.fs.Dir, path: []const u8, output_path: std.fs.Dir) !Self {
+        const BAKE_NAME = "gui_baked";
         //TODO maybe put the baked atlas into a xdg cache dir
         try graph.AssetBake.assetBake(
             alloc,
             dir,
             path,
-            dir,
-            "mani",
+            output_path,
+            BAKE_NAME,
             .{ .pixel_extrude = 1 },
         );
 
-        var manifest = try graph.AssetBake.AssetMap.initFromManifest(alloc, dir, "mani");
+        var manifest = try graph.AssetBake.AssetMap.initFromManifest(alloc, output_path, BAKE_NAME);
         defer manifest.deinit();
         var ret = Self{
             .nineSliceLut = std.ArrayList(Rect).init(alloc),
-            .texture = try graph.AssetBake.AssetMap.initTextureFromManifest(alloc, dir, "mani"),
+            .texture = try graph.AssetBake.AssetMap.initTextureFromManifest(alloc, output_path, BAKE_NAME),
         };
         errdefer ret.deinit();
         try ret.nineSliceLut.resize(@typeInfo(Style9Slices).Enum.fields.len);
@@ -837,7 +838,7 @@ pub const Os9Gui = struct {
     drop_down: ?Gui.Context.WidgetId = null,
     drop_down_scroll: Vec2f = .{ .x = 0, .y = 0 },
 
-    pub fn init(alloc: std.mem.Allocator, asset_dir: std.fs.Dir, scale: f32) !Self {
+    pub fn init(alloc: std.mem.Allocator, asset_dir: std.fs.Dir, scale: f32, cache_dir: std.fs.Dir) !Self {
         //const icon_list = comptime blk: {
         //    const info = @typeInfo(Icons);
         //    var list: [info.Enum.fields.len]u21 = undefined;
@@ -854,7 +855,7 @@ pub const Os9Gui = struct {
         //ofont_icon_ptr.* = try OFont.initFromBuffer(alloc, @embedFile("font/remix.ttf"), 12, .{});
         return .{
             .gui = try Gui.Context.init(alloc),
-            .style = try GuiConfig.init(alloc, asset_dir, "asset/os9gui"),
+            .style = try GuiConfig.init(alloc, asset_dir, "asset/os9gui", cache_dir),
             .gui_draw_ctx = try Gui.GuiDrawContext.init(alloc),
             .scale = scale,
             .alloc = alloc,
