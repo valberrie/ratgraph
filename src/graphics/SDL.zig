@@ -561,6 +561,13 @@ pub const NewBind = struct {
         return .{ .key = .{ .scancode = key }, .mod = mod };
     }
 
+    pub fn name(self: @This()) []const u8 {
+        return switch (self.key) {
+            .keycode => |k| @tagName(k),
+            .scancode => |k| @tagName(k),
+        };
+    }
+
     pub fn Keycode(key: keycodes.Keycode, mod: keycodes.KeymodMask) @This() {
         return .{ .key = .{ .keycode = key }, .mod = mod };
     }
