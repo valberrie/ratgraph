@@ -1848,6 +1848,38 @@ pub const Os9Gui = struct {
         }
     }
 
+    pub fn textView(self: *Self, font_height: f32, color: u32) ?struct {
+        area: graph.Rect,
+        fh: f32,
+        line: f32 = 0,
+        num_line: f32,
+        color: u32,
+        os9gui: *Self,
+
+        pub fn text(tt: *@This(), comptime fmt: []const u8, args: anytype) void {
+            tt.os9gui.gui.drawTextFmt(
+                fmt,
+                args,
+                graph.Rec(tt.area.x, tt.area.y + tt.fh * tt.line, tt.area.w, tt.fh),
+                tt.fh,
+                tt.color,
+                .{},
+                tt.os9gui.font,
+            );
+            tt.line += 1;
+        }
+    } {
+        const area = self.gui.getArea() orelse return null;
+        self.gui.draw9Slice(area, self.style.getRect(.basic_inset), self.style.texture, self.scale);
+        return .{
+            .area = area.inset(3 * self.scale),
+            .fh = font_height,
+            .num_line = @trunc(area.h / font_height),
+            .os9gui = self,
+            .color = color,
+        };
+    }
+
     //TODO delete me and use textbox2
     pub fn textboxEx(self: *Self, contents: *std.ArrayList(u8), params: struct {
         disabled: bool = false,
