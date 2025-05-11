@@ -60,11 +60,12 @@ pub fn linkLibrary(b: *std.Build, mod: *std.Build.Module) void {
             mod.linkSystemLibrary("z", .{});
         } else {
             mod.addSystemIncludePath(.{ .cwd_relative = "/usr/include" });
+            mod.addSystemIncludePath(.{ .cwd_relative = "/usr/include/freetype2" });
             mod.linkSystemLibrary("SDL3", .{});
             mod.linkSystemLibrary("openal", .{});
             mod.linkSystemLibrary("epoxy", .{});
-            mod.linkSystemLibrary("freetype2", .{});
-            mod.linkSystemLibrary("zlib", .{});
+            mod.linkSystemLibrary("freetype", .{});
+            mod.linkSystemLibrary("z", .{});
             if (LUA_SRC == null)
                 mod.linkSystemLibrary("lua", .{});
         }
