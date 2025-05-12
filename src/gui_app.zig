@@ -829,7 +829,8 @@ pub const Os9Gui = struct {
     scale: f32,
     gui: Gui.Context,
     gui_draw_ctx: Gui.GuiDrawContext,
-    ofont: *OFont,
+    //ofont: *OFont,
+    ofont: *graph.Font,
     font: *graph.FontUtil.PublicFontInterface,
     icon_ofont: *OFont,
     icon_font: *graph.FontUtil.PublicFontInterface,
@@ -848,9 +849,10 @@ pub const Os9Gui = struct {
         //    }
         //    break :blk list;
         //};
-        const ofont_ptr = try alloc.create(OFont);
+        const ofont_ptr = try alloc.create(graph.Font);
         const ofont_icon_ptr = try alloc.create(OFont);
-        ofont_ptr.* = try OFont.init(alloc, asset_dir, "asset/fonts/noto.ttc", 64, .{});
+        ofont_ptr.* = try graph.Font.initFromBuffer(alloc, @embedFile("font/roboto.ttf"), 20, .{});
+        //ofont_ptr.* = try OFont.init(alloc, asset_dir, "asset/fonts/noto.ttc", 20, .{});
         ofont_icon_ptr.* = try OFont.init(alloc, asset_dir, "asset/fonts/remix.ttf", 64, .{});
         //ofont_icon_ptr.* = try OFont.initFromBuffer(alloc, @embedFile("font/remix.ttf"), 12, .{});
         return .{

@@ -281,6 +281,14 @@ pub const Font = struct {
         return result;
     }
 
+    pub fn initStb(alloc: std.mem.Allocator, dir: std.fs.Dir, filename: []const u8, pixel_size: f32, options: InitOptions) !Font {
+        const infile = try dir.openFile(filename, .{});
+        defer infile.close();
+        const slice = try infile.reader().readAllAlloc(alloc, std.math.maxInt(usize));
+        defer alloc.free(slice);
+        return initFromBuffer(alloc, slice, pixel_size, options);
+    }
+
     pub fn initFromBuffer(alloc: Alloc, buf: []const u8, pixel_size: f32, options: InitOptions) !Font {
         const pad = options.padding_px;
         const codepoints_i: []u21 = blk: {
@@ -391,8 +399,9 @@ pub const Font = struct {
             .pixel_store_alignment = 1,
             .internal_format = c.GL_RED,
             .pixel_format = c.GL_RED,
-            .min_filter = c.GL_LINEAR,
-            .mag_filter = c.GL_NEAREST_MIPMAP_NEAREST,
+            .min_filter = c.GL_NEAREST,
+            .mag_filter = c.GL_NEAREST,
+            //c.GL_LINEAR_MIPMAP_LINEAR,
         });
         return result;
     }

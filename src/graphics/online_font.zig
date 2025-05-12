@@ -98,7 +98,7 @@ pub const OnlineFont = struct {
             .internal_format = c.GL_RED,
             .pixel_format = c.GL_RED,
             .min_filter = c.GL_LINEAR,
-            .mag_filter = c.GL_NEAREST_MIPMAP_NEAREST,
+            .mag_filter = c.GL_LINEAR_MIPMAP_LINEAR,
         });
         result.bitmap = try font.Bitmap.initBlank(alloc, result.cell_width * ww, result.cell_height * ww, .g_8);
 
