@@ -839,25 +839,19 @@ pub const Os9Gui = struct {
     drop_down: ?Gui.Context.WidgetId = null,
     drop_down_scroll: Vec2f = .{ .x = 0, .y = 0 },
 
-    pub fn init(alloc: std.mem.Allocator, asset_dir: std.fs.Dir, scale: f32, cache_dir: std.fs.Dir) !Self {
-        //const icon_list = comptime blk: {
-        //    const info = @typeInfo(Icons);
-        //    var list: [info.Enum.fields.len]u21 = undefined;
-
-        //    for (info.Enum.fields, 0..) |f, i| {
-        //        list[i] = f.value;
-        //    }
-        //    break :blk list;
-        //};
+    pub fn init(alloc: std.mem.Allocator, asset_dir: std.fs.Dir, scale: f32, param: struct {
+        cache_dir: std.fs.Dir,
+        font_size_px: f32 = 20,
+    }) !Self {
         const ofont_ptr = try alloc.create(graph.Font);
         const ofont_icon_ptr = try alloc.create(OFont);
-        ofont_ptr.* = try graph.Font.initFromBuffer(alloc, @embedFile("font/roboto.ttf"), 20, .{});
+        ofont_ptr.* = try graph.Font.initFromBuffer(alloc, @embedFile("font/roboto.ttf"), param.font_size_px, .{});
         //ofont_ptr.* = try OFont.init(alloc, asset_dir, "asset/fonts/noto.ttc", 20, .{});
         ofont_icon_ptr.* = try OFont.init(alloc, asset_dir, "asset/fonts/remix.ttf", 64, .{});
         //ofont_icon_ptr.* = try OFont.initFromBuffer(alloc, @embedFile("font/remix.ttf"), 12, .{});
         return .{
             .gui = try Gui.Context.init(alloc),
-            .style = try GuiConfig.init(alloc, asset_dir, "asset/os9gui", cache_dir),
+            .style = try GuiConfig.init(alloc, asset_dir, "asset/os9gui", param.cache_dir),
             .gui_draw_ctx = try Gui.GuiDrawContext.init(alloc),
             .scale = scale,
             .alloc = alloc,
@@ -1565,7 +1559,7 @@ pub const Os9Gui = struct {
                 }
             }
             gui.draw9Slice(d.handle, shuttle, self.style.texture, self.scale);
-            gui.drawTextFmt("{d:.2}", .{value.*}, textb, textb.h, (0xff), .{ .justify = .center }, self.font);
+            gui.drawTextFmt("{d:.2}", .{value.*}, textb, 20, (0xff), .{ .justify = .center }, self.font);
             //gui.draw9Slice(d.handle, os9shuttle, self.style.texture, self.scale);
         }
     }
@@ -1858,17 +1852,28 @@ pub const Os9Gui = struct {
         color: u32,
         os9gui: *Self,
 
-        pub fn text(tt: *@This(), comptime fmt: []const u8, args: anytype) void {
-            tt.os9gui.gui.drawTextFmt(
-                fmt,
-                args,
-                graph.Rec(tt.area.x, tt.area.y + tt.fh * tt.line, tt.area.w, tt.fh),
-                tt.fh,
-                tt.color,
-                .{},
-                tt.os9gui.font,
-            );
+        fn partialLine(tt: *@This(), slice: []const u8) void {
+            const area = graph.Rec(tt.area.x, tt.area.y + tt.fh * tt.line, tt.area.w, tt.fh);
+            const last_char_index = blk: {
+                if (tt.os9gui.font.nearestGlyphX(slice, tt.fh, .{ .x = area.w, .y = 0 })) |lci| {
+                    if (lci > 0)
+                        break :blk lci - 1;
+                    break :blk lci;
+                }
+                break :blk slice.len;
+            };
+
+            const sl = if (last_char_index < slice.len) slice[0..last_char_index] else slice;
+            tt.os9gui.gui.drawText(sl, Vec2f.new(area.x, area.y), tt.fh, tt.color, tt.os9gui.font);
             tt.line += 1;
+            if (last_char_index < slice.len)
+                tt.partialLine(slice[last_char_index..]);
+        }
+
+        pub fn text(tt: *@This(), comptime fmt: []const u8, args: anytype) void {
+            const slice = tt.os9gui.gui.scratchPrint(fmt, args);
+            //const bounds = self.gui.font.textBounds(slice, tt.fh);
+            tt.partialLine(slice);
         }
     } {
         const area = self.gui.getArea() orelse return null;
