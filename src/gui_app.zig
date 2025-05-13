@@ -530,8 +530,13 @@ pub const KeyboardDisplay = struct {
 pub const GuiConfig = struct {
     const Self = @This();
     pub const ConfigJson = struct {
-        //All units are pixels
-        default_item_h: f32 = 20,
+        /// Rather than scaling the font for each widget, font size is fixed
+        /// and unscaled with os9gui.scale.
+        ///All units are pixels
+        //This is never scaled
+        text_h: f32 = 20,
+        default_item_h: f32 = 30,
+
         default_v_pad: graph.Padding = .{},
         pixel_per_line: f32 = 20,
         color_picker_size: Vec2f = .{ .x = 600, .y = 300 },
@@ -841,41 +846,32 @@ pub const Os9Gui = struct {
 
     pub fn init(alloc: std.mem.Allocator, asset_dir: std.fs.Dir, scale: f32, param: struct {
         cache_dir: std.fs.Dir,
-        font_size_px: f32 = 20,
+        /// These are unscaled, they map 1:1 to device pixels regardless of "scale"
+        font_size_px: ?f32 = null,
+        item_height: ?f32 = null,
     }) !Self {
+        var style = try GuiConfig.init(alloc, asset_dir, "asset/os9gui", param.cache_dir);
+        errdefer style.deinit();
         const ofont_ptr = try alloc.create(graph.Font);
-        //const ofont_icon_ptr = try alloc.create(OFont);
-        ofont_ptr.* = try graph.Font.initFromBuffer(alloc, @embedFile("font/roboto.ttf"), param.font_size_px, .{});
-        //ofont_ptr.* = try OFont.init(alloc, asset_dir, "asset/fonts/roboto.ttf", param.font_size_px, .{});
-        //ofont_icon_ptr.* = try OFont.init(alloc, asset_dir, "asset/fonts/remix.ttf", 64, .{});
-        //ofont_icon_ptr.* = try OFont.initFromBuffer(alloc, @embedFile("font/remix.ttf"), 12, .{});
+        if (param.font_size_px) |fs|
+            style.config.text_h = fs;
+        if (param.item_height) |ih|
+            style.config.default_item_h = ih;
+        ofont_ptr.* = try graph.Font.initFromBuffer(
+            alloc,
+            @embedFile("font/roboto.ttf"),
+            style.config.text_h,
+            .{},
+        );
         return .{
             .gui = try Gui.Context.init(alloc),
-            .style = try GuiConfig.init(alloc, asset_dir, "asset/os9gui", param.cache_dir),
+            .style = style,
             .gui_draw_ctx = try Gui.GuiDrawContext.init(alloc),
             .scale = scale,
             .alloc = alloc,
-            // .texture = try graph.Texture.initFromImgFile(alloc, asset_dir, "next_step.png", .{
-            //     .mag_filter = graph.c.GL_NEAREST,
-            // }),
-            //TODO switch to stb font init
             .ofont = ofont_ptr,
             .font = &ofont_ptr.font,
-            //.font = try graph.Font.initFromBuffer(alloc, @embedFile("font/roboto.ttf"), 64, .{}),
-            //.icon_ofont = ofont_icon_ptr,
             .icon_font = &ofont_ptr.font,
-            //.icon_font = &ofont_icon_ptr.font,
-            //.icon_font = &ofont_icon_ptr.font,
-            //.icon_ofont = ofont_icon_ptr,
-            //.icon_font = try graph.Font.init(
-            //    alloc,
-            //    asset_dir,
-            //    "fonts/remix.ttf",
-            //    12,
-            //    .{
-            //        .codepoints_to_load = &[_]graph.Font.CharMapEntry{.{ .list = &icon_list }},
-            //    },
-            //),
         };
     }
 
@@ -885,9 +881,6 @@ pub const Os9Gui = struct {
         self.gui_draw_ctx.deinit();
         self.ofont.deinit();
         self.alloc.destroy(self.ofont);
-        //self.font.deinit();
-        //self.icon_ofont.deinit();
-        //self.alloc.destroy(self.icon_ofont);
     }
 
     pub fn beginFrame(self: *Self, input_state: Gui.InputState, win: *graph.SDL.Window) !void {
@@ -910,9 +903,7 @@ pub const Os9Gui = struct {
         if (self.gui.getArea()) |win_area| {
             const _br = self.style.getRect(.window);
             const border_area = win_area.inset((_br.h / 3) * self.scale);
-            //const area = border_area.inset(6 * self.scale);
             self.gui.draw9Slice(win_area, _br, self.style.texture, self.scale);
-            //self.gui.draw9Slice(border_area, self.style.getRect(.basic_inset), self.style.texture, self.scale);
             _ = try self.gui.beginLayout(Gui.SubRectLayout, .{ .rect = border_area }, .{});
             return true;
         }
@@ -925,7 +916,7 @@ pub const Os9Gui = struct {
     }
 
     pub fn beginV(self: *Self) !*Gui.VerticalLayout {
-        const VLP = Gui.VerticalLayout{ .item_height = self.style.config.default_item_h * self.scale, .padding = self.style.config.default_v_pad.scale(self.scale) };
+        const VLP = Gui.VerticalLayout{ .item_height = self.style.config.default_item_h, .padding = self.style.config.default_v_pad.scale(self.scale) };
         return try self.gui.beginLayout(Gui.VerticalLayout, VLP, .{});
     }
 
@@ -974,7 +965,6 @@ pub const Os9Gui = struct {
         const sd = d.scroll;
         if (max > 0) {
             if (self.gui.getMouseWheelDelta()) |del| {
-                //if (self.gui.mouse_grab_id == null and !self.gui.scroll_claimed_mouse and w.scroll_bounds.?.containsPoint(self.gui.input_state.mouse_pos) and self.gui.window_index_grabbed_mouse == self.gui.window_index.?) {
                 const pixel_per_line = self.style.config.pixel_per_line * self.scale;
                 sd.offset.y = std.math.clamp(sd.offset.y + del * -pixel_per_line * 3, 0, max);
             }
@@ -1014,7 +1004,6 @@ pub const Os9Gui = struct {
         const max = scroll_data.layout.current_h - scroll_data.area.h;
         if (max > 0) {
             if (self.gui.getMouseWheelDelta()) |del| {
-                //if (self.gui.mouse_grab_id == null and !self.gui.scroll_claimed_mouse and w.scroll_bounds.?.containsPoint(self.gui.input_state.mouse_pos)) {
                 const pixel_per_line = self.style.config.pixel_per_line * self.scale;
                 sd.offset.y = std.math.clamp(sd.offset.y + del * -pixel_per_line * 3, 0, max);
             }
@@ -1084,7 +1073,7 @@ pub const Os9Gui = struct {
             const _9s = if (f.value == @intFromEnum(selected.*)) active else inactive;
             self.gui.draw9Slice(d.area, _9s, self.style.texture, self.scale);
             const tarea = d.area.inset(self.scale * (_9s.w / 3));
-            self.gui.drawTextFmt("{s}", .{f.name}, tarea, tarea.h, Color.Black, .{ .justify = .center }, self.font);
+            self.gui.drawTextFmt("{s}", .{f.name}, tarea, self.style.config.text_h, Color.Black, .{ .justify = .center }, self.font);
             //self.label("{s}", .{f.name});
         }
         self.endL(); // horiz
@@ -1323,7 +1312,6 @@ pub const Os9Gui = struct {
 
         {
             _ = try self.gui.beginLayout(Gui.TableLayout, .{ .columns = 2, .item_height = item_height }, .{});
-            //_ = try self.gui.beginLayout(Gui.VerticalLayout, .{ .item_height = 35 }, .{});
             if (self.gui.layout.last_requested_bounds) |lrq| {
                 const lx = lrq.w / 2 + lrq.x;
                 self.gui.drawLine(.{ .x = lx, .y = lrq.y }, .{ .x = lx, .y = lrq.y + lrq.h }, (0xff));
@@ -1336,7 +1324,6 @@ pub const Os9Gui = struct {
         }
         if (do_scroll) {
             if (self.gui.getMouseWheelDelta()) |del| {
-                //if (self.gui.mouse_grab_id == null and !self.gui.scroll_claimed_mouse and w.scroll_bounds.?.containsPoint(self.gui.input_state.mouse_pos)) {
                 const pixel_per_line = self.style.config.pixel_per_line * self.scale;
                 scr.y = std.math.clamp(scr.y + del * -pixel_per_line * 3, 0, 1000);
             }
@@ -1449,7 +1436,7 @@ pub const Os9Gui = struct {
 
     pub fn labelEx(self: *Self, comptime fmt: []const u8, args: anytype, params: struct { justify: Gui.Justify = .left }) void {
         const area = self.gui.getArea() orelse return;
-        self.gui.drawTextFmt(fmt, args, area, area.h, Color.Black, .{ .justify = params.justify }, self.font);
+        self.gui.drawTextFmt(fmt, args, area, self.style.config.text_h, Color.Black, .{ .justify = params.justify }, self.font);
     }
 
     pub fn label(self: *Self, comptime fmt: []const u8, args: anytype) void {
@@ -1468,7 +1455,7 @@ pub const Os9Gui = struct {
 
             gui.draw9Slice(d.area, sl, self.style.texture, self.scale);
             const texta = d.area.inset(3 * self.scale);
-            gui.drawTextFmt(fmt, args, texta, texta.h, color, .{ .justify = .center }, self.font);
+            gui.drawTextFmt(fmt, args, texta, self.style.config.text_h, color, .{ .justify = .center }, self.font);
             return d.changed;
         }
         return false;
@@ -1490,7 +1477,7 @@ pub const Os9Gui = struct {
         const color = if (params.disabled) self.style.config.colors.button_text_disabled else (self.style.config.colors.button_text);
         gui.draw9Slice(d.area, sl1, self.style.texture, self.scale);
         const texta = d.area.inset(3 * self.scale);
-        gui.drawTextFmt(fmt, args, texta, texta.h, color, .{ .justify = .center }, self.font);
+        gui.drawTextFmt(fmt, args, texta, self.style.config.text_h, color, .{ .justify = .center }, self.font);
 
         const is_cont = if (params.continuous) d.state == .held else false;
         return (d.state == .click or is_cont) and !params.disabled;
@@ -1509,12 +1496,6 @@ pub const Os9Gui = struct {
         })) |d| {
             gui.draw9Slice(d.area, self.style.getRect(.slider_box), self.style.texture, self.scale);
             gui.draw9Slice(d.handle, self.style.getRect(.slider_shuttle), self.style.texture, self.scale);
-            //gui.drawRectTextured(
-            //    d.handle,
-            //    Color.White,
-            //    self.style.getRect(.slider_shuttle),
-            //    self.style.texture,
-            //);
         }
     }
 
@@ -1560,7 +1541,7 @@ pub const Os9Gui = struct {
                 }
             }
             gui.draw9Slice(d.handle, shuttle, self.style.texture, self.scale);
-            gui.drawTextFmt("{d:.2}", .{value.*}, textb, 20, (0xff), .{ .justify = .center }, self.font);
+            gui.drawTextFmt("{d:.2}", .{value.*}, textb, self.style.config.text_h, (0xff), .{ .justify = .center }, self.font);
             //gui.draw9Slice(d.handle, os9shuttle, self.style.texture, self.scale);
         }
     }
@@ -1579,7 +1560,7 @@ pub const Os9Gui = struct {
                 self.style.texture,
             );
             const tarea = Rec(br.farX(), area.y, area.w - br.farX(), area.h);
-            gui.drawTextFmt("{s}", .{label_}, tarea, area.h, Color.Black, .{}, self.font);
+            gui.drawTextFmt("{s}", .{label_}, tarea, self.style.config.text_h, Color.Black, .{}, self.font);
             return d.changed;
         }
         return false;
@@ -1603,7 +1584,7 @@ pub const Os9Gui = struct {
             const inactive = self.style.getRect(.radio);
             const tarea = Rec(d.area.x + d.area.h, d.area.y, d.area.w - d.area.h, d.area.h);
             const rr = d.area.replace(null, null, @min(d.area.h, inactive.w * self.scale), @min(d.area.w, inactive.h * self.scale));
-            self.gui.drawTextFmt("{s}", .{f.name}, tarea, tarea.h, Color.Black, .{ .justify = .left }, self.font);
+            self.gui.drawTextFmt("{s}", .{f.name}, tarea, self.style.config.text_h, Color.Black, .{ .justify = .left }, self.font);
             const active = self.style.getRect(.radio_active);
             self.gui.drawRectTextured(rr, Color.White, if (@intFromEnum(enum_value.*) == f.value) active else inactive, self.style.texture);
         }
@@ -1638,7 +1619,7 @@ pub const Os9Gui = struct {
             const cb = self.style.getRect(.combo_background);
             self.gui.draw9Slice(d.area, cb, self.style.texture, self.scale);
             const texta = d.area.inset(cb.w / 3 * self.scale);
-            self.gui.drawTextFmt(fmt, args, texta, texta.h, 0xff, .{ .justify = .center }, self.font);
+            self.gui.drawTextFmt(fmt, args, texta, self.style.config.text_h, 0xff, .{ .justify = .center }, self.font);
             const cbb = self.style.getRect(.combo_button);
             const da = self.style.getRect(.down_arrow);
             const cbbr = d.area.replace(d.area.x + d.area.w - cbb.w * self.scale, null, cbb.w * self.scale, null).centerR(da.w * self.scale, da.h * self.scale);
@@ -1716,7 +1697,7 @@ pub const Os9Gui = struct {
             const cb = self.style.getRect(.combo_background);
             self.gui.draw9Slice(d.area, cb, self.style.texture, self.scale);
             const texta = d.area.inset(cb.w / 3 * self.scale);
-            self.gui.drawTextFmt(fmt, args, texta, texta.h, 0xff, .{ .justify = .center }, self.font);
+            self.gui.drawTextFmt(fmt, args, texta, self.style.config.text_h, 0xff, .{ .justify = .center }, self.font);
             const cbb = self.style.getRect(.combo_button);
             const da = self.style.getRect(.down_arrow);
             const cbbr = d.area.replace(d.area.x + d.area.w - cbb.w * self.scale, null, cbb.w * self.scale, null).centerR(da.w * self.scale, da.h * self.scale);
@@ -1762,7 +1743,7 @@ pub const Os9Gui = struct {
                     if (old_len != sb.len)
                         self.drop_down_scroll.y = 0;
                     vl.pushRemaining();
-                    if (try self.beginScroll(&self.drop_down_scroll, .{ .sw = ar.w }, Gui.VerticalLayout{ .item_height = self.style.config.default_item_h * self.scale })) |file_scroll| {
+                    if (try self.beginScroll(&self.drop_down_scroll, .{ .sw = ar.w }, Gui.VerticalLayout{ .item_height = self.style.config.default_item_h })) |file_scroll| {
                         defer self.endScroll(file_scroll, file_scroll.child.current_h);
                         inline for (enum_info.Enum.fields) |f| {
                             if (std.mem.startsWith(u8, f.name, sb.getSlice())) {
@@ -1786,7 +1767,7 @@ pub const Os9Gui = struct {
             gui.draw9Slice(d.area, self.style.getRect(.basic_inset), self.style.texture, self.scale);
             if (d.is_invalid)
                 gui.drawRectFilled(d.text_area, 0xff000086);
-            gui.drawTextFmt("{s}", .{d.slice}, d.text_area, d.text_area.h, Color.Black, .{}, self.font);
+            gui.drawTextFmt("{s}", .{d.slice}, d.text_area, self.style.config.text_h, Color.Black, .{}, self.font);
             gui.drawRectFilled(Rect.new(
                 d.selection_pos_min + d.text_area.x,
                 d.text_area.y,
@@ -1821,7 +1802,7 @@ pub const Os9Gui = struct {
             const tr = a.inset(inset);
             gui.draw9Slice(a, self.style.getRect(.basic_inset), self.style.texture, self.scale);
             gui.drawRectFilled(a, self.style.config.colors.textbox_bg_disabled);
-            gui.drawTextFmt("{s}", .{tb.getSlice()}, tr, tr.h, self.style.config.colors.textbox_fg_disabled, .{}, self.font);
+            gui.drawTextFmt("{s}", .{tb.getSlice()}, tr, self.style.config.text_h, self.style.config.colors.textbox_fg_disabled, .{}, self.font);
             return;
         }
         if (try gui.textboxGeneric2(tb, self.font, .{ .text_inset = inset, .make_active = params.make_active, .make_inactive = params.make_inactive })) |d| {
@@ -1841,7 +1822,7 @@ pub const Os9Gui = struct {
                     self.style.config.colors.textbox_caret,
                 );
             }
-            gui.drawTextFmt("{s}", .{d.slice}, d.text_area, d.text_area.h, Color.Black, .{}, self.font);
+            gui.drawTextFmt("{s}", .{d.slice}, d.text_area, self.style.config.text_h, Color.Black, .{}, self.font);
         }
     }
 
@@ -1898,7 +1879,7 @@ pub const Os9Gui = struct {
             const a = self.gui.getArea() orelse return;
             const tr = a.inset(3 * self.scale);
             gui.draw9Slice(a, self.style.getRect(.basic_inset), self.style.texture, self.scale);
-            gui.drawTextFmt("{s}", .{contents.items}, tr, tr.h, 0x00aa, .{}, self.font);
+            gui.drawTextFmt("{s}", .{contents.items}, tr, self.style.config.text_h, 0x00aa, .{}, self.font);
             gui.drawRectFilled(a, 0xffffff75);
             return;
         }
@@ -1916,7 +1897,7 @@ pub const Os9Gui = struct {
             if (d.caret) |of| {
                 gui.drawRectFilled(Rect.new(of + tr.x, tr.y + 2, 3, tr.h - 4), Color.Black);
             }
-            gui.drawTextFmt("{s}", .{d.slice}, d.text_area, d.text_area.h, Color.Black, .{}, self.font);
+            gui.drawTextFmt("{s}", .{d.slice}, d.text_area, self.style.config.text_h, Color.Black, .{}, self.font);
         }
     }
 

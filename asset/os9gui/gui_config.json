@@ -1,14 +1,14 @@
 {
-  "default_item_h": 20,
+  "default_item_h": 30,
   "default_v_pad": {
     "bottom": 3,
     "left": 5,
-    "right":5,
+    "right": 5,
     "top": 3
   },
   "pixel_per_line": 20,
-  "textbox_caret_width":3,
-  "textbox_inset":3,
+  "textbox_caret_width": 3,
+  "textbox_inset": 3,
   "color_picker_size": {
     "x": 600,
     "y": 300

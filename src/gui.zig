@@ -125,6 +125,7 @@ pub const SubRectLayout = struct {
     }
 };
 
+//TODO layouts should be vtables instead
 pub const TableLayout = struct {
     const Self = @This();
     hidden: bool = false,
@@ -211,7 +212,6 @@ pub const VerticalLayout = struct {
 };
 
 pub const HorizLayout = struct {
-    const floating_pixel_error = 0.3; //If we switch to ints this won't be a problem. but doing math will be annoying
     paddingh: f32 = 20,
     index: usize = 0,
     count: usize,
@@ -573,11 +573,6 @@ pub const ClickState = enum(u8) {
     double,
 };
 
-//TODO Some sort of drawMultiWidget(anywidget, list of args) would be cool
-//in order to be usefull a lambda function to transform items in a slice to argument lists would have to be provided
-//If a struct provides a guiDraw function this could be called
-//so gui.drawMulti(my_slice) would iterate my_slice and call guiDraw on each
-
 //What Widgets do varius ui's have
 //Nuklear:
 //  Textbox
@@ -607,7 +602,7 @@ pub inline fn dhash(state: anytype) u64 {
     return hasher.final();
 }
 
-//A wrapper over std autoHash to allow hashing floats. All the floats being hashed are pixel coordinates. They are first scaled by 10 before being truncated and hashed
+//A wrapper over std autoHash to allow hashing floats. All the floats being hashed are pixel coordinates. They are scaled by 10 then truncated and hashed
 pub fn hashW(hasher: anytype, key: anytype, comptime strat: std.hash.Strategy) void {
     const Key = @TypeOf(key);
     switch (@typeInfo(Key)) {
@@ -633,7 +628,6 @@ pub fn hashW(hasher: anytype, key: anytype, comptime strat: std.hash.Strategy) v
                     }
                 },
                 else => {},
-                //else => @compileError("not supported pointer type to hashW " ++ @typeName(Key)),
             }
         },
         .Array => {
@@ -712,8 +706,6 @@ pub const OpaqueDataStore = struct {
             const name_store = try self.alloc.dupe(u8, name);
             try self.keys.append(name_store);
             const data_untyped = try self.alloc.alloc(u8, @sizeOf(data_type));
-            //const data = @as(*data_type, @ptrCast(@alignCast(data_untyped)));
-            //data.* = init_value;
             try self.map.put(name_store, .{ .type_name = try self.alloc.dupe(u8, @typeName(data_type)), .data = data_untyped });
         }
         const v = self.map.get(name) orelse unreachable;
@@ -1070,8 +1062,7 @@ pub const Context = struct {
     pub fn scratchPrint(self: *Self, comptime fmt: []const u8, args: anytype) []const u8 {
         var fbs = std.io.FixedBufferStream([]u8){ .buffer = self.scratch_buf[self.scratch_buf_pos..], .pos = 0 };
         fbs.writer().print(fmt, args) catch {
-            return "";
-            //std.debug.panic("scratch_buffer out of space", .{});
+            return " !outofspace! ";
         };
         self.scratch_buf_pos += fbs.pos;
         return fbs.getWritten();
@@ -1270,6 +1261,7 @@ pub const Context = struct {
         return null;
     }
 
+    /// clickWidget is used to access pointer state.
     pub fn clickWidgetEx(self: *Self, rec: Rect, opts: struct {
         teleport_area: ?Rect = null,
         override_depth_test: bool = false,
