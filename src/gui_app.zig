@@ -832,7 +832,7 @@ pub const Os9Gui = struct {
     //ofont: *OFont,
     ofont: *graph.Font,
     font: *graph.FontUtil.PublicFontInterface,
-    icon_ofont: *OFont,
+    //icon_ofont: *OFont,
     icon_font: *graph.FontUtil.PublicFontInterface,
     alloc: std.mem.Allocator,
 
@@ -844,10 +844,10 @@ pub const Os9Gui = struct {
         font_size_px: f32 = 20,
     }) !Self {
         const ofont_ptr = try alloc.create(graph.Font);
-        const ofont_icon_ptr = try alloc.create(OFont);
+        //const ofont_icon_ptr = try alloc.create(OFont);
         ofont_ptr.* = try graph.Font.initFromBuffer(alloc, @embedFile("font/roboto.ttf"), param.font_size_px, .{});
-        //ofont_ptr.* = try OFont.init(alloc, asset_dir, "asset/fonts/noto.ttc", 20, .{});
-        ofont_icon_ptr.* = try OFont.init(alloc, asset_dir, "asset/fonts/remix.ttf", 64, .{});
+        //ofont_ptr.* = try OFont.init(alloc, asset_dir, "asset/fonts/roboto.ttf", param.font_size_px, .{});
+        //ofont_icon_ptr.* = try OFont.init(alloc, asset_dir, "asset/fonts/remix.ttf", 64, .{});
         //ofont_icon_ptr.* = try OFont.initFromBuffer(alloc, @embedFile("font/remix.ttf"), 12, .{});
         return .{
             .gui = try Gui.Context.init(alloc),
@@ -862,8 +862,9 @@ pub const Os9Gui = struct {
             .ofont = ofont_ptr,
             .font = &ofont_ptr.font,
             //.font = try graph.Font.initFromBuffer(alloc, @embedFile("font/roboto.ttf"), 64, .{}),
-            .icon_ofont = ofont_icon_ptr,
-            .icon_font = &ofont_icon_ptr.font,
+            //.icon_ofont = ofont_icon_ptr,
+            .icon_font = &ofont_ptr.font,
+            //.icon_font = &ofont_icon_ptr.font,
             //.icon_font = &ofont_icon_ptr.font,
             //.icon_ofont = ofont_icon_ptr,
             //.icon_font = try graph.Font.init(
@@ -885,8 +886,8 @@ pub const Os9Gui = struct {
         self.ofont.deinit();
         self.alloc.destroy(self.ofont);
         //self.font.deinit();
-        self.icon_ofont.deinit();
-        self.alloc.destroy(self.icon_ofont);
+        //self.icon_ofont.deinit();
+        //self.alloc.destroy(self.icon_ofont);
     }
 
     pub fn beginFrame(self: *Self, input_state: Gui.InputState, win: *graph.SDL.Window) !void {
@@ -1738,7 +1739,7 @@ pub const Os9Gui = struct {
                 const pa = self.gui.layout.last_requested_bounds.?;
                 const dd_area = graph.Rect.newV(pa.pos(), .{
                     .x = pa.w,
-                    .y = if (do_scroll) pa.h * @as(f32, @floatFromInt(scrth)) else enum_info.Enum.fields.len * pa.h,
+                    .y = if (do_scroll) pa.h * @as(f32, @floatFromInt(scrth)) else (enum_info.Enum.fields.len + 2) * pa.h,
                 });
                 if (self.gui.input_state.mouse.left == .rising and !self.gui.isCursorInRect(dd_area)) {
                     self.drop_down = null;
@@ -1761,7 +1762,7 @@ pub const Os9Gui = struct {
                     if (old_len != sb.len)
                         self.drop_down_scroll.y = 0;
                     vl.pushRemaining();
-                    if (try self.beginScroll(&self.drop_down_scroll, .{ .sw = ar.w }, Gui.VerticalLayout{ .item_height = 20 * self.scale })) |file_scroll| {
+                    if (try self.beginScroll(&self.drop_down_scroll, .{ .sw = ar.w }, Gui.VerticalLayout{ .item_height = self.style.config.default_item_h * self.scale })) |file_scroll| {
                         defer self.endScroll(file_scroll, file_scroll.child.current_h);
                         inline for (enum_info.Enum.fields) |f| {
                             if (std.mem.startsWith(u8, f.name, sb.getSlice())) {

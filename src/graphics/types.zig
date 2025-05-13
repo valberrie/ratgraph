@@ -447,6 +447,10 @@ pub const Camera3D = struct {
     max_move_speed: f32 = 10,
     fov: f32 = 85,
 
+    //With planar movement, fwd and back function like strafe keys, not changing the z component
+    //normal moves position along camera's normal.
+    fwd_back_kind: enum { planar, normal } = .normal,
+
     up: enum { x, y, z } = .y,
 
     //Good default:
@@ -463,14 +467,18 @@ pub const Camera3D = struct {
     pub fn updateDebugMove(self: *Self, state: MoveState) void {
         const up = self.getUp();
         var move_vec = za.Vec3.new(0, 0, 0);
+        const fwd_back = switch (self.fwd_back_kind) {
+            .planar => self.front.mul(za.Vec3.set(1).sub(up)),
+            .normal => self.front,
+        };
         if (state.down)
             move_vec = move_vec.add(up.scale(-1));
         if (state.up)
             move_vec = move_vec.add(up);
         if (state.fwd)
-            move_vec = move_vec.add(self.front);
+            move_vec = move_vec.add(fwd_back);
         if (state.bwd)
-            move_vec = move_vec.add(self.front.scale(-1));
+            move_vec = move_vec.add(fwd_back.scale(-1));
         if (state.left)
             move_vec = move_vec.add(self.front.cross(up).norm().scale(-1));
         if (state.right)
