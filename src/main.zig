@@ -1215,7 +1215,7 @@ pub fn game_main() !void {
     var draw = graph.ImmediateDrawingContext.init(alloc);
     defer draw.deinit();
 
-    var os9gui = try Os9Gui.init(alloc, cwd, 2);
+    var os9gui = try Os9Gui.init(alloc, cwd, 2, .{ .cache_dir = std.fs.cwd() });
     defer os9gui.deinit();
     var gcfg: struct {
         draw_gizmo: bool = false,

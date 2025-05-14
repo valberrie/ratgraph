@@ -113,9 +113,21 @@ pub fn parseArgs(comptime arg_list: []const ArgItem, arg_it: anytype) !generateA
             }
         }
         if (!matched_arg) {
-            std.debug.print("--help:print this help\n", .{});
+            if (!std.mem.eql(u8, arg, "--help")) {
+                std.debug.print("Error: \'{s}\' is not a valid arg\n", .{arg});
+                std.debug.print("--help:print this help\n", .{});
+            }
             inline for (arg_list) |field| {
                 std.debug.print("{s}:{s}\t{s}\n", .{ field.name, @tagName(field.arg_type), field.doc });
+                if (field.type_override) |to| {
+                    switch (@typeInfo(to)) {
+                        .Enum => |e| {
+                            inline for (e.fields) |f|
+                                std.debug.print("\t{s}\n", .{f.name});
+                        },
+                        else => {},
+                    }
+                }
             }
             std.process.exit(0);
         }

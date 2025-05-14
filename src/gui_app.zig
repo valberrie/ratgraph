@@ -2457,7 +2457,7 @@ pub fn main() anyerror!void {
     var gt = try GuiTest.init(alloc);
     defer gt.deinit();
 
-    var os9gui = try Os9Gui.init(alloc, std.fs.cwd(), scale);
+    var os9gui = try Os9Gui.init(alloc, std.fs.cwd(), scale, .{ .cache_dir = std.fs.cwd() });
     defer os9gui.deinit();
 
     //var os9gui2 = try Os9Gui.init(alloc, std.fs.cwd(), scale);
