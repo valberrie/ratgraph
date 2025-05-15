@@ -2223,7 +2223,7 @@ pub const GuiDrawContext = struct {
             .text => |t| {
                 const p = t.pos.toF();
 
-                draw.text(p, t.string, t.font, t.size, (t.color));
+                draw.text(p, t.string, t.font, t.size, (t.color), .{});
             },
             .line => |l| {
                 draw.line(l.a, l.b, (l.color));

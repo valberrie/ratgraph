@@ -169,6 +169,12 @@ pub const FixedBitmapFont = struct {
 pub const ImmediateDrawingContext = struct {
     const Self = @This();
     const log = std.log.scoped(.ImmediateDrawingContext);
+    pub const TextParam = struct {
+        background_rect: ?u32 = null,
+
+        /// If not null, gets filled with the width of the rendered text in pixels.
+        width_pointer: ?*f32 = null,
+    };
 
     threadlocal var textFmtBuffer: [1024]u8 = undefined;
 
@@ -526,7 +532,7 @@ pub const ImmediateDrawingContext = struct {
         }) catch return;
     }
 
-    pub fn text(self: *Self, pos: Vec2f, str: []const u8, font: *FontInterface, px_size: f32, col: u32) void {
+    pub fn text(self: *Self, pos: Vec2f, str: []const u8, font: *FontInterface, px_size: f32, col: u32, param: TextParam) void {
         const SF = (px_size / font.font_size);
         const fac = 1;
         const x = pos.x;
@@ -549,6 +555,7 @@ pub const ImmediateDrawingContext = struct {
 
         var vx = x * fac;
         var vy = y * fac + ((font.ascent + font.descent) * SF);
+        const z = self.zindex + 1;
         while (it.nextCodepoint()) |ch| {
             if (ch == '\n') {
                 vy += font.line_gap * SF;
@@ -569,7 +576,6 @@ pub const ImmediateDrawingContext = struct {
 
             b.indicies.appendSlice(&genQuadIndices(@as(u32, @intCast(b.vertices.items.len)))) catch unreachable;
             const un = GL.normalizeTexRect(g.tr, font.texture.w, font.texture.h);
-            const z = self.zindex;
             b.vertices.appendSlice(&.{
                 .{ .pos = .{ .x = r.x + r.w, .y = r.y + r.h }, .z = z, .uv = .{ .x = un.x + un.w, .y = un.y + un.h }, .color = col }, //0
                 .{ .pos = .{ .x = r.x + r.w, .y = r.y }, .z = z, .uv = .{ .x = un.x + un.w, .y = un.y }, .color = col }, //1
@@ -579,17 +585,23 @@ pub const ImmediateDrawingContext = struct {
 
             vx += (g.advance_x) * SF;
         }
-        self.zindex += 1;
+        if (param.background_rect) |bg_col| {
+            self.rect(Rec(pos.x, pos.y, vx - pos.x, vy - pos.y), bg_col);
+        }
+        if (param.width_pointer) |wp| {
+            wp.* = vx - pos.x;
+        }
+        self.zindex += 1; //one for rz
     }
 
-    pub fn textFmt(self: *Self, pos: Vec2f, comptime fmt: []const u8, args: anytype, font: *FontInterface, pt_size: f32, color: u32) void {
+    pub fn textFmt(self: *Self, pos: Vec2f, comptime fmt: []const u8, args: anytype, font: *FontInterface, pt_size: f32, color: u32, param: TextParam) void {
         var fbs = std.io.FixedBufferStream([]u8){ .pos = 0, .buffer = &textFmtBuffer };
         fbs.writer().print(fmt, args) catch {
             log.warn("string exceeded textFmt buffer", .{});
             log.warn(fmt, args);
             return;
         };
-        self.text(pos, fbs.getWritten(), font, pt_size, color);
+        self.text(pos, fbs.getWritten(), font, pt_size, color, param);
     }
 
     pub fn point3D(self: *Self, point: za.Vec3, color: u32) void {
@@ -889,6 +901,51 @@ pub const ImmediateDrawingContext = struct {
 
     pub fn end(self: *Self, camera_3d: ?Camera3D) !void {
         try self.flush(null, camera_3d);
+    }
+};
+
+/// This structure modifies ImmediateDrawingContext.zindex
+pub const MultiLineText = struct {
+    pos_i: Vec2f,
+    pos: Vec2f,
+    ctx: *ImmediateDrawingContext,
+    font: *FontInterface,
+
+    max_width: f32,
+
+    starting_z: u16,
+
+    pub fn start(dctx: *ImmediateDrawingContext, start_pos: Vec2f, font: *FontInterface) @This() {
+        defer dctx.zindex += 1; //Reserve a z for background rect
+        return .{
+            .starting_z = dctx.zindex,
+            .max_width = 0,
+            .font = font,
+            .ctx = dctx,
+            .pos = start_pos,
+            .pos_i = start_pos,
+        };
+    }
+
+    pub fn text(self: *@This(), str: []const u8, px_size: f32, col: u32) void {
+        var w: f32 = 0;
+        self.ctx.text(self.pos, str, self.font, px_size, col, .{ .width_pointer = &w });
+        self.max_width = @max(w, self.max_width);
+        self.pos.y += px_size;
+    }
+
+    pub fn textFmt(self: *@This(), comptime fmt: []const u8, args: anytype, px_size: f32, color: u32) void {
+        var w: f32 = 0;
+        self.ctx.textFmt(self.pos, fmt, args, self.font, px_size, color, .{ .width_pointer = &w });
+        self.max_width = @max(w, self.max_width);
+        self.pos.y += px_size;
+    }
+
+    pub fn drawBgRect(self: *@This(), color: u32, min_width: f32) void {
+        const old_z = self.ctx.zindex;
+        defer self.ctx.zindex = old_z;
+        self.ctx.zindex = self.starting_z;
+        self.ctx.rect(Rec(self.pos_i.x, self.pos_i.y, @max(min_width, self.max_width), self.pos.y - self.pos_i.y), color);
     }
 };
 
