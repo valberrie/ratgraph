@@ -673,6 +673,15 @@ pub const Colori = struct {
     pub const Cornsilk: u32 = (0xFFF8DCff);
 };
 
+pub fn intColorFromVec3(v: za.Vec3, factor: f32) u32 {
+    return charColorToInt(.{
+        .r = @intFromFloat(std.math.clamp(v.x() * factor, 0, 255)),
+        .g = @intFromFloat(std.math.clamp(v.y() * factor, 0, 255)),
+        .b = @intFromFloat(std.math.clamp(v.z() * factor, 0, 255)),
+        .a = 255,
+    });
+}
+
 pub const CharColor = struct {
     r: u8,
     g: u8,
