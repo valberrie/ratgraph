@@ -1839,6 +1839,7 @@ pub const Context = struct {
     //This should take a generic structure that has on optional, resize function or something.
     //The function can then support static or dynamic buffers
     pub fn textboxGeneric(self: *Self, contents: *std.ArrayList(u8), font: *Font, params: struct {
+        text_h: f32,
         text_inset: f32,
         restrict_chars_to: ?[]const u8 = null,
     }) !?GenericWidget.Textbox {
@@ -1866,10 +1867,10 @@ pub const Context = struct {
                 .{ .restricted_charset = params.restrict_chars_to },
             );
             const sl = tb.getSlice();
-            const caret_x = font.textBounds(sl[0..@as(usize, @intCast(tb.head))], trect.h).x;
+            const caret_x = font.textBounds(sl[0..@as(usize, @intCast(tb.head))], params.text_h).x;
             ret.caret = caret_x;
             if (tb.head != tb.tail) {
-                const tail_x = font.textBounds(sl[0..@intCast(tb.tail)], trect.h).x;
+                const tail_x = font.textBounds(sl[0..@intCast(tb.tail)], params.text_h).x;
                 ret.selection_pos_max = @max(caret_x, tail_x);
                 ret.selection_pos_min = @min(caret_x, tail_x);
             }
@@ -1884,12 +1885,12 @@ pub const Context = struct {
                 self.text_input_state.active_id = id;
                 try self.textbox_state.resetFmt("{s}", .{contents.items});
             }
-            const cin = font.nearestGlyphX(self.textbox_state.getSlice(), trect.h, self.input_state.mouse.pos.sub(trect.pos()));
+            const cin = font.nearestGlyphX(self.textbox_state.getSlice(), params.text_h, self.input_state.mouse.pos.sub(trect.pos()));
             if (cin) |cc| {
                 self.textbox_state.setHead(cc, 0, true);
             }
         } else if (click == .held and self.held_timer > 4) {
-            const cin = font.nearestGlyphX(self.textbox_state.getSlice(), trect.h, self.input_state.mouse.pos.sub(trect.pos()));
+            const cin = font.nearestGlyphX(self.textbox_state.getSlice(), params.text_h, self.input_state.mouse.pos.sub(trect.pos()));
             if (cin) |cc|
                 self.textbox_state.setHead(cc, 0, false);
         }
@@ -1898,6 +1899,7 @@ pub const Context = struct {
     }
 
     pub fn textboxGeneric2(self: *Self, contents: anytype, font: *Font, params: struct {
+        text_h: f32,
         text_inset: f32,
         restrict_chars_to: ?[]const u8 = null,
         make_active: bool = false,
@@ -1934,10 +1936,10 @@ pub const Context = struct {
                 .{ .restricted_charset = params.restrict_chars_to, .max_len = contents.getMaxLen() },
             );
             const sl = tb.getSlice();
-            const caret_x = font.textBounds(sl[0..@as(usize, @intCast(tb.head))], trect.h).x;
+            const caret_x = font.textBounds(sl[0..@as(usize, @intCast(tb.head))], params.text_h).x;
             ret.caret = caret_x;
             if (tb.head != tb.tail) {
-                const tail_x = font.textBounds(sl[0..@intCast(tb.tail)], trect.h).x;
+                const tail_x = font.textBounds(sl[0..@intCast(tb.tail)], params.text_h).x;
                 ret.selection_pos_max = @max(caret_x, tail_x);
                 ret.selection_pos_min = @min(caret_x, tail_x);
             }
@@ -1954,12 +1956,12 @@ pub const Context = struct {
                 self.text_input_state.active_id = id;
                 try self.textbox_state.resetFmt("{s}", .{contents.getSlice()});
             }
-            const cin = font.nearestGlyphX(self.textbox_state.getSlice(), trect.h, self.input_state.mouse.pos.sub(trect.pos()));
+            const cin = font.nearestGlyphX(self.textbox_state.getSlice(), params.text_h, self.input_state.mouse.pos.sub(trect.pos()));
             if (cin) |cc| {
                 self.textbox_state.setHead(cc, 0, true);
             }
         } else if (click == .held and self.held_timer > 4) {
-            const cin = font.nearestGlyphX(self.textbox_state.getSlice(), trect.h, self.input_state.mouse.pos.sub(trect.pos()));
+            const cin = font.nearestGlyphX(self.textbox_state.getSlice(), params.text_h, self.input_state.mouse.pos.sub(trect.pos()));
             if (cin) |cc|
                 self.textbox_state.setHead(cc, 0, false);
         }

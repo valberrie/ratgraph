@@ -1797,15 +1797,21 @@ pub const Os9Gui = struct {
     }) !void {
         const gui = &self.gui;
         const inset = self.style.config.textbox_inset * self.scale;
+        const text_h = self.style.config.text_h;
         if (params.disabled) {
             const a = self.gui.getArea() orelse return;
             const tr = a.inset(inset);
             gui.draw9Slice(a, self.style.getRect(.basic_inset), self.style.texture, self.scale);
             gui.drawRectFilled(a, self.style.config.colors.textbox_bg_disabled);
-            gui.drawTextFmt("{s}", .{tb.getSlice()}, tr, self.style.config.text_h, self.style.config.colors.textbox_fg_disabled, .{}, self.font);
+            gui.drawTextFmt("{s}", .{tb.getSlice()}, tr, text_h, self.style.config.colors.textbox_fg_disabled, .{}, self.font);
             return;
         }
-        if (try gui.textboxGeneric2(tb, self.font, .{ .text_inset = inset, .make_active = params.make_active, .make_inactive = params.make_inactive })) |d| {
+        if (try gui.textboxGeneric2(tb, self.font, .{
+            .text_h = text_h,
+            .text_inset = inset,
+            .make_active = params.make_active,
+            .make_inactive = params.make_inactive,
+        })) |d| {
             const tr = d.text_area;
             gui.draw9Slice(d.area, self.style.getRect(.basic_inset), self.style.texture, self.scale);
             if (params.invalid)
@@ -1822,7 +1828,7 @@ pub const Os9Gui = struct {
                     self.style.config.colors.textbox_caret,
                 );
             }
-            gui.drawTextFmt("{s}", .{d.slice}, d.text_area, self.style.config.text_h, Color.Black, .{}, self.font);
+            gui.drawTextFmt("{s}", .{d.slice}, d.text_area, text_h, Color.Black, .{}, self.font);
         }
     }
 
@@ -1875,15 +1881,16 @@ pub const Os9Gui = struct {
         invalid: bool = false,
     }) !void {
         const gui = &self.gui;
+        const text_h = self.style.config.text_h;
         if (params.disabled) {
             const a = self.gui.getArea() orelse return;
             const tr = a.inset(3 * self.scale);
             gui.draw9Slice(a, self.style.getRect(.basic_inset), self.style.texture, self.scale);
-            gui.drawTextFmt("{s}", .{contents.items}, tr, self.style.config.text_h, 0x00aa, .{}, self.font);
+            gui.drawTextFmt("{s}", .{contents.items}, tr, text_h, 0x00aa, .{}, self.font);
             gui.drawRectFilled(a, 0xffffff75);
             return;
         }
-        if (try gui.textboxGeneric(contents, self.font, .{ .text_inset = 3 * self.scale })) |d| {
+        if (try gui.textboxGeneric(contents, self.font, .{ .text_inset = 3 * self.scale, .text_h = text_h })) |d| {
             const tr = d.text_area;
             gui.draw9Slice(d.area, self.style.getRect(.basic_inset), self.style.texture, self.scale);
             if (params.invalid)
@@ -1897,7 +1904,7 @@ pub const Os9Gui = struct {
             if (d.caret) |of| {
                 gui.drawRectFilled(Rect.new(of + tr.x, tr.y + 2, 3, tr.h - 4), Color.Black);
             }
-            gui.drawTextFmt("{s}", .{d.slice}, d.text_area, self.style.config.text_h, Color.Black, .{}, self.font);
+            gui.drawTextFmt("{s}", .{d.slice}, d.text_area, text_h, Color.Black, .{}, self.font);
         }
     }
 
