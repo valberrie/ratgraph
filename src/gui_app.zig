@@ -1605,11 +1605,11 @@ pub const Os9Gui = struct {
 
     pub fn combo(
         self: *Self,
-        comptime fmt: []const u8,
+        comptime fmt: []const u8, // what gets printed when inactive
         args: anytype,
-        index: *usize,
-        count: usize,
-        ctx: anytype,
+        index: *usize, // gets set to index of clicked
+        count: usize, // Hint to set height of gui area
+        ctx: anytype, // User data passed to iterator fn_ptr
         next: *const fn (@TypeOf(ctx)) ?struct { usize, []const u8 },
     ) !void {
         const id = self.gui.getId();
@@ -1665,7 +1665,9 @@ pub const Os9Gui = struct {
                     if (old_len != sb.len)
                         self.drop_down_scroll.y = 0;
                     vl.pushRemaining();
-                    if (try self.beginScroll(&self.drop_down_scroll, .{ .sw = ar.w }, Gui.VerticalLayout{ .item_height = 20 * self.scale })) |file_scroll| {
+                    if (try self.beginScroll(&self.drop_down_scroll, .{ .sw = ar.w }, Gui.VerticalLayout{
+                        .item_height = self.style.config.default_item_h,
+                    })) |file_scroll| {
                         defer self.endScroll(file_scroll, file_scroll.child.current_h);
                         while (next(ctx)) |fname| {
                             //inline for (enum_info.Enum.fields) |f| {
