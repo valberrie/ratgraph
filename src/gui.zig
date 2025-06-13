@@ -99,7 +99,8 @@ pub const InputState = struct {
     pub const DefaultKeyboardState = graph.SDL.Window.KeyboardStateT.initEmpty();
     mouse: graph.SDL.MouseState = .{},
     keys: []const graph.SDL.KeyState = &.{}, // Populated with keys just pressed, keydown events
-    key_state: *const graph.SDL.Window.KeyStateT = &graph.SDL.Window.EmptyKeyState, //All the keys state
+    key_state: []const graph.SDL.ButtonState = &.{},
+    //key_state: *const graph.SDL.Window.KeyStateT = &graph.SDL.Window.EmptyKeyState, //All the keys state
     mod_state: graph.SDL.keycodes.KeymodMask = 0,
 };
 
@@ -490,7 +491,7 @@ pub const RetainedState = struct {
 
             const mod = input_state.mod_state & ~M.mask(&.{ .SCROLL, .NUM, .CAPS });
             for (input_state.keys) |key| {
-                switch (StaticData.key_binds.getWithMod(key.scancode, mod) orelse continue) {
+                switch (StaticData.key_binds.getWithMod(@enumFromInt(key.key_id), mod) orelse continue) {
                     .move_left => tb.move_to(.left),
                     .move_right => tb.move_to(.right),
                     .move_word_right => tb.move_to(.next_word_end),
@@ -1059,6 +1060,13 @@ pub const Context = struct {
     // This field
     scroll_claimed_mouse: bool = false,
 
+    focus_index: ?usize = 1,
+    focus_counter: usize = 0,
+    set_focused: bool = false,
+    focused_area: ?graph.Rect = null,
+
+    clamp_window: graph.Rect = .{},
+
     pub fn scratchPrint(self: *Self, comptime fmt: []const u8, args: anytype) []const u8 {
         var fbs = std.io.FixedBufferStream([]u8){ .buffer = self.scratch_buf[self.scratch_buf_pos..], .pos = 0 };
         fbs.writer().print(fmt, args) catch {
@@ -1076,19 +1084,27 @@ pub const Context = struct {
     }
 
     pub fn isKeyDown(self: *Self, scancode: graph.SDL.keycodes.Scancode) bool {
-        const s = self.input_state.key_state.*[@intFromEnum(scancode)];
+        const s = self.ks(scancode);
         return s == .high or s == .rising;
+    }
+
+    fn ks(self: *Self, scancode: graph.SDL.keycodes.Scancode) graph.SDL.ButtonState {
+        const sc: u32 = @intFromEnum(scancode);
+        if (sc >= self.input_state.key_state.len)
+            return .low;
+        return self.input_state.key_state[sc];
     }
 
     pub fn isBindState(self: *Self, bind: graph.SDL.NewBind, state: graph.SDL.ButtonState) bool {
         if (self.text_input_state.state != .disabled) return state == .low;
         if (bind.mod == 0 or bind.mod ^ self.input_state.mod_state == 0) {
-            return self.input_state.key_state.*[
-                switch (bind.key) {
-                    .scancode => |s| @intFromEnum(s),
-                    .keycode => |k| @intFromEnum(graph.SDL.getScancodeFromKey(k)),
-                }
-            ] == state;
+            const sc: u32 = switch (bind.key) {
+                .scancode => |s| @intFromEnum(s),
+                .keycode => |k| @intFromEnum(graph.SDL.getScancodeFromKey(k)),
+            };
+            if (sc >= self.input_state.key_state.len)
+                return false;
+            return self.input_state.key_state[sc] == state;
         }
         return state == .low;
     }
@@ -1096,7 +1112,7 @@ pub const Context = struct {
     pub fn keyState(self: *Self, scancode: graph.SDL.keycodes.Scancode) graph.SDL.ButtonState {
         if (self.text_input_state.state != .disabled) return .low;
 
-        return self.input_state.key_state.*[@intFromEnum(scancode)];
+        return self.ks(scancode);
     }
 
     pub fn isCursorInRect(self: *Self, r: Rect) bool {
@@ -1115,8 +1131,12 @@ pub const Context = struct {
         const new_area = self.layout.getArea();
         self.tooltip_state.pending_area = new_area;
         if (w.scroll_bounds) |sb| {
-            if (!sb.overlap(new_area orelse return new_area))
+            if (!sb.overlap(new_area orelse return null))
                 return null;
+        }
+        if (self.set_focused) {
+            self.focused_area = new_area;
+            self.set_focused = false;
         }
         return new_area;
     }
@@ -1188,8 +1208,12 @@ pub const Context = struct {
         };
     }
 
-    pub fn reset(self: *Self, input_state: InputState) !void {
+    pub fn reset(self: *Self, input_state: InputState, clamp_window: graph.Rect) !void {
         if (self.window_index != null) return error.unmatchedBeginWindow;
+
+        self.clamp_window = clamp_window;
+        self.focus_counter = 0;
+        self.focused_area = null;
 
         //Iterate last frames windows and determine the deepest window current mouse_pos occupies
         var deepest_index: ?usize = null;
@@ -1317,6 +1341,16 @@ pub const Context = struct {
         return .{ .click = if (containsCursor) .hover_no_focus else .none, .id = id };
     }
 
+    pub fn isFocused(self: *Self) bool {
+        self.focus_counter += 1;
+        if (self.focus_index) |fi| {
+            const f = (fi == self.focus_counter);
+            self.set_focused = f;
+            return f;
+        }
+        return false;
+    }
+
     pub fn draggable(self: *Self, area: Rect, mdelta_scale: Vec2f, x_val: anytype, y_val: anytype, opts: struct {
         x_min: ?f32 = null,
         x_max: ?f32 = null,
@@ -1376,6 +1410,31 @@ pub const Context = struct {
         Helper.setVal(xinfo, x_val, val.x, opts.x_min, opts.x_max);
         Helper.setVal(yinfo, y_val, val.y, opts.y_min, opts.y_max);
         return click;
+    }
+
+    pub fn clampRectToWindow(self: *const Self, area: Rect) Rect {
+        const wr = self.clamp_window.toAbsoluteRect();
+        var other = area.toAbsoluteRect();
+        //TODO do y axis aswell
+
+        if (other.w > wr.w) {
+            const diff = other.w - wr.w;
+            other.w = wr.w;
+            other.x -= diff;
+        }
+
+        if (other.x < wr.x)
+            other.x = wr.x;
+
+        if (other.h > wr.h) {
+            const diff = other.h - wr.h;
+            other.h = wr.h;
+            other.y -= diff;
+        }
+
+        if (other.y < wr.y)
+            other.y = wr.y;
+        return graph.Rec(other.x, other.y, other.w - other.x, other.h - other.y);
     }
 
     pub fn beginWindow(self: *Self, area: Rect) !void {
@@ -1927,7 +1986,6 @@ pub const Context = struct {
         }
 
         if (self.isActiveTextinput(id)) {
-            if (self.keyState(.TAB) == .rising) {}
             const tb = &self.textbox_state;
             self.text_input_state.advanceStateActive(trect);
             try tb.handleEventsOpts(
@@ -2144,6 +2202,10 @@ pub const GuiDrawContext = struct {
                 graph.Rec(0, 0, tr.w, -tr.h),
                 fb.texture,
             );
+        }
+        //HACK
+        if (gui.focused_area) |fa| {
+            draw.rectBorder(fa, 1, 0xff0000ff);
         }
 
         try draw.flush(null, null);

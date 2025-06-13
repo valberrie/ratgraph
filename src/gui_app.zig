@@ -890,7 +890,7 @@ pub const Os9Gui = struct {
             .cont => self.gui.text_input_state.buffer = win.text_input,
             .disabled => {},
         }
-        try self.gui.reset(input_state);
+        try self.gui.reset(input_state, graph.Rec(0, 0, win.screen_dimensions.x, win.screen_dimensions.y));
     }
 
     pub fn endFrame(self: *Self, draw: *graph.ImmediateDrawingContext) !void {
@@ -1117,7 +1117,8 @@ pub const Os9Gui = struct {
                 scr.* = true;
             if (scr.*) {
                 const sz = self.style.config.color_picker_size;
-                const r = Rec(d.area.x, d.area.y, sz.x * self.scale, sz.y * self.scale);
+                const rbf = Rec(d.area.x, d.area.y, sz.x * self.scale, sz.y * self.scale);
+                const r = self.gui.clampRectToWindow(rbf);
                 if (!(d.state == .click) and self.gui.input_state.mouse.left == .rising and !self.gui.isCursorInRect(r) and self.gui.window_index_grabbed_mouse == self.gui.window_index.?)
                     scr.* = false;
                 if (try self.beginTlWindow(r)) {
@@ -1640,10 +1641,10 @@ pub const Os9Gui = struct {
                 const scrth = self.style.config.enum_combo_item_count_scroll_threshold;
                 const do_scroll = count > scrth;
                 const pa = self.gui.layout.last_requested_bounds.?;
-                const dd_area = graph.Rect.newV(pa.pos(), .{
+                const dd_area = self.gui.clampRectToWindow(graph.Rect.newV(pa.pos(), .{
                     .x = pa.w,
                     .y = if (do_scroll) pa.h * @as(f32, @floatFromInt(scrth)) else @as(f32, @floatFromInt(count)) * pa.h,
-                });
+                }));
                 if (self.gui.input_state.mouse.left == .rising and !self.gui.isCursorInRect(dd_area)) {
                     self.drop_down = null;
                     return;
@@ -1720,10 +1721,10 @@ pub const Os9Gui = struct {
                 const scrth = self.style.config.enum_combo_item_count_scroll_threshold;
                 const do_scroll = enum_info.Enum.fields.len > scrth;
                 const pa = self.gui.layout.last_requested_bounds.?;
-                const dd_area = graph.Rect.newV(pa.pos(), .{
+                const dd_area = self.gui.clampRectToWindow(graph.Rect.newV(pa.pos(), .{
                     .x = pa.w,
                     .y = if (do_scroll) pa.h * @as(f32, @floatFromInt(scrth)) else (enum_info.Enum.fields.len + 2) * pa.h,
-                });
+                }));
                 if (self.gui.input_state.mouse.left == .rising and !self.gui.isCursorInRect(dd_area)) {
                     self.drop_down = null;
                     return;

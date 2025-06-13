@@ -24,10 +24,10 @@ pub const Orientation = enum {
 pub const Rect = struct {
     const Self = @This();
 
-    x: f32,
-    y: f32,
-    w: f32,
-    h: f32,
+    x: f32 = 0,
+    y: f32 = 0,
+    w: f32 = 0,
+    h: f32 = 0,
 
     pub fn format(self: Self, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
         _ = options;

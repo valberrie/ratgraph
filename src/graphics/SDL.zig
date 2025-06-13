@@ -61,20 +61,21 @@ pub const MouseState = struct {
     delta: Vec2f = .{ .x = 0, .y = 0 },
 
     wheel_delta: Vec2f = .{ .x = 0, .y = 0 },
-
-    pub fn setButtonsSDL(self: *MouseState, sdl_button_mask: u32) void {
-        const b = sdl_button_mask;
-        self.left.set(b & c.SDL_BUTTON_LMASK != 0);
-        self.right.set(b & c.SDL_BUTTON_RMASK != 0);
-        self.middle.set(b & c.SDL_BUTTON_MMASK != 0);
-        self.x1.set(b & c.SDL_BUTTON_X1MASK != 0);
-        self.x2.set(b & c.SDL_BUTTON_X2MASK != 0);
-    }
 };
+
+pub fn setButtonsSDL(self: *MouseState, sdl_button_mask: u32) void {
+    const b = sdl_button_mask;
+    self.left.set(b & c.SDL_BUTTON_LMASK != 0);
+    self.right.set(b & c.SDL_BUTTON_RMASK != 0);
+    self.middle.set(b & c.SDL_BUTTON_MMASK != 0);
+    self.x1.set(b & c.SDL_BUTTON_X1MASK != 0);
+    self.x2.set(b & c.SDL_BUTTON_X2MASK != 0);
+}
 
 pub const KeyState = struct {
     state: ButtonState,
-    scancode: keycodes.Scancode,
+    key_id: u32,
+    //scancode: keycodes.Scancode,
 };
 
 pub fn getKeyFromScancode(scancode: keycodes.Scancode) keycodes.Keycode {
@@ -383,7 +384,7 @@ pub const Window = struct {
         {
             var fx: f32 = undefined;
             var fy: f32 = undefined;
-            self.mouse.setButtonsSDL(c.SDL_GetMouseState(&fx, &fy));
+            setButtonsSDL(&self.mouse, c.SDL_GetMouseState(&fx, &fy));
             self.mouse.pos = .{ .x = fx, .y = fy };
 
             _ = c.SDL_GetRelativeMouseState(&fx, &fy);
@@ -426,7 +427,7 @@ pub const Window = struct {
                         self.key_state[scancode] = .rising;
                     self.keys.append(.{
                         .state = .rising,
-                        .scancode = @enumFromInt(scancode),
+                        .key_id = @intCast(scancode),
                     }) catch unreachable;
                 },
                 c.SDL_EVENT_KEY_UP => {

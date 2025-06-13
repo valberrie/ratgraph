@@ -75,7 +75,7 @@ test "basic graph usage" {
 
         //The following are all drawn in 2d using the default orthographic camera.
         //The bounds of the camera are the window dimensions
-        draw.text(.{ .x = 50, .y = 300 }, "Hello", &font.font, 20, 0xffffffff);
+        draw.text(.{ .x = 50, .y = 300 }, "Hello", &font.font, 20, 0xffffffff, .{});
         draw.rect(r, 0xff00ffff);
         draw.rectVertexColors(r, &.{ 0xff, 0xff, 0xff, 0xff });
         draw.nineSlice(r, r, font.font.texture, 1);
