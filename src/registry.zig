@@ -480,6 +480,21 @@ pub fn Registry(comptime field_names_l: FieldList) type {
             self.call_create_callback(component_type, ptr, index);
         }
 
+        pub fn dupeEntity(self: *Self, id: ID_TYPE) !ID_TYPE {
+            const new = try self.createEntity();
+            inline for (Self.Fields, 0..) |field, i| {
+                if (try self.getOptPtr(id, @enumFromInt(i))) |comp| {
+                    if (@hasDecl(field.ftype, "dupe")) {
+                        const duped = try comp.dupe(self, new);
+                        try self.attachComponentAndCreate(new, @enumFromInt(i), duped);
+                    } else {
+                        @compileError("must declare a dupe(self, ecs) function ! " ++ field.name);
+                    }
+                }
+            }
+            return new;
+        }
+
         pub fn removeComponentOpt(self: *Self, index: ID_TYPE, comptime component_type: Components) !?Fields[@intFromEnum(component_type)].ftype {
             const comp: usize = @intFromEnum(component_type);
             const ent = try self.getEntity(index);
