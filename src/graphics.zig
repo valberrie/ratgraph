@@ -379,7 +379,7 @@ pub const ImmediateDrawingContext = struct {
         });
     }
 
-    pub fn nineSlice(self: *Self, r: Rect, tr: Rect, texture: Texture, scale: f32) void {
+    pub fn nineSlice(self: *Self, r: Rect, tr: Rect, texture: Texture, scale: f32, tint: u32) void {
         const un = GL.normalizeTexRect(tr, texture.w, texture.h);
         const tbw = un.w / 3;
         const tbh = un.h / 3;
@@ -443,25 +443,25 @@ pub const ImmediateDrawingContext = struct {
 
         b.vertices.appendSlice(&.{
             //Row 1
-            .{ .z = z, .color = 0xffffffff, .uv = Uv[0], .pos = .{ .y = r.y, .x = r.x } },
-            .{ .z = z, .color = 0xffffffff, .uv = Uv[1], .pos = .{ .y = r.y, .x = r.x + bw } },
-            .{ .z = z, .color = 0xffffffff, .uv = Uv[2], .pos = .{ .y = r.y, .x = r.x + r.w - bw } },
-            .{ .z = z, .color = 0xffffffff, .uv = Uv[3], .pos = .{ .y = r.y, .x = r.x + r.w } },
+            .{ .z = z, .color = tint, .uv = Uv[0], .pos = .{ .y = r.y, .x = r.x } },
+            .{ .z = z, .color = tint, .uv = Uv[1], .pos = .{ .y = r.y, .x = r.x + bw } },
+            .{ .z = z, .color = tint, .uv = Uv[2], .pos = .{ .y = r.y, .x = r.x + r.w - bw } },
+            .{ .z = z, .color = tint, .uv = Uv[3], .pos = .{ .y = r.y, .x = r.x + r.w } },
             //Row 2
-            .{ .z = z, .color = 0xffffffff, .uv = Uv[4], .pos = .{ .y = r.y + bh, .x = r.x } },
-            .{ .z = z, .color = 0xffffffff, .uv = Uv[5], .pos = .{ .y = r.y + bh, .x = r.x + bw } },
-            .{ .z = z, .color = 0xffffffff, .uv = Uv[6], .pos = .{ .y = r.y + bh, .x = r.x + r.w - bw } },
-            .{ .z = z, .color = 0xffffffff, .uv = Uv[7], .pos = .{ .y = r.y + bh, .x = r.x + r.w } },
+            .{ .z = z, .color = tint, .uv = Uv[4], .pos = .{ .y = r.y + bh, .x = r.x } },
+            .{ .z = z, .color = tint, .uv = Uv[5], .pos = .{ .y = r.y + bh, .x = r.x + bw } },
+            .{ .z = z, .color = tint, .uv = Uv[6], .pos = .{ .y = r.y + bh, .x = r.x + r.w - bw } },
+            .{ .z = z, .color = tint, .uv = Uv[7], .pos = .{ .y = r.y + bh, .x = r.x + r.w } },
             //Row 3
-            .{ .z = z, .color = 0xffffffff, .uv = Uv[8], .pos = .{ .y = r.y + r.h - bh, .x = r.x } },
-            .{ .z = z, .color = 0xffffffff, .uv = Uv[9], .pos = .{ .y = r.y + r.h - bh, .x = r.x + bw } },
-            .{ .z = z, .color = 0xffffffff, .uv = Uv[10], .pos = .{ .y = r.y + r.h - bh, .x = r.x + r.w - bw } },
-            .{ .z = z, .color = 0xffffffff, .uv = Uv[11], .pos = .{ .y = r.y + r.h - bh, .x = r.x + r.w } },
+            .{ .z = z, .color = tint, .uv = Uv[8], .pos = .{ .y = r.y + r.h - bh, .x = r.x } },
+            .{ .z = z, .color = tint, .uv = Uv[9], .pos = .{ .y = r.y + r.h - bh, .x = r.x + bw } },
+            .{ .z = z, .color = tint, .uv = Uv[10], .pos = .{ .y = r.y + r.h - bh, .x = r.x + r.w - bw } },
+            .{ .z = z, .color = tint, .uv = Uv[11], .pos = .{ .y = r.y + r.h - bh, .x = r.x + r.w } },
             ////Row 4
-            .{ .z = z, .color = 0xffffffff, .uv = Uv[12], .pos = .{ .y = r.y + r.h, .x = r.x } },
-            .{ .z = z, .color = 0xffffffff, .uv = Uv[13], .pos = .{ .y = r.y + r.h, .x = r.x + bw } },
-            .{ .z = z, .color = 0xffffffff, .uv = Uv[14], .pos = .{ .y = r.y + r.h, .x = r.x + r.w - bw } },
-            .{ .z = z, .color = 0xffffffff, .uv = Uv[15], .pos = .{ .y = r.y + r.h, .x = r.x + r.w } },
+            .{ .z = z, .color = tint, .uv = Uv[12], .pos = .{ .y = r.y + r.h, .x = r.x } },
+            .{ .z = z, .color = tint, .uv = Uv[13], .pos = .{ .y = r.y + r.h, .x = r.x + bw } },
+            .{ .z = z, .color = tint, .uv = Uv[14], .pos = .{ .y = r.y + r.h, .x = r.x + r.w - bw } },
+            .{ .z = z, .color = tint, .uv = Uv[15], .pos = .{ .y = r.y + r.h, .x = r.x + r.w } },
         }) catch |e| {
             self.setErr(e);
             return;

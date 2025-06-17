@@ -1845,8 +1845,8 @@ pub const Context = struct {
         var handle: Rect = switch (orient) {
             //.horizontal => Rect.new(params.handle_offset_x + arec.x + (val - min) * scale, params.handle_offset_y + arec.y, params.handle_w, handle_h),
             //.vertical => Rect.new(params.handle_offset_y + arec.x, params.handle_offset_x + arec.y + (val - min) * scale, handle_h, params.handle_w),
-            .horizontal => Rect.new(params.handle_offset_x + arec.x + sliderScaleFn(params.base, min, max, val) * sc, params.handle_offset_y + arec.y, params.handle_w, handle_h),
-            .vertical => Rect.new(params.handle_offset_y + arec.x, params.handle_offset_x + arec.y + sliderScaleFn(params.base, min, max, val) * sc, handle_h, params.handle_w),
+            .horizontal => Rect.new(params.handle_offset_x + arec.x + sliderScaleFn(params.base, lmin, lmax, val) * sc, params.handle_offset_y + arec.y, params.handle_w, handle_h),
+            .vertical => Rect.new(params.handle_offset_y + arec.x, params.handle_offset_x + arec.y + sliderScaleFn(params.base, lmin, lmax, val) * sc, handle_h, params.handle_w),
         };
 
         const clicked = self.clickWidget(handle);
@@ -1857,8 +1857,8 @@ pub const Context = struct {
 
         // Only moving the slider until after our initial .click state prevents the slider from teleporting when used with a touch screen or other input method that teleports the cursor like a drawing tablet.
         if (clicked == .held) {
-            const new = std.math.clamp(sliderScaleFn(params.base, min, max, val + self.focused_slider_state) + mdel / sc, 0, 1);
-            val = sliderScaleFnInv(params.base, min, max, new);
+            const new = std.math.clamp(sliderScaleFn(params.base, lmin, lmax, val + self.focused_slider_state) + mdel / sc, 0, 1);
+            val = sliderScaleFnInv(params.base, lmin, lmax, new);
 
             //val += self.focused_slider_state;
             //val += mdel / scale;
@@ -1866,9 +1866,9 @@ pub const Context = struct {
 
             //Prevent the slider's and the cursor's position from becoming misaligned when the cursor goes past the slider boundries.
             if (mpos - params.handle_offset_x > rec.x + rec.w)
-                val = max;
+                val = lmax;
             if (mpos + params.handle_offset_x < rec.x)
-                val = min;
+                val = lmin;
 
             if (number_t == .int or number_t == .uint)
                 self.focused_slider_state = (val - @trunc(val));
@@ -2152,6 +2152,7 @@ pub const GuiDrawContext = struct {
     old_cam_bounds: ?Rect = null,
     camera_bounds: ?Rect = null,
     win_bounds: Rect = graph.Rec(0, 0, 0, 0),
+    tint: u32 = 0xffff_ffff,
 
     pub fn init(alloc: std.mem.Allocator) !Self {
         return .{
@@ -2380,7 +2381,7 @@ pub const GuiDrawContext = struct {
                 draw.rectVertexColors(rf.r, &cols);
             },
             .rect_9slice => |s| {
-                draw.nineSlice(s.r, s.uv, s.texture, s.scale);
+                draw.nineSlice(s.r, s.uv, s.texture, s.scale, self.tint);
             },
             .rect_9border => |s| {
                 _ = s;

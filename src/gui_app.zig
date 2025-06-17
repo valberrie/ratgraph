@@ -843,6 +843,7 @@ pub const Os9Gui = struct {
 
     drop_down: ?Gui.Context.WidgetId = null,
     drop_down_scroll: Vec2f = .{ .x = 0, .y = 0 },
+    combo_index: usize = 0,
 
     pub fn init(alloc: std.mem.Allocator, asset_dir: std.fs.Dir, scale: f32, param: struct {
         cache_dir: std.fs.Dir,
@@ -1017,6 +1018,73 @@ pub const Os9Gui = struct {
                 .handle_w = if (max > scroll_data.area.h) os9scrollhandle.h * self.scale else scroll_data.area.h - max,
             });
         }
+    }
+
+    //TODO set the relevant fields of gui scroll state
+    pub fn beginIndexedVScroll(s: *Self, count: usize, index: *usize, params: struct { scroll_factor: f32 = 4, column_count: u32 = 1 }) !?struct {
+        layout: *Gui.TableLayout,
+    } {
+        if (count == 0)
+            return null;
+        if (params.column_count == 0)
+            return null;
+        const item_h = s.style.config.default_item_h;
+        const area = s.gui.getArea() orelse return null;
+
+        const bar_w = item_h;
+        var inset = area.inset(6 * s.scale);
+
+        s.gui.draw9Slice(area, s.style.getRect(.basic_inset), s.style.texture, s.scale);
+
+        const fcount: f32 = @floatFromInt(count);
+        const need_scroll = fcount * item_h > inset.h;
+        const rects = inset.split(.vertical, if (need_scroll) inset.w - bar_w else inset.w);
+        _ = try s.gui.beginLayout(Gui.SubRectLayout, .{ .rect = rects[0] }, .{
+            .scissor = inset,
+        });
+        if (need_scroll) {
+            _ = s.gui.beginLayout(Gui.SubRectLayout, .{ .rect = rects[1] }, .{}) catch unreachable;
+            defer s.gui.endLayout();
+            const max = item_h * fcount;
+
+            const hw1 = max - rects[0].h;
+            if (s.gui.sliderGeneric(index, 0, count - 1, .{
+                .handle_offset_y = 0,
+                .handle_offset_x = 0,
+                .handle_w = if (hw1 < rects[0].h) hw1 else item_h,
+                .handle_h = os9scrollhandle.w * s.scale,
+                .orientation = .vertical,
+            })) |d| {
+                s.gui.draw9Slice(d.area, s.style.getRect(.slider_box), s.style.texture, s.scale);
+                s.gui.draw9Slice(d.handle, s.style.getRect(.slider_shuttle), s.style.texture, s.scale);
+            }
+        }
+
+        const vl = try s.gui.beginLayout(Gui.TableLayout, .{
+            .item_height = item_h,
+            .columns = params.column_count,
+        }, .{});
+
+        if (need_scroll) {
+            if (s.gui.getMouseWheelDelta()) |del| {
+                const dist = params.scroll_factor * del;
+                const fi: f32 = @floatFromInt(index.*);
+                index.* = @intFromFloat(std.math.clamp(fi + dist, 0, fcount - 1));
+            }
+        } else {
+            index.* = 0;
+        }
+
+        index.* = std.math.clamp(index.*, 0, count - 1);
+
+        return .{
+            .layout = vl,
+        };
+    }
+
+    pub fn endIndexedVScroll(s: *Self) void {
+        s.endL(); //Vertical layout
+        s.endL(); //SubRectLayout
     }
 
     pub fn hr(self: *Self) void {
@@ -1440,6 +1508,11 @@ pub const Os9Gui = struct {
         self.gui.drawTextFmt(fmt, args, area, self.style.config.text_h, Color.Black, .{ .justify = params.justify }, self.font);
     }
 
+    /// Draw text that follows the current style.
+    pub fn drawText(self: *Self, comptime fmt: []const u8, args: anytype, area: graph.Rect, params: struct { color: u32 = Color.Black, justify: Gui.Justify = .left }) void {
+        self.gui.drawTextFmt(fmt, args, area, self.style.config.text_h, params.color, .{ .justify = params.justify }, self.font);
+    }
+
     pub fn label(self: *Self, comptime fmt: []const u8, args: anytype) void {
         self.labelEx(fmt, args, .{});
     }
@@ -1611,7 +1684,7 @@ pub const Os9Gui = struct {
         index: *usize, // gets set to index of clicked
         count: usize, // Hint to set height of gui area
         ctx: anytype, // User data passed to iterator fn_ptr
-        next: *const fn (@TypeOf(ctx)) ?struct { usize, []const u8 },
+        next: *const fn (@TypeOf(ctx)) ?struct { usize, []const u8 }, // Must index from zero
     ) !void {
         const id = self.gui.getId();
 
@@ -1655,8 +1728,6 @@ pub const Os9Gui = struct {
                     defer self.endTlWindow();
 
                     const ar = self.gui.getArea().?;
-                    //self.gui.drawRectFilled(dd_area, Color.Red);
-                    //const ar = dd_area.inset(14 * self.scale);
                     _ = try self.gui.beginLayout(Gui.SubRectLayout, .{ .rect = ar }, .{});
                     defer self.gui.endLayout();
                     const vl = try self.beginV();
@@ -1666,11 +1737,14 @@ pub const Os9Gui = struct {
                     if (old_len != sb.len)
                         self.drop_down_scroll.y = 0;
                     vl.pushRemaining();
-                    if (try self.beginScroll(&self.drop_down_scroll, .{ .sw = ar.w }, Gui.VerticalLayout{
-                        .item_height = self.style.config.default_item_h,
-                    })) |file_scroll| {
-                        defer self.endScroll(file_scroll, file_scroll.child.current_h);
+
+                    self.combo_index = std.math.clamp(self.combo_index, 0, count);
+                    if (try self.beginIndexedVScroll(count, &self.combo_index, .{ .column_count = 1 })) |_| {
+                        defer self.endIndexedVScroll();
                         const search = sb.getSlice();
+                        for (0..self.combo_index) |_|
+                            _ = next(ctx);
+
                         while (next(ctx)) |fname| {
                             //inline for (enum_info.Enum.fields) |f| {
                             if (search.len == 0 or std.mem.containsAtLeast(u8, fname[1], 1, search)) {
@@ -1681,6 +1755,23 @@ pub const Os9Gui = struct {
                             }
                         }
                     }
+
+                    //TODO convert this to use the indexed scroll instead
+                    //if (try self.beginScroll(&self.drop_down_scroll, .{ .sw = ar.w }, Gui.VerticalLayout{
+                    //    .item_height = self.style.config.default_item_h,
+                    //})) |file_scroll| {
+                    //    defer self.endScroll(file_scroll, file_scroll.child.current_h);
+                    //    const search = sb.getSlice();
+                    //    while (next(ctx)) |fname| {
+                    //        //inline for (enum_info.Enum.fields) |f| {
+                    //        if (search.len == 0 or std.mem.containsAtLeast(u8, fname[1], 1, search)) {
+                    //            if (self.buttonEx("{s}", .{fname[1]}, .{})) {
+                    //                index.* = fname[0];
+                    //                self.drop_down = null;
+                    //            }
+                    //        }
+                    //    }
+                    //}
                 }
             }
         }
