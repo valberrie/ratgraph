@@ -1670,9 +1670,10 @@ pub const Os9Gui = struct {
                         .item_height = self.style.config.default_item_h,
                     })) |file_scroll| {
                         defer self.endScroll(file_scroll, file_scroll.child.current_h);
+                        const search = sb.getSlice();
                         while (next(ctx)) |fname| {
                             //inline for (enum_info.Enum.fields) |f| {
-                            if (std.mem.startsWith(u8, fname[1], sb.getSlice())) {
+                            if (search.len == 0 or std.mem.containsAtLeast(u8, fname[1], 1, search)) {
                                 if (self.buttonEx("{s}", .{fname[1]}, .{})) {
                                     index.* = fname[0];
                                     self.drop_down = null;
