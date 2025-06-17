@@ -1036,6 +1036,7 @@ pub const Context = struct {
 
     scratch_buf_pos: usize = 0,
     scratch_buf: []u8,
+    tooltip_buf: []u8,
 
     input_state: InputState = .{},
 
@@ -1064,6 +1065,9 @@ pub const Context = struct {
     focus_counter: usize = 0,
     set_focused: bool = false,
     focused_area: ?graph.Rect = null,
+    push_tooltip: bool = false,
+    tooltip_text: []const u8 = "",
+    last_frame_had_tooltip: bool = false,
 
     clamp_window: graph.Rect = .{},
 
@@ -1138,7 +1142,26 @@ pub const Context = struct {
             self.focused_area = new_area;
             self.set_focused = false;
         }
+        self.push_tooltip = false;
+        if (new_area) |a|
+            self.push_tooltip = self.isCursorInRect(a); //TODO check if this window has mouse grab
         return new_area;
+    }
+
+    pub fn setTooltip(
+        self: *Self,
+        comptime fmt: []const u8,
+        args: anytype,
+    ) void {
+        if (self.push_tooltip) {
+            var fbs = std.io.FixedBufferStream([]u8){ .buffer = self.tooltip_buf, .pos = 0 };
+            fbs.writer().print(fmt, args) catch {
+                return;
+            };
+            self.tooltip_text = fbs.getWritten();
+
+            self.last_frame_had_tooltip = true;
+        }
     }
 
     pub fn tooltip(self: *Self, message: []const u8, size: f32, font: *Font) void {
@@ -1199,6 +1222,7 @@ pub const Context = struct {
         return Self{
             .arena_alloc = aa,
             .scratch_buf = try alloc.alloc(u8, 4096 * 4),
+            .tooltip_buf = try alloc.alloc(u8, 1024),
             .layout = .{ .bounds = graph.Rec(0, 0, 0, 0) },
             .windows = std.ArrayList(Window).init(alloc),
             .frame_alloc = aa.allocator(),
@@ -1214,6 +1238,10 @@ pub const Context = struct {
         self.clamp_window = clamp_window;
         self.focus_counter = 0;
         self.focused_area = null;
+        if (!self.last_frame_had_tooltip) {
+            self.tooltip_text = "";
+        }
+        self.last_frame_had_tooltip = false;
 
         //Iterate last frames windows and determine the deepest window current mouse_pos occupies
         var deepest_index: ?usize = null;
@@ -1266,6 +1294,7 @@ pub const Context = struct {
         }
         self.windows.deinit();
         self.retained_alloc.free(self.scratch_buf);
+        self.retained_alloc.free(self.tooltip_buf);
         self.textbox_state.deinit();
         self.arena_alloc.deinit();
         self.retained_alloc.destroy(self.arena_alloc);
@@ -2203,7 +2232,7 @@ pub const GuiDrawContext = struct {
                 fb.texture,
             );
         }
-        //HACK
+        //HACK, should be drawn in relavent window fbo,
         if (gui.focused_area) |fa| {
             draw.rectBorder(fa, 1, 0xff0000ff);
         }
