@@ -144,14 +144,18 @@ pub fn WidgetCombo(comptime enumT: type) type {
 }
 
 pub const WidgetVScroll = struct {
+    pub const BuildCb = *const fn (*iArea, layout: *SubLayout, area: Rect, index: usize, *Gui, *iWindow) void;
+
     vt: iArea,
 
     layout: SubLayout,
 
+    build_cb: BuildCb,
+    build_cb_vt: *iArea,
     index: usize = 0,
     count: usize = 10,
 
-    pub fn build(gui: *Gui, area: Rect) !*iArea {
+    pub fn build(gui: *Gui, area: Rect, build_cb: BuildCb, build_cb_vt: *iArea, win: *iWindow) !*iArea {
         const self = try gui.alloc.create(@This());
         self.* = .{
             .vt = .{
@@ -161,7 +165,10 @@ pub const WidgetVScroll = struct {
                 .area = area,
             },
             .layout = SubLayout.init(gui),
+            .build_cb = build_cb,
+            .build_cb_vt = build_cb_vt,
         };
+        self.build_cb(self.build_cb_vt, &self.layout, area, self.index, gui, win);
         return &self.vt;
     }
 
@@ -174,16 +181,17 @@ pub const WidgetVScroll = struct {
     pub fn draw(vt: *iArea, d: DrawState) void {
         const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
         d.ctx.rect(vt.area, 0xff00ffff);
-        var ly = Vert{ .area = vt.area };
+        self.layout.draw(d);
+        //var ly = Vert{ .area = vt.area };
 
-        for (self.index..self.count) |i| {
-            const area = ly.getArea() orelse break;
-            d.ctx.textFmt(area.pos(), "index {d}", .{i}, d.font, area.h, 0xff, .{});
-        }
+        //for (self.index..self.count) |i| {
+        //    const area = ly.getArea() orelse break;
+        //    d.ctx.textFmt(area.pos(), "index {d}", .{i}, d.font, area.h, 0xff, .{});
+        //}
         //while()
     }
 
-    pub fn onScroll(vt: *iArea, _: *Gui, dist: f32) void {
+    pub fn onScroll(vt: *iArea, gui: *Gui, win: *iWindow, dist: f32) void {
         const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
         if (self.count == 0) {
             self.index = 0;
@@ -195,6 +203,8 @@ pub const WidgetVScroll = struct {
         fi = std.math.clamp(fi, 0, @as(f32, @floatFromInt(self.count - 1)));
         self.index = @intFromFloat(fi);
         vt.dirty();
+        self.layout.reset(gui, win);
+        self.build_cb(self.build_cb_vt, &self.layout, self.vt.area, self.index, gui, win);
     }
 };
 
@@ -285,24 +295,34 @@ pub const WidgetButton = struct {
 pub const WidgetText = struct {
     vt: iArea,
 
-    text: []const u8,
+    text: std.ArrayList(u8),
 
-    pub fn build(gui: *Gui, area: Rect, name: []const u8) !*iArea {
+    pub fn build(gui: *Gui, area: Rect, comptime fmt: []const u8, args: anytype) !*iArea {
         const self = try gui.alloc.create(@This());
+        var vec = std.ArrayList(u8).init(gui.alloc);
+        try vec.writer().print(fmt, args);
+
         self.* = .{
             .vt = .{
                 .draw_fn = &@This().draw,
+                .deinit_fn = &@This().deinit,
                 .area = area,
             },
-            .text = name,
+            .text = vec,
         };
         return &self.vt;
+    }
+
+    pub fn deinit(vt: *iArea, gui: *Gui, _: *iWindow) void {
+        const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
+        self.text.deinit();
+        gui.alloc.destroy(self);
     }
 
     pub fn draw(vt: *iArea, d: DrawState) void {
         const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
         d.ctx.rect(vt.area, 0x5ffff0ff);
-        d.ctx.textFmt(vt.area.pos(), "{s}", .{self.text}, d.font, vt.area.h, 0xff, .{});
+        d.ctx.textFmt(vt.area.pos(), "{s}", .{self.text.items}, d.font, vt.area.h, 0xff, .{});
     }
 };
 
@@ -356,7 +376,7 @@ pub const WidgetSlider = struct {
         _ = gui;
     }
 
-    pub fn scroll(vt: *iArea, _: *Gui, dist: f32) void {
+    pub fn scroll(vt: *iArea, _: *Gui, _: *iWindow, dist: f32) void {
         const self = getVt(@This(), vt);
         const old_num = self.num;
         self.num += dist;
@@ -480,7 +500,19 @@ pub const MyInspector = struct {
         tl.addChild(gui, WidgetButton.build(gui, ly.getArea().?, "My button", &self.area, @This().btnCb, 48) catch return, vt);
 
         ly.pushRemaining();
-        tl.addChild(gui, WidgetVScroll.build(gui, ly.getArea().?) catch return, vt);
+        tl.addChild(gui, WidgetVScroll.build(gui, ly.getArea().?, &buildScrollItems, &self.area, vt) catch return, vt);
+    }
+
+    pub fn buildScrollItems(window_area: *iArea, sl: *SubLayout, area: Rect, index: usize, gui: *Gui, window: *iWindow) void {
+        const self: *@This() = @alignCast(@fieldParentPtr("area", window_area));
+        var ly = VerticalLayout{
+            .item_height = 100,
+            .bounds = area,
+        };
+        for (index..10) |i| {
+            sl.addChild(gui, WidgetText.build(gui, ly.getArea() orelse return, "item {d}", .{i}) catch return, window);
+        }
+        _ = self;
     }
 
     pub fn btnCb(_: *iArea, id: usize) void {
@@ -559,7 +591,7 @@ pub const iArea = struct {
     deinit_fn: *const fn (*iArea, *Gui, *iWindow) void,
 
     onclick: ?*const fn (*iArea, *Gui) void = null,
-    onscroll: ?*const fn (*iArea, *Gui, distance: f32) void = null,
+    onscroll: ?*const fn (*iArea, *Gui, *iWindow, distance: f32) void = null,
     area: Rect,
     is_dirty: bool = false,
 
@@ -690,7 +722,7 @@ pub const Gui = struct {
                 for (win.scroll_list.items) |vt| {
                     if (vt.area.containsPoint(pos)) {
                         if (vt.onscroll) |oc|
-                            oc(vt, self, dist);
+                            oc(vt, self, win, dist);
                     }
                 }
                 break; //Windows cannot overlap so we can break
