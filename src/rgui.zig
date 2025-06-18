@@ -57,6 +57,12 @@ pub fn WidgetCombo(comptime enumT: type) type {
                     1,
                 ) catch return, vt);
             }
+
+            pub fn deinit(vt: *iWindow, gui: *Gui) void {
+                const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
+                vt.deinit(gui);
+                gui.alloc.destroy(self);
+            }
         };
 
         vt: iArea,
@@ -69,11 +75,17 @@ pub fn WidgetCombo(comptime enumT: type) type {
                 .vt = .{
                     .onclick = &@This().onclick,
                     .draw_fn = &@This().draw,
+                    .deinit_fn = &@This().deinit,
                     .area = area,
                 },
                 .enum_ptr = enum_ptr,
             };
             return &self.vt;
+        }
+
+        pub fn deinit(vt: *iArea, gui: *Gui, _: *iWindow) void {
+            const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
+            gui.alloc.destroy(self);
         }
 
         pub fn draw(vt: *iArea, d: DrawState) void {
@@ -97,7 +109,7 @@ pub fn WidgetCombo(comptime enumT: type) type {
             const popped = try gui.alloc.create(PoppedWindow);
             popped.* = .{
                 .parent_vt = &self.vt,
-                .vt = try iWindow.init(gui.alloc, &PoppedWindow.build, gui),
+                .vt = try iWindow.init(gui.alloc, &PoppedWindow.build, gui, &PoppedWindow.deinit),
                 .name = "noname",
             };
             popped.vt.layout.vt.area = area;
@@ -119,10 +131,16 @@ pub const WidgetVScroll = struct {
             .vt = .{
                 .draw_fn = &@This().draw,
                 .onscroll = &@This().onScroll,
+                .deinit_fn = &@This().deinit,
                 .area = area,
             },
         };
         return &self.vt;
+    }
+
+    pub fn deinit(vt: *iArea, gui: *Gui, _: *iWindow) void {
+        const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
+        gui.alloc.destroy(self);
     }
 
     pub fn draw(vt: *iArea, d: DrawState) void {
@@ -164,12 +182,18 @@ pub const WidgetCheckbox = struct {
             .vt = .{
                 .onclick = &@This().onclick,
                 .draw_fn = &@This().draw,
+                .deinit_fn = &@This().deinit,
                 .area = area,
             },
             .bool_ptr = bool_ptr,
             .name = name,
         };
         return &self.vt;
+    }
+
+    pub fn deinit(vt: *iArea, gui: *Gui, _: *iWindow) void {
+        const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
+        gui.alloc.destroy(self);
     }
 
     pub fn draw(vt: *iArea, d: DrawState) void {
@@ -202,6 +226,7 @@ pub const WidgetButton = struct {
             .vt = .{
                 .draw_fn = &@This().draw,
                 .onclick = &@This().onclick,
+                .deinit_fn = &@This().deinit,
                 .area = area,
             },
             .text = name,
@@ -210,6 +235,10 @@ pub const WidgetButton = struct {
             .user_id = id,
         };
         return &self.vt;
+    }
+    pub fn deinit(vt: *iArea, gui: *Gui, _: *iWindow) void {
+        const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
+        gui.alloc.destroy(self);
     }
 
     pub fn draw(vt: *iArea, d: DrawState) void {
@@ -263,6 +292,7 @@ pub const WidgetSlider = struct {
                 .onclick = &@This().onclick,
                 .draw_fn = &@This().draw,
                 .onscroll = &@This().scroll,
+                .deinit_fn = &@This().deinit,
                 .area = area,
             },
             .num = num,
@@ -270,6 +300,11 @@ pub const WidgetSlider = struct {
             .max = max,
         };
         return &self.vt;
+    }
+
+    pub fn deinit(vt: *iArea, gui: *Gui, _: *iWindow) void {
+        const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
+        gui.alloc.destroy(self);
     }
 
     pub fn draw(vt: *iArea, d: DrawState) void {
@@ -313,17 +348,24 @@ pub const WidgetSlider = struct {
 pub const Layout = struct {
     vt: iArea,
     children: std.ArrayList(*iArea),
+    is_alloc: bool = false,
 
     pub fn build(gui: *Gui, area: Rect) !*iArea {
         const self = try gui.alloc.create(@This());
-        self.* = .{
+        self.* = init(gui, area);
+        self.is_alloc = true;
+        return &self.vt;
+    }
+
+    pub fn init(gui: *Gui, area: Rect) !Layout {
+        return .{
             .vt = .{
                 .draw_fn = &@This().draw,
+                .deinit_fn = &@This().deinit,
                 .area = area,
             },
             .children = std.ArrayList(*iArea).init(gui.alloc),
         };
-        return &self.vt;
     }
 
     pub fn addChild(self: *@This(), gui: *Gui, vt: *iArea, window: *iWindow) void {
@@ -336,6 +378,7 @@ pub const Layout = struct {
 
     pub fn draw(vt: *iArea, dctx: DrawState) void {
         const self = getVt(@This(), vt);
+        generic_draw(vt, dctx);
         //vt.draw_fn(vt, dctx);
         for (self.children.items) |child|
             child.draw_fn(child, dctx);
@@ -348,6 +391,17 @@ pub const Layout = struct {
     pub fn reset(self: *@This()) void {
         self.children.clearRetainingCapacity();
         //TODO  in the future, kill all the children
+    }
+
+    pub fn deinit(vt: *iArea, gui: *Gui, window: *iWindow) void {
+        const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
+        for (self.children.items) |child| {
+            gui.deregister(child, window);
+            child.deinit_fn(child, gui, window);
+        }
+        self.children.deinit();
+        if (self.is_alloc)
+            gui.alloc.destroy(self); //First
     }
 };
 
@@ -374,9 +428,15 @@ pub const MyInspector = struct {
     pub fn create(gui: *Gui) !*iWindow {
         const self = try gui.alloc.create(@This());
         self.* = .{
-            .vt = try iWindow.init(gui.alloc, &@This().build, gui),
+            .vt = try iWindow.init(gui.alloc, &@This().build, gui, &@This().deinit),
         };
         return &self.vt;
+    }
+
+    pub fn deinit(vt: *iWindow, gui: *Gui) void {
+        const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
+        vt.deinit(gui);
+        gui.alloc.destroy(self); //second
     }
 
     pub fn build(vt: *iWindow, gui: *Gui) void {
@@ -474,6 +534,7 @@ pub const VerticalLayout = struct {
 
 pub const iArea = struct {
     draw_fn: *const fn (*iArea, DrawState) void,
+    deinit_fn: *const fn (*iArea, *Gui, *iWindow) void,
 
     onclick: ?*const fn (*iArea, *Gui) void = null,
     onscroll: ?*const fn (*iArea, *Gui, distance: f32) void = null,
@@ -489,6 +550,7 @@ pub const iWindow = struct {
     const BuildfnT = *const fn (*iWindow, *Gui) void;
 
     build_fn: BuildfnT,
+    deinit_fn: *const fn (*iWindow, *Gui) void,
 
     layout: Layout,
 
@@ -499,13 +561,25 @@ pub const iWindow = struct {
         self.layout.vt.draw_fn(&self.layout.vt, dctx);
     }
 
-    pub fn init(alloc: std.mem.Allocator, build_fn: BuildfnT, gui: *Gui) !iWindow {
+    pub fn init(alloc: std.mem.Allocator, build_fn: BuildfnT, gui: *Gui, deinit_fn: *const fn (*iWindow, *Gui) void) !iWindow {
         return .{
+            .deinit_fn = deinit_fn,
             .build_fn = build_fn,
             .click_listeners = std.ArrayList(*iArea).init(alloc),
             .scroll_list = std.ArrayList(*iArea).init(alloc),
-            .layout = getVt(Layout, try Layout.build(gui, .{ .x = 0, .y = 0, .w = 0, .h = 0 })).*,
+            .layout = try Layout.init(gui, .{ .x = 0, .y = 0, .w = 0, .h = 0 }),
         };
+    }
+
+    // the implementers deinit fn should call this first
+    pub fn deinit(self: *iWindow, gui: *Gui) void {
+        self.layout.vt.deinit_fn(&self.layout.vt, gui, self);
+        if (self.click_listeners.items.len != 0)
+            std.debug.print("BROKEN\n", .{});
+        if (self.scroll_list.items.len != 0)
+            std.debug.print("BROKEN\n", .{});
+        self.click_listeners.deinit();
+        self.scroll_list.deinit();
     }
 
     /// Returns true if this window contains the mouse
@@ -542,6 +616,13 @@ pub const Gui = struct {
         };
     }
 
+    pub fn deinit(self: *Self) void {
+        for (self.windows.items) |win|
+            win.deinit_fn(win, self);
+
+        self.windows.deinit();
+    }
+
     pub fn registerOnClick(_: *Self, vt: *iArea, window: *iWindow) !void {
         try window.click_listeners.append(vt);
     }
@@ -550,11 +631,27 @@ pub const Gui = struct {
         try window.scroll_list.append(vt);
     }
 
+    pub fn deregister(_: *Self, vt: *iArea, window: *iWindow) void {
+        for (window.scroll_list.items, 0..) |item, index| {
+            if (item == vt) {
+                _ = window.scroll_list.swapRemove(index);
+                break;
+            }
+        }
+        for (window.click_listeners.items, 0..) |item, index| {
+            if (item == vt) {
+                _ = window.click_listeners.swapRemove(index);
+                break;
+            }
+        }
+    }
+
     pub fn dispatchClick(self: *Self, coord: Vec2f) void {
         if (self.transient_window) |tw| {
             if (tw.dispatchClick(coord, self)) {
                 return; //Don't click top level windows
             } else {
+                tw.deinit_fn(tw, self);
                 //Close the window, we clicked outside
                 self.transient_window = null;
             }
@@ -600,6 +697,7 @@ pub const Gui = struct {
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.detectLeaks();
     const alloc = gpa.allocator();
 
     var win = try graph.SDL.Window.createWindow("My window", .{
@@ -618,6 +716,7 @@ pub fn main() !void {
     const v3 = Vec2f.new(30, 30);
 
     var gui = Gui.init(alloc);
+    defer gui.deinit();
 
     const window_area = .{ .x = 0, .y = 0, .w = 1000, .h = 1000 };
 
