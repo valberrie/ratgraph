@@ -216,6 +216,8 @@ pub const Font = struct {
 
     font: PublicFontInterface,
 
+    /// calls to glyphs.get is super slow so we store the most common characters in a lut, lower_ascii
+    lower_ascii: []?Glyph,
     glyphs: std.AutoHashMap(u21, Glyph),
     max_advance: f32, //Unused, it seems
 
@@ -320,9 +322,13 @@ pub const Font = struct {
                 .line_gap = 0,
             },
             .max_advance = 0,
+            .lower_ascii = try alloc.alloc(?Glyph, 128),
             .glyphs = std.AutoHashMap(u21, Glyph).init(alloc),
         };
+        for (0..result.lower_ascii.len) |i|
+            result.lower_ascii[i] = null;
         errdefer result.glyphs.deinit();
+        errdefer alloc.free(result.lower_ascii);
         const SF = c.stbtt_ScaleForPixelHeight(&finfo, pixel_size);
 
         {
@@ -377,7 +383,7 @@ pub const Font = struct {
                 .width = w,
                 .height = h,
             };
-            try result.glyphs.put(code_i, glyph);
+            try result.putGlyph(code_i, glyph);
         }
         const out_size = try pack_ctx.packOptimalSize();
         var out_bmp = try Bitmap.initBlank(alloc, out_size.x, out_size.y, .g_8);
@@ -388,7 +394,8 @@ pub const Font = struct {
             const gbmp = &bitmaps.items[@intCast(r.id)];
             try Bitmap.copySubR(&out_bmp, bmx, bmy, gbmp, 0, 0, gbmp.w, gbmp.h);
 
-            const g = (result.glyphs.getPtr(@intCast(cop_lut.items[@intCast(r.id)]))).?;
+            const g = result.getGlyphPointer(@intCast(cop_lut.items[@intCast(r.id)]));
+            //const g = (result.glyphs.getPtr(@intCast(cop_lut.items[@intCast(r.id)]))).?;
             g.tr.x = @floatFromInt(bmx);
             g.tr.y = @floatFromInt(bmy);
         }
@@ -443,7 +450,11 @@ pub const Font = struct {
             },
             .max_advance = 0,
             .glyphs = std.AutoHashMap(u21, Glyph).init(alloc),
+            .lower_ascii = try alloc.alloc(?Glyph, 128),
         };
+        for (0..result.lower_ascii.len) |i|
+            result.lower_ascii[i] = null;
+        errdefer alloc.free(result.lower_ascii);
         errdefer result.glyphs.deinit();
 
         //TODO switch to using a grid rather than rect packing
@@ -626,7 +637,7 @@ pub const Font = struct {
                 .width = @as(f32, @floatFromInt(metrics.width)) / 64,
                 .height = @as(f32, @floatFromInt(metrics.height)) / 64,
             };
-            try result.glyphs.put(code_i, glyph);
+            try result.putGlyph(code_i, glyph);
         }
 
         const elapsed = timer.read();
@@ -648,7 +659,7 @@ pub const Font = struct {
             const gbmp = &bitmaps.items[i];
             const cx: u32 = @intCast(@mod(ii, w_ci) * (g_width + padding));
             const cy: u32 = @intCast(@divFloor(ii, w_ci) * (g_height + padding));
-            const g = result.glyphs.getPtr(@as(u21, @intCast(rect.id))).?;
+            const g = result.getGlyphPointer(@as(u21, @intCast(rect.id)));
             g.tr.x = @floatFromInt(cx);
             g.tr.y = @floatFromInt(cy);
             try Bitmap.copySubR(&texture_bitmap, cx, cy, gbmp, 0, 0, gbmp.w, gbmp.h);
@@ -675,10 +686,28 @@ pub const Font = struct {
 
     pub fn getGlyph(font_i: *PublicFontInterface, codepoint: u21) Glyph {
         const self: *@This() = @fieldParentPtr("font", font_i);
+        if (codepoint < 128)
+            return self.lower_ascii[codepoint] orelse self.glyphs.get(std.unicode.replacement_character).?;
         return self.glyphs.get(codepoint) orelse self.glyphs.get(std.unicode.replacement_character).?;
     }
 
+    pub fn putGlyph(self: *Self, code_i: u21, glyph: Glyph) !void {
+        if (code_i < 128) {
+            self.lower_ascii[code_i] = glyph;
+        } else {
+            try self.glyphs.put(code_i, glyph);
+        }
+    }
+
+    fn getGlyphPointer(self: *Self, code_i: u21) *Glyph {
+        if (code_i < 128) {
+            return &(self.lower_ascii[code_i].?);
+        }
+        return self.glyphs.getPtr(code_i).?;
+    }
+
     pub fn deinit(self: *Self) void {
+        self.glyphs.allocator.free(self.lower_ascii);
         self.glyphs.deinit();
     }
 };

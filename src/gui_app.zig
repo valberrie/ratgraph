@@ -844,6 +844,7 @@ pub const Os9Gui = struct {
     drop_down: ?Gui.Context.WidgetId = null,
     drop_down_scroll: Vec2f = .{ .x = 0, .y = 0 },
     combo_index: usize = 0,
+    is_built: bool = false,
 
     pub fn init(alloc: std.mem.Allocator, asset_dir: std.fs.Dir, scale: f32, param: struct {
         cache_dir: std.fs.Dir,
@@ -884,7 +885,7 @@ pub const Os9Gui = struct {
         self.alloc.destroy(self.ofont);
     }
 
-    pub fn beginFrame(self: *Self, input_state: Gui.InputState, win: *graph.SDL.Window) !void {
+    pub fn resetFrame(self: *Self, input_state: Gui.InputState, win: *graph.SDL.Window) !void {
         switch (self.gui.text_input_state.state) {
             .start => win.startTextInput(self.gui.text_input_state.rect),
             .stop => win.stopTextInput(),
@@ -894,8 +895,17 @@ pub const Os9Gui = struct {
         try self.gui.reset(input_state, graph.Rec(0, 0, win.screen_dimensions.x, win.screen_dimensions.y));
     }
 
-    pub fn endFrame(self: *Self, draw: *graph.ImmediateDrawingContext) !void {
+    pub fn drawGui(self: *Self, draw: *graph.ImmediateDrawingContext) !void {
         try self.gui_draw_ctx.drawGui(draw, &self.gui);
+        graph.c.glDisable(graph.c.GL_STENCIL_TEST);
+        self.is_built = true;
+    }
+
+    pub fn drawGuiNoRebuild(self: *Self, draw: *graph.ImmediateDrawingContext) !void {
+        if (!self.is_built) {
+            return;
+        }
+        try self.gui_draw_ctx.drawFbs(draw, &self.gui);
         graph.c.glDisable(graph.c.GL_STENCIL_TEST);
     }
 

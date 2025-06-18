@@ -2166,6 +2166,28 @@ pub const GuiDrawContext = struct {
         self.window_fbs.deinit();
     }
 
+    pub fn drawFbs(self: *Self, draw: *graph.ImmediateDrawingContext, gui: *Context) !void {
+        graph.c.glBindFramebuffer(graph.c.GL_FRAMEBUFFER, 0);
+        graph.c.glViewport(0, 0, @intFromFloat(draw.screen_dimensions.x), @intFromFloat(draw.screen_dimensions.y));
+        const old_zindex = draw.zindex;
+        for (self.window_fbs.items[0..gui.this_frame_num_windows], 0..) |fb, i| {
+            draw.zindex = old_zindex + @as(u16, @intCast(gui.windows.items[i].depth));
+            const tr = fb.texture.rect();
+            draw.rect(gui.windows.items[i].area, 0xff);
+            draw.rectTex(
+                gui.windows.items[i].area,
+                graph.Rec(0, 0, tr.w, -tr.h),
+                fb.texture,
+            );
+        }
+        //HACK, should be drawn in relavent window fbo,
+        if (gui.focused_area) |fa| {
+            draw.rectBorder(fa, 1, 0xff0000ff);
+        }
+
+        try draw.flush(null, null);
+    }
+
     pub fn drawGui(self: *Self, draw: *graph.ImmediateDrawingContext, gui: *Context) !void {
         try draw.flush(null, null);
         graph.c.glEnable(graph.c.GL_DEPTH_TEST);
@@ -2220,25 +2242,27 @@ pub const GuiDrawContext = struct {
             //);
         }
         draw.screen_dimensions = scr_dim;
-        graph.c.glBindFramebuffer(graph.c.GL_FRAMEBUFFER, 0);
-        graph.c.glViewport(0, 0, @intFromFloat(scr_dim.x), @intFromFloat(scr_dim.y));
-        const old_zindex = draw.zindex;
-        for (self.window_fbs.items[0..gui.this_frame_num_windows], 0..) |fb, i| {
-            draw.zindex = old_zindex + @as(u16, @intCast(gui.windows.items[i].depth));
-            const tr = fb.texture.rect();
-            draw.rect(gui.windows.items[i].area, 0xff);
-            draw.rectTex(
-                gui.windows.items[i].area,
-                graph.Rec(0, 0, tr.w, -tr.h),
-                fb.texture,
-            );
-        }
-        //HACK, should be drawn in relavent window fbo,
-        if (gui.focused_area) |fa| {
-            draw.rectBorder(fa, 1, 0xff0000ff);
-        }
+        //graph.c.glViewport(0, 0, @intFromFloat(scr_dim.x), @intFromFloat(scr_dim.y));
 
-        try draw.flush(null, null);
+        try self.drawFbs(draw, gui);
+
+        //const old_zindex = draw.zindex;
+        //for (self.window_fbs.items[0..gui.this_frame_num_windows], 0..) |fb, i| {
+        //    draw.zindex = old_zindex + @as(u16, @intCast(gui.windows.items[i].depth));
+        //    const tr = fb.texture.rect();
+        //    draw.rect(gui.windows.items[i].area, 0xff);
+        //    draw.rectTex(
+        //        gui.windows.items[i].area,
+        //        graph.Rec(0, 0, tr.w, -tr.h),
+        //        fb.texture,
+        //    );
+        //}
+        ////HACK, should be drawn in relavent window fbo,
+        //if (gui.focused_area) |fa| {
+        //    draw.rectBorder(fa, 1, 0xff0000ff);
+        //}
+
+        //try draw.flush(null, null);
         if (true)
             return;
         //ctx.screen_bounds = graph.IRect.new(0, 0, @intFromFloat(parea.w), @intFromFloat(parea.h));
