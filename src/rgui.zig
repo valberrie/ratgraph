@@ -21,6 +21,143 @@ pub fn getVt(comptime T: type, vt: anytype) *T {
     return @alignCast(@fieldParentPtr("vt", vt));
 }
 
+pub const iArea = struct {
+    draw_fn: ?*const fn (*iArea, DrawState) void = null,
+    deinit_fn: ?*const fn (*iArea, *Gui, *iWindow) void = null,
+    onclick: ?*const fn (*iArea, *Gui) void = null,
+    onscroll: ?*const fn (*iArea, *Gui, *iWindow, distance: f32) void = null,
+
+    area: Rect,
+    children: std.ArrayList(*iArea),
+    is_dirty: bool = false,
+
+    pub fn init(gui: *Gui, area: Rect) iArea {
+        return .{
+            .area = area,
+            .children = std.ArrayList(*iArea).init(gui.alloc),
+        };
+    }
+
+    pub fn deinit(self: *@This(), gui: *Gui, win: *iWindow) void {
+        self.clearChildren(gui, win);
+        self.children.deinit();
+        if (self.deinit_fn) |dfn|
+            dfn(self, gui, win);
+    }
+
+    pub fn draw(self: *@This(), dctx: DrawState) void {
+        if (self.draw_fn) |drawf|
+            drawf(self, dctx);
+        for (self.children.items) |child|
+            child.draw(dctx);
+        //if (gui.needsDraw(self)) {
+        //    if (self.draw_fn) |drawf|
+        //        drawf(self, dctx);
+        //}
+        self.is_dirty = false;
+    }
+
+    pub fn dirty(self: *@This(), gui: *Gui) void {
+        if (!self.is_dirty)
+            gui.setDirty(self);
+        self.is_dirty = true;
+    }
+
+    pub fn addChild(self: *@This(), gui: *Gui, win: *iWindow, vt: *iArea) void {
+        if (vt.onclick != null)
+            gui.registerOnClick(vt, win) catch return;
+        if (vt.onscroll != null)
+            gui.regOnScroll(vt, win) catch return;
+        self.children.append(vt) catch return;
+    }
+
+    pub fn deinitEmpty(vt: *iArea, gui: *Gui, _: *iWindow) void {
+        gui.alloc.destroy(vt);
+    }
+
+    pub fn addEmpty(self: *@This(), gui: *Gui, win: *iWindow, area: Rect) *iArea {
+        const vt = gui.alloc.create(iArea) catch unreachable;
+        vt.* = init(gui, area);
+        vt.deinit_fn = &deinitEmpty;
+        self.addChild(gui, win, vt);
+        return vt;
+    }
+
+    pub fn clearChildren(self: *@This(), gui: *Gui, window: *iWindow) void {
+        for (self.children.items) |child| {
+            gui.deregister(child, window);
+            child.deinit(gui, window);
+        }
+        self.children.clearRetainingCapacity();
+    }
+};
+
+pub const iWindow = struct {
+    const BuildfnT = *const fn (*iWindow, *Gui, Rect, *GuiConfig) void;
+
+    build_fn: BuildfnT,
+    deinit_fn: *const fn (*iWindow, *Gui) void,
+
+    area: *iArea,
+
+    click_listeners: std.ArrayList(*iArea),
+    scroll_list: std.ArrayList(*iArea),
+
+    pub fn draw(self: *iWindow, dctx: DrawState) void {
+        self.area.draw(dctx);
+        //self.area.draw_fn(self.area, dctx);
+    }
+
+    pub fn init(build_fn: BuildfnT, gui: *Gui, deinit_fn: *const fn (*iWindow, *Gui) void, area: *iArea) iWindow {
+        return .{
+            .deinit_fn = deinit_fn,
+            .build_fn = build_fn,
+            .click_listeners = std.ArrayList(*iArea).init(gui.alloc),
+            .scroll_list = std.ArrayList(*iArea).init(gui.alloc),
+            .area = area,
+        };
+    }
+
+    // the implementers deinit fn should call this first
+    pub fn deinit(self: *iWindow, gui: *Gui) void {
+        //self.layout.vt.deinit_fn(&self.layout.vt, gui, self);
+        self.area.deinit(gui, self);
+        if (self.click_listeners.items.len != 0)
+            std.debug.print("BROKEN\n", .{});
+        if (self.scroll_list.items.len != 0)
+            std.debug.print("BROKEN\n", .{});
+        self.click_listeners.deinit();
+        self.scroll_list.deinit();
+    }
+
+    /// Returns true if this window contains the mouse
+    pub fn dispatchClick(win: *iWindow, coord: Vec2f, gui: *Gui) bool {
+        if (win.area.area.containsPoint(coord)) {
+            for (win.click_listeners.items) |vt| {
+                if (vt.area.containsPoint(coord)) {
+                    if (vt.onclick) |oc|
+                        oc(vt, gui);
+                }
+            }
+            return true;
+        }
+        return false;
+    }
+
+    pub fn dispatchScroll(win: *iWindow, coord: Vec2f, gui: *Gui, dist: f32) bool {
+        if (win.area.area.containsPoint(coord)) {
+            for (win.scroll_list.items) |vt| {
+                if (vt.area.containsPoint(coord)) {
+                    if (vt.onscroll) |oc|
+                        oc(vt, gui, win, dist);
+                }
+            }
+            return true;
+        }
+        return false;
+    }
+};
+
 pub const DrawState = struct {
     ctx: *Dctx,
     gui: *Gui,
@@ -164,8 +301,16 @@ pub const WidgetVScroll = struct {
         self.vt.draw_fn = &draw;
         self.vt.onscroll = &onScroll;
         self.vt.deinit_fn = &deinit;
-        self.build_cb(self.build_cb_vt, &self.vt, self.index, gui, win);
+        self.rebuild(gui, win);
         return &self.vt;
+    }
+
+    pub fn rebuild(self: *@This(), gui: *Gui, win: *iWindow) void {
+        const SW = 30;
+        const split = self.vt.area.split(.vertical, self.vt.area.w - SW);
+        const child = self.vt.addEmpty(gui, win, split[0]);
+        self.vt.addChild(gui, win, WidgetScrollBar.build(gui, split[1], &self.index, self.count) catch return);
+        self.build_cb(self.build_cb_vt, child, self.index, gui, win);
     }
 
     pub fn deinit(vt: *iArea, gui: *Gui, window: *iWindow) void {
@@ -193,7 +338,7 @@ pub const WidgetVScroll = struct {
         self.index = @intFromFloat(fi);
         vt.dirty(gui);
         self.vt.clearChildren(gui, win);
-        self.build_cb(self.build_cb_vt, &self.vt, self.index, gui, win);
+        self.rebuild(gui, win);
     }
 };
 
@@ -294,6 +439,45 @@ pub const WidgetButton = struct {
     }
 };
 
+pub const WidgetScrollBar = struct {
+    vt: iArea,
+
+    count: usize,
+    index_ptr: *usize,
+
+    pub fn build(gui: *Gui, area: Rect, index_ptr: *usize, count: usize) !*iArea {
+        const self = try gui.alloc.create(@This());
+        self.* = .{
+            .vt = iArea.init(gui, area),
+            .index_ptr = index_ptr,
+            .count = count,
+        };
+        self.vt.draw_fn = &draw;
+        self.vt.deinit_fn = &deinit;
+        return &self.vt;
+    }
+
+    pub fn deinit(vt: *iArea, gui: *Gui, _: *iWindow) void {
+        const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
+        gui.alloc.destroy(self);
+    }
+
+    pub fn draw(vt: *iArea, d: DrawState) void {
+        const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
+        //d.ctx.rect(vt.area, 0x5ffff0ff);
+        //d.ctx.nineSlice(vt.area, sl, d.style.texture, d.scale, 0xffffffff);
+        d.ctx.nineSlice(vt.area, d.style.getRect(.slider_box), d.style.texture, d.scale, 0xffff_ffff);
+        var handle = graph.Rec(vt.area.x, vt.area.y, vt.area.w, 60);
+        const screen_dist = vt.area.h - handle.h;
+        const value_dist: f32 = @floatFromInt(self.count - 1);
+        const screen_per_value = screen_dist / value_dist;
+        const y_offset = @as(f32, @floatFromInt(self.index_ptr.*)) * screen_per_value;
+        handle.y += y_offset;
+
+        d.ctx.nineSlice(handle, d.style.getRect(.slider_shuttle), d.style.texture, d.scale, 0xffff_ffff);
+    }
+};
+
 pub const WidgetText = struct {
     vt: iArea,
 
@@ -390,46 +574,6 @@ pub const WidgetSlider = struct {
     }
 };
 
-//TODO make this implicit,
-//widgets should not have to track their own iAreas
-//call into gui with makeChild(sub_area, child_iArea)
-pub const SubLayout = struct {
-    children: std.ArrayList(*iArea),
-
-    pub fn init(gui: *Gui) SubLayout {
-        return .{
-            .children = std.ArrayList(*iArea).init(gui.alloc),
-        };
-    }
-
-    pub fn addChild(self: *@This(), gui: *Gui, vt: *iArea, window: *iWindow) void {
-        if (vt.onclick != null)
-            gui.registerOnClick(vt, window) catch return;
-        if (vt.onscroll != null)
-            gui.regOnScroll(vt, window) catch return;
-        self.children.append(vt) catch return;
-    }
-
-    pub fn draw(self: *@This(), dctx: DrawState) void {
-        for (self.children.items) |child|
-            if (child.draw_fn) |drawf|
-                drawf(child, dctx);
-    }
-
-    pub fn reset(self: *@This(), gui: *Gui, window: *iWindow) void {
-        for (self.children.items) |child| {
-            gui.deregister(child, window);
-            child.deinit(gui, window);
-        }
-        self.children.clearRetainingCapacity();
-    }
-
-    pub fn deinit(self: *@This(), gui: *Gui, window: *iWindow) void {
-        self.reset(gui, window);
-        self.children.deinit();
-    }
-};
-
 //What happens when area changes?
 //rebuild everyone
 //start with a window
@@ -505,6 +649,8 @@ pub const MyInspector = struct {
         self.area.addChild(gui, vt, WidgetCombo(MyEnum).build(gui, ly.getArea().?, &self.my_enum) catch return);
 
         self.area.addChild(gui, vt, WidgetButton.build(gui, ly.getArea().?, "My button", &self.area, @This().btnCb, 48) catch return);
+        self.area.addChild(gui, vt, WidgetButton.build(gui, ly.getArea().?, "My button 2", null, null, 48) catch return);
+        self.area.addChild(gui, vt, WidgetButton.build(gui, ly.getArea().?, "My button 3", null, null, 48) catch return);
 
         ly.pushRemaining();
         self.area.addChild(gui, vt, WidgetVScroll.build(gui, ly.getArea().?, &buildScrollItems, &self.area, vt, 10) catch return);
@@ -571,130 +717,6 @@ pub const VerticalLayout = struct {
     }
 };
 
-pub const iArea = struct {
-    draw_fn: ?*const fn (*iArea, DrawState) void = null,
-    deinit_fn: ?*const fn (*iArea, *Gui, *iWindow) void = null,
-    onclick: ?*const fn (*iArea, *Gui) void = null,
-    onscroll: ?*const fn (*iArea, *Gui, *iWindow, distance: f32) void = null,
-
-    area: Rect,
-    children: std.ArrayList(*iArea),
-    is_dirty: bool = false,
-
-    pub fn init(gui: *Gui, area: Rect) iArea {
-        return .{
-            .area = area,
-            .children = std.ArrayList(*iArea).init(gui.alloc),
-        };
-    }
-
-    pub fn deinit(self: *@This(), gui: *Gui, win: *iWindow) void {
-        self.clearChildren(gui, win);
-        self.children.deinit();
-        if (self.deinit_fn) |dfn|
-            dfn(self, gui, win);
-    }
-
-    pub fn draw(self: *@This(), dctx: DrawState) void {
-        if (self.draw_fn) |drawf|
-            drawf(self, dctx);
-        for (self.children.items) |child|
-            child.draw(dctx);
-        //if (gui.needsDraw(self)) {
-        //    if (self.draw_fn) |drawf|
-        //        drawf(self, dctx);
-        //}
-        self.is_dirty = false;
-    }
-
-    pub fn dirty(self: *@This(), gui: *Gui) void {
-        if (!self.is_dirty)
-            gui.setDirty(self);
-        self.is_dirty = true;
-    }
-
-    pub fn addChild(self: *@This(), gui: *Gui, win: *iWindow, vt: *iArea) void {
-        if (vt.onclick != null)
-            gui.registerOnClick(vt, win) catch return;
-        if (vt.onscroll != null)
-            gui.regOnScroll(vt, win) catch return;
-        self.children.append(vt) catch return;
-    }
-
-    pub fn clearChildren(self: *@This(), gui: *Gui, window: *iWindow) void {
-        for (self.children.items) |child| {
-            gui.deregister(child, window);
-            child.deinit(gui, window);
-        }
-        self.children.clearRetainingCapacity();
-    }
-};
-
-pub const iWindow = struct {
-    const BuildfnT = *const fn (*iWindow, *Gui, Rect, *GuiConfig) void;
-
-    build_fn: BuildfnT,
-    deinit_fn: *const fn (*iWindow, *Gui) void,
-
-    area: *iArea,
-
-    click_listeners: std.ArrayList(*iArea),
-    scroll_list: std.ArrayList(*iArea),
-
-    pub fn draw(self: *iWindow, dctx: DrawState) void {
-        self.area.draw(dctx);
-        //self.area.draw_fn(self.area, dctx);
-    }
-
-    pub fn init(build_fn: BuildfnT, gui: *Gui, deinit_fn: *const fn (*iWindow, *Gui) void, area: *iArea) iWindow {
-        return .{
-            .deinit_fn = deinit_fn,
-            .build_fn = build_fn,
-            .click_listeners = std.ArrayList(*iArea).init(gui.alloc),
-            .scroll_list = std.ArrayList(*iArea).init(gui.alloc),
-            .area = area,
-        };
-    }
-
-    // the implementers deinit fn should call this first
-    pub fn deinit(self: *iWindow, gui: *Gui) void {
-        //self.layout.vt.deinit_fn(&self.layout.vt, gui, self);
-        self.area.deinit(gui, self);
-        if (self.click_listeners.items.len != 0)
-            std.debug.print("BROKEN\n", .{});
-        if (self.scroll_list.items.len != 0)
-            std.debug.print("BROKEN\n", .{});
-        self.click_listeners.deinit();
-        self.scroll_list.deinit();
-    }
-
-    /// Returns true if this window contains the mouse
-    pub fn dispatchClick(win: *iWindow, coord: Vec2f, gui: *Gui) bool {
-        if (win.area.area.containsPoint(coord)) {
-            for (win.click_listeners.items) |vt| {
-                if (vt.area.containsPoint(coord)) {
-                    if (vt.onclick) |oc|
-                        oc(vt, gui);
-                }
-            }
-            return true;
-        }
-        return false;
-    }
-
-    pub fn dispatchScroll(win: *iWindow, coord: Vec2f, gui: *Gui, dist: f32) bool {
-        if (win.area.area.containsPoint(coord)) {
-            for (win.scroll_list.items) |vt| {
-                if (vt.area.containsPoint(coord)) {
-                    if (vt.onscroll) |oc|
-                        oc(vt, gui, win, dist);
-                }
-            }
-            return true;
-        }
-        return false;
-    }
-};
 const Vec2f = graph.Vec2f;
 
 pub const Gui = struct {
@@ -870,6 +892,7 @@ pub const Gui = struct {
 };
 
 pub fn main() !void {
+    std.debug.print("SIDE {d}\n", .{@sizeOf(iArea)});
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.detectLeaks();
     const alloc = gpa.allocator();
