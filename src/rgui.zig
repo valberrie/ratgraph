@@ -185,11 +185,11 @@ pub fn WidgetCombo(comptime enumT: type) type {
             parent_vt: *iArea,
             name: []const u8,
 
-            pub fn build(vt: *iWindow, gui: *Gui, area: Rect, _: *GuiConfig) void {
+            pub fn build(vt: *iWindow, gui: *Gui, area: Rect, style: *GuiConfig) void {
                 const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
                 self.area.area = area;
                 const info = @typeInfo(enumT);
-                self.area.addChild(gui, vt, WidgetVScroll.build(gui, area, &build_cb, &self.area, vt, info.Enum.fields.len) catch return);
+                self.area.addChild(gui, vt, WidgetVScroll.build(gui, area, &build_cb, &self.area, vt, info.Enum.fields.len, style.config.default_item_h) catch return);
             }
 
             pub fn build_cb(vt: *iArea, area: *iArea, index: usize, gui: *Gui, win: *iWindow) void {
@@ -200,7 +200,7 @@ pub fn WidgetCombo(comptime enumT: type) type {
                     if (i >= index) {
                         area.addChild(gui, win, WidgetButton.build(
                             gui,
-                            ly.getArea().?,
+                            ly.getArea() orelse return,
                             field.name,
                             self.parent_vt,
                             &ParentT.buttonCb,
@@ -258,7 +258,7 @@ pub fn WidgetCombo(comptime enumT: type) type {
         pub fn onclick(vt: *iArea, cb: MouseCbState, win: *iWindow) void {
             const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
             _ = win;
-            self.makeTransientWindow(cb.gui, Rec(0, 0, 600, 600)) catch return;
+            self.makeTransientWindow(cb.gui, Rec(0, 0, 600, 300)) catch return;
         }
 
         pub fn buttonCb(vt: *iArea, id: usize, gui: *Gui) void {
@@ -298,7 +298,7 @@ pub const WidgetVScroll = struct {
     index: usize = 0,
     count: usize = 10,
 
-    pub fn build(gui: *Gui, area: Rect, build_cb: BuildCb, build_cb_vt: *iArea, win: *iWindow, count: usize) !*iArea {
+    pub fn build(gui: *Gui, area: Rect, build_cb: BuildCb, build_cb_vt: *iArea, win: *iWindow, count: usize, item_h_hint: f32) !*iArea {
         const self = try gui.alloc.create(@This());
         self.* = .{
             .vt = iArea.init(gui, area),
@@ -318,6 +318,7 @@ pub const WidgetVScroll = struct {
             split[1],
             &self.index,
             self.count,
+            item_h_hint,
             &self.vt,
             &notifyChange,
         ));
@@ -476,23 +477,36 @@ pub const WidgetScrollBar = struct {
     shuttle_h: f32 = 0,
     shuttle_pos: f32 = 0,
 
-    pub fn build(gui: *Gui, area: Rect, index_ptr: *usize, count: usize, parent_vt: *iArea, notify_fn: NotifyFn) !*iArea {
+    pub fn build(gui: *Gui, area: Rect, index_ptr: *usize, count: usize, item_h: f32, parent_vt: *iArea, notify_fn: NotifyFn) !*iArea {
         const self = try gui.alloc.create(@This());
 
-        const sw = 50;
+        const shuttle_min_w = 50;
         self.* = .{
             .parent_vt = parent_vt,
             .notify_fn = notify_fn,
             .vt = iArea.init(gui, area),
             .index_ptr = index_ptr,
             .count = count,
-            .shuttle_h = sw, //TODO make this a param, maybe set based on how much must be scrolled?
-            .shuttle_pos = calculateShuttlePos(index_ptr.*, count, area.h, sw),
+            .shuttle_h = calculateShuttleW(count, item_h, area.h, shuttle_min_w),
+            .shuttle_pos = calculateShuttlePos(index_ptr.*, count, area.h, shuttle_min_w),
         };
         self.vt.draw_fn = &draw;
         self.vt.deinit_fn = &deinit;
         self.vt.onclick = &onclick;
         return &self.vt;
+    }
+
+    fn calculateShuttleW(count: usize, item_h: f32, area_w: f32, min_w: f32) f32 {
+        const area_used = @as(f32, @floatFromInt(count)) * item_h;
+        const overflow_amount = area_used - area_w;
+        if (overflow_amount <= 0) // all items fit in area, no scrolling required
+            return area_w;
+
+        const useable = area_w - min_w;
+        if (overflow_amount < useable) // We can have a 1:1 mapping of scrollbar movement
+            return overflow_amount;
+
+        return min_w;
     }
 
     pub fn deinit(vt: *iArea, gui: *Gui, _: *iWindow) void {
@@ -537,7 +551,13 @@ pub const WidgetScrollBar = struct {
 
         self.shuttle_pos = std.math.clamp(self.shuttle_pos, 0, usable_width);
 
-        const indexf = self.shuttle_pos / screen_space_per_value_space;
+        var indexf = self.shuttle_pos / screen_space_per_value_space;
+
+        if (cb.pos.y >= vt.area.y + vt.area.h)
+            indexf = countf;
+        if (cb.pos.y < vt.area.y)
+            indexf = 0;
+
         if (indexf < 0)
             return;
         self.index_ptr.* = std.math.clamp(@as(usize, @intFromFloat(indexf)), 0, self.count);
@@ -730,7 +750,15 @@ pub const MyInspector = struct {
         self.area.addChild(gui, vt, WidgetButton.build(gui, ly.getArea().?, "My button 3", null, null, 48) catch return);
 
         ly.pushRemaining();
-        self.area.addChild(gui, vt, WidgetVScroll.build(gui, ly.getArea().?, &buildScrollItems, &self.area, vt, 10) catch return);
+        self.area.addChild(gui, vt, WidgetVScroll.build(
+            gui,
+            ly.getArea().?,
+            &buildScrollItems,
+            &self.area,
+            vt,
+            10,
+            style.config.default_item_h,
+        ) catch return);
     }
 
     pub fn buildScrollItems(window_area: *iArea, vt: *iArea, index: usize, gui: *Gui, window: *iWindow) void {
