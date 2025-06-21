@@ -18,6 +18,10 @@ pub fn getVt(comptime T: type, vt: anytype) *T {
 pub const TextCbState = struct {
     gui: *Gui,
     text: []const u8,
+
+    //TODO, move this to some other event
+    keys: []const graph.SDL.KeyState = &.{}, // Populated with keys just pressed, keydown events
+    mod_state: graph.SDL.keycodes.KeymodMask = 0,
 };
 
 pub const iArea = struct {

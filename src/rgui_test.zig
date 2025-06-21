@@ -179,7 +179,12 @@ pub fn main() !void {
                 }
             },
         }
-        gui.dispatchTextinput(.{ .gui = &gui, .text = win.text_input });
+        gui.dispatchTextinput(.{
+            .gui = &gui,
+            .text = win.text_input,
+            .mod_state = win.mod,
+            .keys = win.keys.slice(),
+        });
         if (win.mouse.wheel_delta.y != 0)
             gui.dispatchScroll(win.mouse.pos, win.mouse.wheel_delta.y);
 
