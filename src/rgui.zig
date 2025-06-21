@@ -24,7 +24,7 @@ pub fn getVt(comptime T: type, vt: anytype) *T {
 pub const iArea = struct {
     draw_fn: ?*const fn (*iArea, DrawState) void = null,
     deinit_fn: ?*const fn (*iArea, *Gui, *iWindow) void = null,
-    onclick: ?*const fn (*iArea, *Gui) void = null,
+    onclick: ?*const fn (*iArea, MouseCbState, *iWindow) void = null,
     onscroll: ?*const fn (*iArea, *Gui, *iWindow, distance: f32) void = null,
 
     area: Rect,
@@ -131,12 +131,12 @@ pub const iWindow = struct {
     }
 
     /// Returns true if this window contains the mouse
-    pub fn dispatchClick(win: *iWindow, coord: Vec2f, gui: *Gui) bool {
-        if (win.area.area.containsPoint(coord)) {
+    pub fn dispatchClick(win: *iWindow, cb: MouseCbState) bool {
+        if (win.area.area.containsPoint(cb.pos)) {
             for (win.click_listeners.items) |vt| {
-                if (vt.area.containsPoint(coord)) {
+                if (vt.area.containsPoint(cb.pos)) {
                     if (vt.onclick) |oc|
-                        oc(vt, gui);
+                        oc(vt, cb, win);
                 }
             }
             return true;
@@ -164,6 +164,13 @@ pub const DrawState = struct {
     font: *graph.FontInterface,
     style: *GuiConfig,
     scale: f32 = 2,
+};
+
+pub const MouseCbState = struct {
+    pos: Vec2f,
+    delta: Vec2f,
+    gui: *Gui,
+    state: graph.SDL.ButtonState,
 };
 
 //Two options for this, we use a button widget which registers itself for onclick
@@ -248,9 +255,10 @@ pub fn WidgetCombo(comptime enumT: type) type {
             //std.debug.print("{s} says: {any}\n", .{ self.name, self.bool_ptr.* });
         }
 
-        pub fn onclick(vt: *iArea, gui: *Gui) void {
+        pub fn onclick(vt: *iArea, cb: MouseCbState, win: *iWindow) void {
             const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
-            self.makeTransientWindow(gui, Rec(0, 0, 600, 600)) catch return;
+            _ = win;
+            self.makeTransientWindow(cb.gui, Rec(0, 0, 600, 600)) catch return;
         }
 
         pub fn buttonCb(vt: *iArea, id: usize, gui: *Gui) void {
@@ -301,15 +309,29 @@ pub const WidgetVScroll = struct {
         self.vt.draw_fn = &draw;
         self.vt.onscroll = &onScroll;
         self.vt.deinit_fn = &deinit;
+
+        const SW = 30;
+        const split = self.vt.area.split(.vertical, self.vt.area.w - SW);
+        _ = self.vt.addEmpty(gui, win, split[0]);
+        self.vt.addChild(gui, win, try WidgetScrollBar.build(
+            gui,
+            split[1],
+            &self.index,
+            self.count,
+            &self.vt,
+            &notifyChange,
+        ));
+
         self.rebuild(gui, win);
         return &self.vt;
     }
 
     pub fn rebuild(self: *@This(), gui: *Gui, win: *iWindow) void {
-        const SW = 30;
-        const split = self.vt.area.split(.vertical, self.vt.area.w - SW);
-        const child = self.vt.addEmpty(gui, win, split[0]);
-        self.vt.addChild(gui, win, WidgetScrollBar.build(gui, split[1], &self.index, self.count) catch return);
+        if (self.vt.children.items.len != 2)
+            return;
+        self.vt.dirty(gui);
+        const child = self.vt.children.items[0];
+        child.clearChildren(gui, win);
         self.build_cb(self.build_cb_vt, child, self.index, gui, win);
     }
 
@@ -325,6 +347,11 @@ pub const WidgetVScroll = struct {
         _ = self;
     }
 
+    pub fn notifyChange(vt: *iArea, gui: *Gui, win: *iWindow) void {
+        const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
+        self.rebuild(gui, win);
+    }
+
     pub fn onScroll(vt: *iArea, gui: *Gui, win: *iWindow, dist: f32) void {
         const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
         if (self.count == 0) {
@@ -336,8 +363,6 @@ pub const WidgetVScroll = struct {
         fi += dist;
         fi = std.math.clamp(fi, 0, @as(f32, @floatFromInt(self.count - 1)));
         self.index = @intFromFloat(fi);
-        vt.dirty(gui);
-        self.vt.clearChildren(gui, win);
         self.rebuild(gui, win);
     }
 };
@@ -374,10 +399,10 @@ pub const WidgetCheckbox = struct {
     }
 
     //If we click, we need to redraw
-    pub fn onclick(vt: *iArea, gui: *Gui) void {
+    pub fn onclick(vt: *iArea, cb: MouseCbState, _: *iWindow) void {
         const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
         self.bool_ptr.* = !self.bool_ptr.*;
-        vt.dirty(gui);
+        vt.dirty(cb.gui);
     }
 };
 
@@ -410,15 +435,15 @@ pub const WidgetButton = struct {
         gui.alloc.destroy(self);
     }
 
-    pub fn mouseGrabbed(vt: *iArea, gui: *Gui, _: Vec2f, _: Vec2f, state: Gui.MouseGrabState) void {
+    pub fn mouseGrabbed(vt: *iArea, cb: MouseCbState, _: *iWindow) void {
         const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
         const old = self.is_down;
-        self.is_down = switch (state) {
-            .high => true,
-            .falling => false,
+        self.is_down = switch (cb.state) {
+            .high, .rising => true,
+            .falling, .low => false,
         };
         if (self.is_down != old)
-            vt.dirty(gui);
+            vt.dirty(cb.gui);
     }
 
     pub fn draw(vt: *iArea, d: DrawState) void {
@@ -431,29 +456,42 @@ pub const WidgetButton = struct {
         d.ctx.textFmt(ta.pos(), "{s}", .{self.text}, d.font, d.style.config.text_h, color, .{});
     }
 
-    pub fn onclick(vt: *iArea, gui: *Gui) void {
+    pub fn onclick(vt: *iArea, cb: MouseCbState, win: *iWindow) void {
         const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
         if (self.callback_fn) |cbfn|
-            cbfn(self.callback_vt.?, self.user_id, gui);
-        gui.grabMouse(&@This().mouseGrabbed, vt);
+            cbfn(self.callback_vt.?, self.user_id, cb.gui);
+        cb.gui.grabMouse(&@This().mouseGrabbed, vt, win);
     }
 };
 
 pub const WidgetScrollBar = struct {
+    const NotifyFn = *const fn (*iArea, *Gui, *iWindow) void;
     vt: iArea,
+
+    parent_vt: *iArea,
+    notify_fn: NotifyFn,
 
     count: usize,
     index_ptr: *usize,
+    shuttle_h: f32 = 0,
+    shuttle_pos: f32 = 0,
 
-    pub fn build(gui: *Gui, area: Rect, index_ptr: *usize, count: usize) !*iArea {
+    pub fn build(gui: *Gui, area: Rect, index_ptr: *usize, count: usize, parent_vt: *iArea, notify_fn: NotifyFn) !*iArea {
         const self = try gui.alloc.create(@This());
+
+        const sw = 50;
         self.* = .{
+            .parent_vt = parent_vt,
+            .notify_fn = notify_fn,
             .vt = iArea.init(gui, area),
             .index_ptr = index_ptr,
             .count = count,
+            .shuttle_h = sw, //TODO make this a param, maybe set based on how much must be scrolled?
+            .shuttle_pos = calculateShuttlePos(index_ptr.*, count, area.h, sw),
         };
         self.vt.draw_fn = &draw;
         self.vt.deinit_fn = &deinit;
+        self.vt.onclick = &onclick;
         return &self.vt;
     }
 
@@ -462,19 +500,57 @@ pub const WidgetScrollBar = struct {
         gui.alloc.destroy(self);
     }
 
-    //TODO calculate scroll bar size and see if it intersects
+    fn calculateShuttlePos(index: usize, count: usize, width: f32, shuttle_w: f32) f32 {
+        if (count < 2) //Pos is undefined
+            return 0;
+        const usable_width = width - shuttle_w;
+        const indexf: f32 = @floatFromInt(index);
+        const countf: f32 = @floatFromInt(count - 1);
+
+        const perc_pos = indexf / countf;
+        return usable_width * perc_pos;
+    }
+
+    fn shuttleRect(area: Rect, pos: f32, h: f32) Rect {
+        return graph.Rec(area.x, pos + area.y, area.w, h);
+    }
+
+    pub fn onclick(vt: *iArea, cb: MouseCbState, win: *iWindow) void {
+        const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
+
+        const actual_pos = calculateShuttlePos(self.index_ptr.*, self.count, vt.area.h, self.shuttle_h);
+        const handle = shuttleRect(vt.area, actual_pos, self.shuttle_h);
+        if (handle.containsPoint(cb.pos)) {
+            self.shuttle_pos = actual_pos;
+            cb.gui.grabMouse(&mouseGrabbed, vt, win);
+        }
+    }
+
+    pub fn mouseGrabbed(vt: *iArea, cb: MouseCbState, win: *iWindow) void {
+        const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
+        if (self.count < 2)
+            return;
+        const usable_width = vt.area.h - self.shuttle_h;
+        const countf: f32 = @floatFromInt(self.count - 1);
+        const screen_space_per_value_space = usable_width / countf;
+        self.shuttle_pos += cb.delta.y;
+
+        self.shuttle_pos = std.math.clamp(self.shuttle_pos, 0, usable_width);
+
+        const indexf = self.shuttle_pos / screen_space_per_value_space;
+        if (indexf < 0)
+            return;
+        self.index_ptr.* = std.math.clamp(@as(usize, @intFromFloat(indexf)), 0, self.count);
+        self.notify_fn(self.parent_vt, cb.gui, win);
+    }
 
     pub fn draw(vt: *iArea, d: DrawState) void {
         const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
+        const sp = calculateShuttlePos(self.index_ptr.*, self.count, vt.area.h, self.shuttle_h);
         //d.ctx.rect(vt.area, 0x5ffff0ff);
         //d.ctx.nineSlice(vt.area, sl, d.style.texture, d.scale, 0xffffffff);
         d.ctx.nineSlice(vt.area, d.style.getRect(.slider_box), d.style.texture, d.scale, 0xffff_ffff);
-        var handle = graph.Rec(vt.area.x, vt.area.y, vt.area.w, 60);
-        const screen_dist = vt.area.h - handle.h;
-        const value_dist: f32 = @floatFromInt(self.count - 1);
-        const screen_per_value = screen_dist / value_dist;
-        const y_offset = @as(f32, @floatFromInt(self.index_ptr.*)) * screen_per_value;
-        handle.y += y_offset;
+        const handle = shuttleRect(vt.area, sp, self.shuttle_h);
 
         d.ctx.nineSlice(handle, d.style.getRect(.slider_shuttle), d.style.texture, d.scale, 0xffff_ffff);
     }
@@ -545,18 +621,17 @@ pub const WidgetSlider = struct {
         d.ctx.textFmt(vt.area.pos(), "{d:.2}", .{self.num}, d.font, vt.area.h, 0xff, .{});
     }
 
-    pub fn mouseGrabbed(vt: *iArea, gui: *Gui, pos: Vec2f, del: Vec2f, _: Gui.MouseGrabState) void {
+    pub fn mouseGrabbed(vt: *iArea, cb: MouseCbState, _: *iWindow) void {
         const self = getVt(@This(), vt);
         const dist = self.max - self.min;
         const width = vt.area.w;
         const factor = dist / width;
 
         const old_num = self.num;
-        self.num += del.x * factor;
+        self.num += cb.delta.x * factor;
         self.num = std.math.clamp(self.num, self.min, self.max);
         if (old_num != self.num)
-            vt.dirty(gui);
-        _ = pos;
+            vt.dirty(cb.gui);
     }
 
     pub fn scroll(vt: *iArea, gui: *Gui, _: *iWindow, dist: f32) void {
@@ -568,9 +643,9 @@ pub const WidgetSlider = struct {
             vt.dirty(gui);
     }
 
-    pub fn onclick(vt: *iArea, gui: *Gui) void {
+    pub fn onclick(vt: *iArea, cb: MouseCbState, win: *iWindow) void {
         const self = getVt(@This(), vt);
-        gui.grabMouse(&@This().mouseGrabbed, vt);
+        cb.gui.grabMouse(&@This().mouseGrabbed, vt, win);
         _ = self;
         //Need some way to grab the mouse until it lets go
     }
@@ -723,6 +798,7 @@ const Vec2f = graph.Vec2f;
 
 pub const Gui = struct {
     const Self = @This();
+    pub const MouseGrabFn = *const fn (*iArea, MouseCbState, *iWindow) void;
     const MouseGrabState = enum { high, falling };
 
     alloc: std.mem.Allocator,
@@ -731,8 +807,11 @@ pub const Gui = struct {
     transient_should_close: bool = false,
     transient_window: ?*iWindow = null,
 
-    mouse_grab: ?*const fn (*iArea, *Gui, Vec2f, Vec2f, MouseGrabState) void = null,
-    mouse_grab_vt: ?*iArea = null,
+    mouse_grab: ?struct {
+        cb: MouseGrabFn,
+        vt: *iArea,
+        win: *iWindow,
+    } = null,
 
     cached_drawing: bool = false,
     cache_map: std.AutoHashMap(*iArea, void),
@@ -819,9 +898,8 @@ pub const Gui = struct {
                 break;
             }
         }
-        if (self.mouse_grab_vt) |mvt| {
-            if (mvt == vt) {
-                self.mouse_grab_vt = null;
+        if (self.mouse_grab) |g| {
+            if (g.vt == vt) {
                 self.mouse_grab = null;
             }
         }
@@ -834,9 +912,9 @@ pub const Gui = struct {
         self.transient_window = null;
     }
 
-    pub fn dispatchClick(self: *Self, coord: Vec2f) void {
+    pub fn dispatchClick(self: *Self, mstate: MouseCbState) void {
         if (self.transient_window) |tw| {
-            if (tw.dispatchClick(coord, self)) {
+            if (tw.dispatchClick(mstate)) {
                 return; //Don't click top level windows
             } else {
                 //Close the window, we clicked outside
@@ -844,7 +922,7 @@ pub const Gui = struct {
             }
         }
         for (self.windows.items) |win| {
-            if (win.dispatchClick(coord, self))
+            if (win.dispatchClick(mstate))
                 break;
         }
     }
@@ -869,9 +947,12 @@ pub const Gui = struct {
     ///how to solve?
     ///name vtables with ids
     ///on vt destroy, check and unset
-    pub fn grabMouse(self: *Self, ptr: anytype, vt: *iArea) void {
-        self.mouse_grab = ptr;
-        self.mouse_grab_vt = vt;
+    pub fn grabMouse(self: *Self, cb: MouseGrabFn, vt: *iArea, win: *iWindow) void {
+        self.mouse_grab = .{
+            .cb = cb,
+            .vt = vt,
+            .win = win,
+        };
     }
 
     pub fn addWindow(self: *Self, window: *iWindow, area: Rect) !void {
@@ -929,19 +1010,28 @@ pub fn main() !void {
             win.should_exit = true;
 
         try gui.update();
+        const mstate = MouseCbState{
+            .gui = &gui,
+            .pos = win.mouse.pos,
+            .delta = win.mouse.delta,
+            .state = win.mouse.left,
+        };
         switch (win.mouse.left) {
-            .rising => gui.dispatchClick(win.mouse.pos),
+            .rising => gui.dispatchClick(mstate),
             .low => {
-                gui.mouse_grab_vt = null;
                 gui.mouse_grab = null;
             },
             .falling => {
-                if (gui.mouse_grab) |func|
-                    func(gui.mouse_grab_vt.?, &gui, win.mouse.pos, win.mouse.delta, .falling);
+                if (gui.mouse_grab) |g|
+                    g.cb(
+                        g.vt,
+                        mstate,
+                        g.win,
+                    );
             },
             .high => {
-                if (gui.mouse_grab) |func| {
-                    func(gui.mouse_grab_vt.?, &gui, win.mouse.pos, win.mouse.delta, .high);
+                if (gui.mouse_grab) |g| {
+                    g.cb(g.vt, mstate, g.win);
                 }
             },
         }
