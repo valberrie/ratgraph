@@ -462,6 +462,8 @@ pub const WidgetScrollBar = struct {
         gui.alloc.destroy(self);
     }
 
+    //TODO calculate scroll bar size and see if it intersects
+
     pub fn draw(vt: *iArea, d: DrawState) void {
         const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
         //d.ctx.rect(vt.area, 0x5ffff0ff);
