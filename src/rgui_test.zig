@@ -14,6 +14,7 @@ const iArea = guis.iArea;
 const DrawState = guis.DrawState;
 
 const Gui = guis.Gui;
+const Wg = guis.Widget;
 
 pub const MyInspector = struct {
     const MyEnum = enum {
@@ -79,20 +80,20 @@ pub const MyInspector = struct {
             .bounds = area,
         };
 
-        self.area.addChild(gui, vt, guis.WidgetCheckbox.build(gui, ly.getArea().?, &self.bool1, "first button") catch return);
-        self.area.addChild(gui, vt, guis.WidgetCheckbox.build(gui, ly.getArea().?, &self.bool2, "secnd button") catch return);
-        self.area.addChild(gui, vt, guis.WidgetSlider.build(gui, ly.getArea().?, 4, 0, 10) catch return);
-        self.area.addChild(gui, vt, guis.WidgetCombo(MyEnum).build(gui, ly.getArea().?, &self.my_enum) catch return);
+        self.area.addChild(gui, vt, Wg.Checkbox.build(gui, ly.getArea().?, &self.bool1, "first button") catch return);
+        self.area.addChild(gui, vt, Wg.Checkbox.build(gui, ly.getArea().?, &self.bool2, "secnd button") catch return);
+        self.area.addChild(gui, vt, Wg.Slider.build(gui, ly.getArea().?, 4, 0, 10) catch return);
+        self.area.addChild(gui, vt, Wg.Combo(MyEnum).build(gui, ly.getArea().?, &self.my_enum) catch return);
 
-        self.area.addChild(gui, vt, guis.WidgetButton.build(gui, ly.getArea().?, "My button", &self.area, @This().btnCb, 48) catch return);
-        self.area.addChild(gui, vt, guis.WidgetButton.build(gui, ly.getArea().?, "My button 2", null, null, 48) catch return);
-        self.area.addChild(gui, vt, guis.WidgetButton.build(gui, ly.getArea().?, "My button 3", null, null, 48) catch return);
+        self.area.addChild(gui, vt, Wg.Button.build(gui, ly.getArea().?, "My button", &self.area, @This().btnCb, 48) catch return);
+        self.area.addChild(gui, vt, Wg.Button.build(gui, ly.getArea().?, "My button 2", null, null, 48) catch return);
+        self.area.addChild(gui, vt, Wg.Button.build(gui, ly.getArea().?, "My button 3", null, null, 48) catch return);
 
-        self.area.addChild(gui, vt, guis.Widget.Textbox.build(gui, ly.getArea().?) catch return);
-        self.area.addChild(gui, vt, guis.Widget.Textbox.build(gui, ly.getArea().?) catch return);
+        self.area.addChild(gui, vt, Wg.Textbox.build(gui, ly.getArea().?) catch return);
+        self.area.addChild(gui, vt, Wg.Textbox.build(gui, ly.getArea().?) catch return);
 
         ly.pushRemaining();
-        self.area.addChild(gui, vt, guis.WidgetVScroll.build(
+        self.area.addChild(gui, vt, Wg.VScroll.build(
             gui,
             ly.getArea().?,
             &buildScrollItems,
@@ -107,7 +108,7 @@ pub const MyInspector = struct {
         const self: *@This() = @alignCast(@fieldParentPtr("area", window_area));
         var ly = guis.VerticalLayout{ .item_height = gui.style.config.default_item_h, .bounds = vt.area };
         for (index..10) |i| {
-            vt.addChild(gui, window, guis.WidgetText.build(gui, ly.getArea() orelse return, "item {d}", .{i}) catch return);
+            vt.addChild(gui, window, Wg.Text.build(gui, ly.getArea() orelse return, "item {d}", .{i}) catch return);
         }
         _ = self;
     }
