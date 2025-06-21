@@ -171,6 +171,7 @@ pub const Textbox = struct {
         const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
         _ = self;
         cb.gui.grabFocus(vt, win);
+        vt.dirty(cb.gui);
     }
 
     pub fn getSlice(self: *Self) []const u8 {
@@ -245,6 +246,7 @@ pub const Textbox = struct {
 
         const view = try std.unicode.Utf8View.init(d.text);
         var it = view.iterator();
+        vt.dirty(d.gui);
 
         while (it.nextCodepointSlice()) |new_cp| {
             var new_len: usize = self.codepoints.items.len;

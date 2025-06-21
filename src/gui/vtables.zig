@@ -50,14 +50,12 @@ pub const iArea = struct {
     }
 
     pub fn draw(self: *@This(), dctx: DrawState) void {
-        if (self.draw_fn) |drawf|
-            drawf(self, dctx);
-        for (self.children.items) |child|
-            child.draw(dctx);
-        //if (gui.needsDraw(self)) {
-        //    if (self.draw_fn) |drawf|
-        //        drawf(self, dctx);
-        //}
+        if (dctx.gui.needsDraw(self)) {
+            if (self.draw_fn) |drawf|
+                drawf(self, dctx);
+            for (self.children.items) |child|
+                child.draw(dctx);
+        }
         self.is_dirty = false;
     }
 
@@ -73,6 +71,7 @@ pub const iArea = struct {
         if (vt.onscroll != null)
             gui.regOnScroll(vt, win) catch return;
         self.children.append(vt) catch return;
+        gui.setDirty(vt);
     }
 
     pub fn deinitEmpty(vt: *iArea, gui: *Gui, _: *iWindow) void {
@@ -257,7 +256,9 @@ pub const Gui = struct {
         win: *iWindow,
     } = null,
 
-    cached_drawing: bool = false,
+    draws_since_cached: i32 = 0,
+    max_cached_before_full_flush: i32 = 60 * 10, //Ten seconds
+    cached_drawing: bool = true,
     cache_map: std.AutoHashMap(*iArea, void),
     to_draw: std.ArrayList(*iArea),
 
@@ -448,14 +449,23 @@ pub const Gui = struct {
 
     pub fn draw(self: *Self, dctx: DrawState) void {
         if (self.cached_drawing) {
+            defer self.draws_since_cached += 1;
+            if (self.draws_since_cached < 1 or self.draws_since_cached > self.max_cached_before_full_flush)
+                return self.draw_all(dctx);
+            //Otherwise we do the cached
             for (self.to_draw.items) |draw_area| {
                 draw_area.draw(dctx);
             }
         } else {
-            for (self.windows.items) |window|
-                window.draw(dctx);
-            if (self.transient_window) |tw|
-                tw.draw(dctx);
+            self.draw_all(dctx);
         }
+    }
+
+    pub fn draw_all(self: *Self, dctx: DrawState) void {
+        self.draws_since_cached = 1;
+        for (self.windows.items) |window|
+            window.draw(dctx);
+        if (self.transient_window) |tw|
+            tw.draw(dctx);
     }
 };
