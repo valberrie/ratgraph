@@ -564,6 +564,7 @@ pub const GuiConfig = struct {
             textbox_bg_disabled: u32 = 0xffffff75,
             textbox_invalid: u32 = 0xff0000ff,
             textbox_caret: u32 = 0xff,
+            background: u32 = 0xd8d8d8ff,
 
             fn createWrapperType() type {
                 const ch: @This() = .{};

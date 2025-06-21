@@ -1135,13 +1135,15 @@ pub const RenderTexture = struct {
         return ret;
     }
 
-    pub fn setSize(self: *Self, w: anytype, h: anytype) !void {
+    pub fn setSize(self: *Self, w: anytype, h: anytype) !bool {
         const wi = lcast(i32, w);
         const hi = lcast(i32, h);
         if (wi != self.w or hi != self.h) {
             self.deinit();
             self.* = try RenderTexture.init(w, h);
+            return true;
         }
+        return false;
     }
 
     pub fn rect(self: *Self) Rect {

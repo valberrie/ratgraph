@@ -30,7 +30,12 @@ pub const iArea = struct {
     onclick: ?*const fn (*iArea, MouseCbState, *iWindow) void = null,
     onscroll: ?*const fn (*iArea, *Gui, *iWindow, distance: f32) void = null,
     textinput: ?*const fn (*iArea, TextCbState, *iWindow) void = null,
+    focus_lost: ?*const fn (*iArea, *Gui) void = null,
 
+    can_tab_focus: bool = false,
+
+    parent: ?*iArea = null,
+    index: usize = 0,
     area: Rect,
     children: std.ArrayList(*iArea),
     is_dirty: bool = false,
@@ -70,6 +75,8 @@ pub const iArea = struct {
             gui.registerOnClick(vt, win) catch return;
         if (vt.onscroll != null)
             gui.regOnScroll(vt, win) catch return;
+        vt.parent = self;
+        vt.index = self.children.items.len;
         self.children.append(vt) catch return;
         gui.setDirty(vt);
     }
@@ -299,6 +306,70 @@ pub const Gui = struct {
         return false;
     }
 
+    //Traversal of the tree for tab.
+    //Starting at the currently focused,
+    //get parent, iterate children until we find ourself.
+    //iterate through rest of children,if child has child, recur. if can_tab_focus, return that node
+    //get parents parent, do the same, finding ourself.
+    //sounds complicated?
+
+    pub fn tabFocus(self: *Self, fwd: bool) void {
+        if (self.focused) |f| {
+            if (fwd) {
+                if (findNextFocusTarget(f.vt)) |next| {
+                    self.grabFocus(next, f.win);
+                } else if (findFocusTargetNoBacktrack(f.win.area)) |next| { //Start from the root of the window
+                    self.grabFocus(next, f.win);
+                }
+            } else {
+                if (findPrevFocusTarget(f.vt)) |prev| {
+                    self.grabFocus(prev, f.win);
+                }
+            }
+        }
+    }
+
+    fn findNextFocusTarget(vt: *iArea) ?*iArea {
+        const parent = vt.parent orelse return null;
+        if (vt.index >= parent.children.items.len) return null;
+        for (parent.children.items[vt.index + 1 ..]) |next| {
+            return findFocusTargetNoBacktrack(next) orelse continue;
+        }
+        // None found in children,
+        return findNextFocusTarget(parent);
+    }
+
+    fn findFocusTargetNoBacktrack(vt: *iArea) ?*iArea {
+        if (vt.can_tab_focus)
+            return vt;
+        for (vt.children.items) |child| {
+            return findFocusTargetNoBacktrack(child) orelse continue;
+        }
+        return null;
+    }
+
+    fn findPrevFocusTarget(vt: *iArea) ?*iArea {
+        const parent = vt.parent orelse return null;
+        if (vt.index >= parent.children.items.len) return null;
+
+        var index = vt.index;
+        while (index > 0) : (index -= 1) {
+            const nvt = parent.children.items[index - 1];
+            return findPrevFocusNoBacktrack(nvt) orelse continue;
+        }
+        return null;
+    }
+
+    fn findPrevFocusNoBacktrack(vt: *iArea) ?*iArea {
+        var index = vt.children.items.len;
+        while (index > 0) : (index -= 1) {
+            return findPrevFocusNoBacktrack(vt.children.items[index - 1]) orelse continue;
+        }
+        if (vt.can_tab_focus)
+            return vt;
+        return null;
+    }
+
     pub fn registerOnClick(_: *Self, vt: *iArea, window: *iWindow) !void {
         try window.click_listeners.append(vt);
     }
@@ -371,6 +442,10 @@ pub const Gui = struct {
     }
 
     pub fn grabFocus(self: *Self, vt: *iArea, win: *iWindow) void {
+        if (self.focused) |f| {
+            if (f.vt != vt and f.vt.focus_lost != null)
+                f.vt.focus_lost.?(f.vt, self);
+        }
         self.focused = .{
             .vt = vt,
             .win = win,
@@ -447,8 +522,8 @@ pub const Gui = struct {
         try self.windows.append(window);
     }
 
-    pub fn draw(self: *Self, dctx: DrawState) void {
-        if (self.cached_drawing) {
+    pub fn draw(self: *Self, dctx: DrawState, force_redraw: bool) void {
+        if (self.cached_drawing and !force_redraw) {
             defer self.draws_since_cached += 1;
             if (self.draws_since_cached < 1 or self.draws_since_cached > self.max_cached_before_full_flush)
                 return self.draw_all(dctx);

@@ -119,8 +119,10 @@ pub const Textbox = struct {
             .head = 0,
             .tail = 0,
         };
+        self.vt.can_tab_focus = true;
         self.vt.deinit_fn = &deinit;
         self.vt.draw_fn = &draw;
+        self.vt.focus_lost = &focusLost;
         self.vt.onclick = &onclick;
         self.vt.textinput = &textinput_cb;
         return &self.vt;
@@ -132,9 +134,14 @@ pub const Textbox = struct {
         gui.alloc.destroy(self);
     }
 
+    pub fn focusLost(vt: *iArea, gui: *Gui) void {
+        vt.dirty(gui);
+    }
+
     pub fn draw(vt: *iArea, d: g.DrawState) void {
         const s: *@This() = @alignCast(@fieldParentPtr("vt", vt));
-        d.ctx.rect(vt.area, if (d.gui.isFocused(vt)) 0xff00ffff else 0x222222ff);
+        const is_focused = d.gui.isFocused(vt);
+        d.ctx.rect(vt.area, if (is_focused) 0xff00ffff else 0x222222ff);
         d.ctx.textFmt(vt.area.pos(), "{s}", .{s.codepoints.items}, d.font, vt.area.h, 0xff, .{});
 
         const text_h = d.style.config.text_h;
@@ -158,7 +165,7 @@ pub const Textbox = struct {
             selection_pos_max - selection_pos_min,
             tr.h,
         ), d.style.config.colors.text_highlight);
-        {
+        if (is_focused) {
             d.ctx.rect(
                 Rect.new(caret_x + tr.x, tr.y + 2, d.style.config.textbox_caret_width, tr.h - 4),
                 d.style.config.colors.textbox_caret,

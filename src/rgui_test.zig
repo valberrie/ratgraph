@@ -62,9 +62,8 @@ pub const MyInspector = struct {
     pub fn area_deinit(_: *iArea, _: *Gui, _: *iWindow) void {}
 
     pub fn draw(vt: *iArea, d: DrawState) void {
-        _ = vt;
-        _ = d;
         //const self: *@This() = @alignCast(@fieldParentPtr("area", vt));
+        d.ctx.rect(vt.area, d.style.config.colors.background);
         //self.layout.draw(d);
     }
 
@@ -76,9 +75,13 @@ pub const MyInspector = struct {
         //start a vlayout
         //var ly = Vert{ .area = vt.area };
         var ly = guis.VerticalLayout{
+            .padding = .{},
             .item_height = style.config.default_item_h,
             .bounds = area,
         };
+        ly.padding.left = 10;
+        ly.padding.right = 10;
+        ly.padding.bottom = 10;
 
         self.area.addChild(gui, vt, Wg.Checkbox.build(gui, ly.getArea().?, &self.bool1, "first button") catch return);
         self.area.addChild(gui, vt, Wg.Checkbox.build(gui, ly.getArea().?, &self.bool2, "secnd button") catch return);
@@ -119,6 +122,7 @@ pub const MyInspector = struct {
 };
 
 pub fn main() !void {
+    std.debug.print("The size is :  {d}\n", .{@sizeOf(guis.iArea)});
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.detectLeaks();
     const alloc = gpa.allocator();
@@ -146,8 +150,13 @@ pub fn main() !void {
     var fbo = try graph.RenderTexture.init(800, 600);
     win.startTextInput(null);
 
+    var transient_fbo = try graph.RenderTexture.init(600, 600);
+    defer transient_fbo.deinit();
+
     while (!win.should_exit) {
-        try fbo.setSize(win.screen_dimensions.x, win.screen_dimensions.y);
+        var force_redraw = false;
+        if (try fbo.setSize(win.screen_dimensions.x, win.screen_dimensions.y))
+            force_redraw = true;
         try draw.begin(0xff, win.screen_dimensions.toF());
         win.pumpEvents(.poll); //Important that this is called after draw.begin for input lag reasons
         if (win.keyRising(.ESCAPE))
@@ -160,6 +169,8 @@ pub fn main() !void {
             .delta = win.mouse.delta,
             .state = win.mouse.left,
         };
+        if (win.keyRising(.TAB))
+            gui.tabFocus(!win.keyHigh(.LSHIFT));
         switch (win.mouse.left) {
             .rising => gui.dispatchClick(mstate),
             .low => {
@@ -189,7 +200,7 @@ pub fn main() !void {
             gui.dispatchScroll(win.mouse.pos, win.mouse.wheel_delta.y);
 
         fbo.bind(!gui.cached_drawing);
-        gui.draw(.{ .ctx = &draw, .font = &font.font, .style = &gui.style, .gui = &gui });
+        gui.draw(.{ .ctx = &draw, .font = &font.font, .style = &gui.style, .gui = &gui }, force_redraw);
         try draw.flush(null, null);
 
         graph.c.glBindFramebuffer(graph.c.GL_FRAMEBUFFER, 0);

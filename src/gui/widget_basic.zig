@@ -8,6 +8,7 @@ const GuiConfig = g.GuiConfig;
 const VerticalLayout = g.VerticalLayout;
 const DrawState = g.DrawState;
 const MouseCbState = g.MouseCbState;
+const Color = graph.Colori;
 const Rec = g.Rec;
 const graph = g.graph;
 const getVt = g.getVt;
@@ -231,8 +232,18 @@ pub const Checkbox = struct {
 
     pub fn draw(vt: *iArea, d: DrawState) void {
         const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
-        d.ctx.rect(vt.area, 0xffff00ff);
-        d.ctx.textFmt(vt.area.pos(), "{s}: {any}", .{ self.name, self.bool_ptr.* }, d.font, vt.area.h, 0xff, .{});
+        const cr = d.style.getRect(if (self.bool_ptr.*) .checkbox_checked else .checkbox_empty);
+        const area = vt.area;
+        const br = Rect.newV(area.pos(), .{ .x = @min(cr.w * d.scale, area.w), .y = @min(cr.h * d.scale, area.h) });
+        d.ctx.rect(vt.area, d.style.config.colors.background);
+        d.ctx.rectTex(
+            br,
+            cr,
+            d.style.texture,
+        );
+        const tarea = Rec(br.farX(), area.y, area.w - br.farX(), area.h);
+        d.ctx.textFmt(tarea.pos(), "{s}", .{self.name}, d.font, d.style.config.text_h, Color.Black, .{});
+
         //std.debug.print("{s} says: {any}\n", .{ self.name, self.bool_ptr.* });
     }
 
