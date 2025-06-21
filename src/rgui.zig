@@ -21,11 +21,17 @@ pub fn getVt(comptime T: type, vt: anytype) *T {
     return @alignCast(@fieldParentPtr("vt", vt));
 }
 
+pub const TextCbState = struct {
+    gui: *Gui,
+    text: []const u8,
+};
+
 pub const iArea = struct {
     draw_fn: ?*const fn (*iArea, DrawState) void = null,
     deinit_fn: ?*const fn (*iArea, *Gui, *iWindow) void = null,
     onclick: ?*const fn (*iArea, MouseCbState, *iWindow) void = null,
     onscroll: ?*const fn (*iArea, *Gui, *iWindow, distance: f32) void = null,
+    textinput: ?*const fn (*iArea, TextCbState, *iWindow) void = null,
 
     area: Rect,
     children: std.ArrayList(*iArea),
@@ -288,6 +294,48 @@ pub fn WidgetCombo(comptime enumT: type) type {
     };
 }
 
+pub const WidgetTextbox = struct {
+    vt: iArea,
+
+    text: std.ArrayList(u8),
+
+    pub fn build(gui: *Gui, area: Rect) !*iArea {
+        const self = try gui.alloc.create(@This());
+        self.* = .{
+            .vt = iArea.init(gui, area),
+            .text = std.ArrayList(u8).init(gui.alloc),
+        };
+        self.vt.deinit_fn = &deinit;
+        self.vt.draw_fn = &draw;
+        self.vt.onclick = &onclick;
+        self.vt.textinput = &textinput;
+        return &self.vt;
+    }
+
+    pub fn onclick(vt: *iArea, cb: MouseCbState, win: *iWindow) void {
+        const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
+        _ = self;
+        cb.gui.grabFocus(vt, win);
+    }
+
+    pub fn textinput(vt: *iArea, cb: TextCbState, _: *iWindow) void {
+        const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
+        self.text.appendSlice(cb.text) catch return;
+    }
+
+    pub fn draw(vt: *iArea, d: DrawState) void {
+        const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
+        d.ctx.rect(vt.area, if (d.gui.isFocused(vt)) 0xff00ffff else 0x222222ff);
+        d.ctx.textFmt(vt.area.pos(), "{s}", .{self.text.items}, d.font, vt.area.h, 0xff, .{});
+    }
+
+    pub fn deinit(vt: *iArea, gui: *Gui, _: *iWindow) void {
+        const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
+        self.text.deinit();
+        gui.alloc.destroy(self);
+    }
+};
+
 pub const WidgetVScroll = struct {
     pub const BuildCb = *const fn (*iArea, current_area: *iArea, index: usize, *Gui, *iWindow) void;
 
@@ -545,6 +593,8 @@ pub const WidgetScrollBar = struct {
         if (self.count < 2)
             return;
         const usable_width = vt.area.h - self.shuttle_h;
+        if (usable_width <= 0)
+            return;
         const countf: f32 = @floatFromInt(self.count - 1);
         const screen_space_per_value_space = usable_width / countf;
         self.shuttle_pos += cb.delta.y;
@@ -749,6 +799,9 @@ pub const MyInspector = struct {
         self.area.addChild(gui, vt, WidgetButton.build(gui, ly.getArea().?, "My button 2", null, null, 48) catch return);
         self.area.addChild(gui, vt, WidgetButton.build(gui, ly.getArea().?, "My button 3", null, null, 48) catch return);
 
+        self.area.addChild(gui, vt, WidgetTextbox.build(gui, ly.getArea().?) catch return);
+        self.area.addChild(gui, vt, WidgetTextbox.build(gui, ly.getArea().?) catch return);
+
         ly.pushRemaining();
         self.area.addChild(gui, vt, WidgetVScroll.build(
             gui,
@@ -827,6 +880,7 @@ const Vec2f = graph.Vec2f;
 pub const Gui = struct {
     const Self = @This();
     pub const MouseGrabFn = *const fn (*iArea, MouseCbState, *iWindow) void;
+    pub const TextinputFn = *const fn (*iArea, TextCbState, *iWindow) void;
     const MouseGrabState = enum { high, falling };
 
     alloc: std.mem.Allocator,
@@ -841,9 +895,16 @@ pub const Gui = struct {
         win: *iWindow,
     } = null,
 
+    focused: ?struct {
+        vt: *iArea,
+        win: *iWindow,
+    } = null,
+
     cached_drawing: bool = false,
     cache_map: std.AutoHashMap(*iArea, void),
     to_draw: std.ArrayList(*iArea),
+
+    text_listeners: std.ArrayList(*iArea),
 
     style: GuiConfig,
 
@@ -853,6 +914,7 @@ pub const Gui = struct {
             .windows = std.ArrayList(*iWindow).init(alloc),
             .cache_map = std.AutoHashMap(*iArea, void).init(alloc),
             .to_draw = std.ArrayList(*iArea).init(alloc),
+            .text_listeners = std.ArrayList(*iArea).init(alloc),
             .style = try GuiConfig.init(alloc, std.fs.cwd(), "asset/os9gui", std.fs.cwd()),
         };
     }
@@ -862,6 +924,7 @@ pub const Gui = struct {
             win.deinit_fn(win, self);
 
         self.windows.deinit();
+        self.text_listeners.deinit();
         self.closeTransientWindow();
         self.to_draw.deinit();
         self.cache_map.deinit();
@@ -880,6 +943,12 @@ pub const Gui = struct {
 
     pub fn registerOnClick(_: *Self, vt: *iArea, window: *iWindow) !void {
         try window.click_listeners.append(vt);
+    }
+
+    pub fn registerTextinput(self: *Self, vt: *iArea, window: *iWindow) !void {
+        _ = window;
+
+        try self.text_listeners.append(vt);
     }
 
     pub fn setDirty(self: *Self, vt: *iArea) void {
@@ -926,11 +995,35 @@ pub const Gui = struct {
                 break;
             }
         }
+        for (self.text_listeners.items, 0..) |item, index| {
+            if (item == vt) {
+                _ = self.text_listeners.swapRemove(index);
+                break;
+            }
+        }
         if (self.mouse_grab) |g| {
             if (g.vt == vt) {
                 self.mouse_grab = null;
             }
         }
+        if (self.focused) |f| {
+            if (f.vt == vt)
+                self.focused = null;
+        }
+    }
+
+    pub fn grabFocus(self: *Self, vt: *iArea, win: *iWindow) void {
+        self.focused = .{
+            .vt = vt,
+            .win = win,
+        };
+    }
+
+    pub fn isFocused(self: *Self, vt: *iArea) bool {
+        if (self.focused) |f| {
+            return f.vt == vt;
+        }
+        return false;
     }
 
     pub fn closeTransientWindow(self: *Self) void {
@@ -938,6 +1031,14 @@ pub const Gui = struct {
             tw.deinit_fn(tw, self);
         }
         self.transient_window = null;
+    }
+
+    pub fn dispatchTextinput(self: *Self, cb: TextCbState) void {
+        if (self.focused) |f| {
+            if (f.vt.textinput) |func| {
+                func(f.vt, cb, f.win);
+            }
+        }
     }
 
     pub fn dispatchClick(self: *Self, mstate: MouseCbState) void {
@@ -1029,6 +1130,7 @@ pub fn main() !void {
     try gui.addWindow(try MyInspector.create(&gui), window_area);
 
     var fbo = try graph.RenderTexture.init(800, 600);
+    win.startTextInput(null);
 
     while (!win.should_exit) {
         try fbo.setSize(win.screen_dimensions.x, win.screen_dimensions.y);
@@ -1063,6 +1165,7 @@ pub fn main() !void {
                 }
             },
         }
+        gui.dispatchTextinput(.{ .gui = &gui, .text = win.text_input });
         if (win.mouse.wheel_delta.y != 0)
             gui.dispatchScroll(win.mouse.pos, win.mouse.wheel_delta.y);
 
