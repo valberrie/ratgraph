@@ -12,6 +12,7 @@ pub const Widget = struct {
     pub usingnamespace @import("widget_basic.zig");
     pub usingnamespace @import("widget_combo.zig");
     pub usingnamespace @import("widget_colorpicker.zig");
+    pub usingnamespace @import("widget_slider.zig");
 };
 
 pub fn getVt(comptime T: type, vt: anytype) *T {
@@ -223,6 +224,16 @@ pub const FocusedEvent = struct {
     event: Event,
 };
 
+const ButtonState = graph.SDL.ButtonState;
+pub const UpdateState = struct {
+    tab: ButtonState,
+    shift: ButtonState,
+    mouse: struct { pos: Vec2f, delta: Vec2f, left: ButtonState, scroll: Vec2f },
+    text: []const u8,
+    mod: graph.SDL.keycodes.KeymodMask,
+    keys: []const graph.SDL.KeyState,
+};
+
 //Two options for this, we use a button widget which registers itself for onclick
 //or we listen for onclick and determine which was clicked
 
@@ -304,13 +315,59 @@ pub const VerticalLayout = struct {
     }
 };
 
+pub const Demo = struct {
+    alloc: std.mem.Allocator,
+    jobj: std.json.Parsed([]const UpdateState),
+    slice: []const u8,
+
+    index: usize = 0,
+
+    pub fn init(alloc: std.mem.Allocator, dir: std.fs.Dir, filename: []const u8) !@This() {
+        const file = try dir.openFile(filename, .{});
+        const slice = try file.reader().readAllAlloc(alloc, std.math.maxInt(usize));
+        const parsed = try std.json.parseFromSlice([]const UpdateState, alloc, slice, .{});
+        return .{
+            .slice = slice,
+            .alloc = alloc,
+            .jobj = parsed,
+        };
+    }
+
+    pub fn next(self: *@This()) ?*const UpdateState {
+        if (self.index < self.jobj.value.len) {
+            defer self.index += 1;
+            return &self.jobj.value[self.index];
+        }
+        return null;
+    }
+
+    pub fn deinit(self: *@This()) void {
+        self.jobj.deinit();
+        self.alloc.free(self.slice);
+    }
+};
+
 const Vec2f = graph.Vec2f;
 
+const ENABLE_TEST_BUILDER = true;
 pub const Gui = struct {
+    const TestBuilder = struct {
+        output_file: if (ENABLE_TEST_BUILDER) ?std.fs.File else void = if (ENABLE_TEST_BUILDER) null else {},
+        outj: if (ENABLE_TEST_BUILDER) std.json.WriteStream(std.fs.File.Writer, .{ .checked_to_fixed_depth = 256 }) else void = undefined,
+
+        fn emit(self: *@This(), updates: UpdateState) void {
+            if (ENABLE_TEST_BUILDER) {
+                if (self.output_file) |_|
+                    self.outj.write(updates) catch return;
+            }
+        }
+    };
     const Self = @This();
     pub const MouseGrabFn = *const fn (*iArea, MouseCbState, *iWindow) void;
     pub const TextinputFn = *const fn (*iArea, TextCbState, *iWindow) void;
     const MouseGrabState = enum { high, falling };
+
+    test_builder: TestBuilder = .{},
 
     alloc: std.mem.Allocator,
     windows: std.ArrayList(*iWindow),
@@ -373,6 +430,27 @@ pub const Gui = struct {
         self.closeTransientWindow();
         self.area_window_map.deinit();
         self.style.deinit();
+    }
+
+    pub fn openTestBuilder(self: *Self, dir: std.fs.Dir, filename: []const u8) !void {
+        if (ENABLE_TEST_BUILDER) {
+            self.test_builder = .{
+                .output_file = try dir.createFile(filename, .{}),
+                .outj = undefined,
+            };
+
+            self.test_builder.outj = std.json.writeStream(self.test_builder.output_file.?.writer(), .{});
+
+            try self.test_builder.outj.beginArray();
+        }
+    }
+
+    pub fn closeTestBuilder(self: *Self) void {
+        if (ENABLE_TEST_BUILDER) {
+            if (self.test_builder.output_file) |_| {
+                self.test_builder.outj.endArray() catch return;
+            }
+        }
     }
 
     /// Wrapper around alloc.create that never fails
@@ -478,7 +556,6 @@ pub const Gui = struct {
             self.transient_should_close = false;
             self.closeTransientWindow();
         }
-        try self.handleSdlEvents();
     }
 
     /// If transient windows destroy themselves, the program will crash as used memory is freed.
@@ -734,17 +811,16 @@ pub const Gui = struct {
         );
     }
 
-    pub fn handleSdlEvents(self: *Self) !void {
-        const win = self.sdl_win;
+    pub fn handleEvent(self: *Self, us: *const UpdateState) !void {
         const mstate = MouseCbState{
             .gui = self,
-            .pos = win.mouse.pos,
-            .delta = win.mouse.delta,
-            .state = win.mouse.left,
+            .pos = us.mouse.pos,
+            .delta = us.mouse.delta,
+            .state = us.mouse.left,
         };
-        if (win.keyRising(.TAB))
-            self.tabFocus(!win.keyHigh(.LSHIFT));
-        switch (win.mouse.left) {
+        if (us.tab == .rising)
+            self.tabFocus(!(us.shift == .high));
+        switch (us.mouse.left) {
             .rising => self.dispatchClick(mstate),
             .low => {
                 self.mouse_grab = null;
@@ -764,21 +840,37 @@ pub const Gui = struct {
             },
         }
         {
-            const keys = win.keys.slice();
+            const keys = us.keys;
             if (keys.len > 0) {
-                self.dispatchKeydown(.{ .keys = keys, .mod_state = win.mod });
+                self.dispatchKeydown(.{ .keys = keys, .mod_state = us.mod });
             }
         }
-        if (self.text_input_enabled and win.text_input.len > 0) {
+        if (self.text_input_enabled and us.text.len > 0) {
             self.dispatchTextinput(.{
                 .gui = self,
-                .text = win.text_input,
-                .mod_state = win.mod,
-                .keys = win.keys.slice(),
+                .text = us.text,
+                .mod_state = us.mod,
+                .keys = us.keys,
             });
         }
-        if (win.mouse.wheel_delta.y != 0)
-            self.dispatchScroll(win.mouse.pos, win.mouse.wheel_delta.y);
+        if (us.mouse.scroll.y != 0)
+            self.dispatchScroll(us.mouse.pos, us.mouse.scroll.y);
+    }
+
+    pub fn handleSdlEvents(self: *Self) !void {
+        const win = self.sdl_win;
+        const us = UpdateState{
+            .tab = win.keystate(.TAB),
+            .shift = win.keystate(.LSHIFT),
+            .mouse = .{ .pos = win.mouse.pos, .delta = win.mouse.delta, .left = win.mouse.left, .scroll = win.mouse.wheel_delta },
+            .text = win.text_input,
+            .mod = win.mod,
+            .keys = win.keys.slice(),
+        };
+        if (ENABLE_TEST_BUILDER) {
+            self.test_builder.emit(us);
+        }
+        try self.handleEvent(&us);
     }
 };
 

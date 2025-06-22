@@ -387,7 +387,8 @@ pub const Text = struct {
     }
 };
 
-pub const Slider = struct {
+/// A box that when clicked allows allows manipulation of a value by moving mouse in +- x
+pub const StaticSlider = struct {
     vt: iArea,
 
     num: f32,

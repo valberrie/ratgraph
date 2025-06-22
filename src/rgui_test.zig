@@ -36,6 +36,7 @@ pub const MyInspector = struct {
     inspector_state: u32 = 0,
     bool1: bool = false,
     bool2: bool = false,
+    i32_n: i32 = 3,
     number: f32 = 488.8,
     my_enum: MyEnum = .hello,
     fenum: std.fs.File.Kind = .file,
@@ -88,7 +89,7 @@ pub const MyInspector = struct {
 
         a.addChildOpt(gui, vt, Wg.Checkbox.build(gui, ly.getArea(), &self.bool1, "first button"));
         a.addChildOpt(gui, vt, Wg.Checkbox.build(gui, ly.getArea(), &self.bool2, "secnd button"));
-        a.addChildOpt(gui, vt, Wg.Slider.build(gui, ly.getArea(), 4, 0, 10));
+        a.addChildOpt(gui, vt, Wg.StaticSlider.build(gui, ly.getArea(), 4, 0, 10));
         a.addChild(gui, vt, Wg.Combo(MyEnum).build(gui, ly.getArea() orelse return, &self.my_enum));
         a.addChild(gui, vt, Wg.Combo(std.fs.File.Kind).build(gui, ly.getArea() orelse return, &self.fenum));
 
@@ -100,6 +101,8 @@ pub const MyInspector = struct {
         a.addChildOpt(gui, vt, Wg.Textbox.build(gui, ly.getArea()));
         a.addChildOpt(gui, vt, Wg.Textbox.build(gui, ly.getArea()));
         a.addChildOpt(gui, vt, Wg.TextboxNumber.build(gui, ly.getArea(), &self.number, vt));
+        a.addChildOpt(gui, vt, Wg.Slider(f32).build(gui, ly.getArea(), &self.number, -10, 10));
+        a.addChildOpt(gui, vt, Wg.Slider(i32).build(gui, ly.getArea(), &self.i32_n, -10, 10));
 
         ly.pushRemaining();
         a.addChildOpt(gui, vt, Wg.VScroll.build(
@@ -144,23 +147,42 @@ pub fn main() !void {
 
     var gui = try Gui.init(alloc, &win);
     defer gui.deinit();
+    const do_test_builder = true;
+    if (do_test_builder)
+        try gui.openTestBuilder(std.fs.cwd(), "testdum.txt");
+
+    defer {
+        if (do_test_builder)
+            gui.closeTestBuilder();
+    }
+    var demo = if (!do_test_builder) try guis.Demo.init(alloc, std.fs.cwd(), "testdum.txt") else {};
+    defer {
+        if (!do_test_builder)
+            demo.deinit();
+    }
     gui.style.config.default_item_h = @trunc(25 * 1.6);
     gui.style.config.text_h = @trunc(20 * 1.6);
     var font = try graph.Font.initFromBuffer(alloc, @embedFile("font/roboto.ttf"), gui.style.config.text_h, .{});
     defer font.deinit();
 
-    const window_area = .{ .x = 0, .y = 0, .w = 800, .h = 600 };
+    const window_area = .{ .x = 0, .y = 0, .w = 1000, .h = 1000 };
 
     const dstate = guis.DrawState{ .ctx = &draw, .font = &font.font, .style = &gui.style, .gui = &gui };
     try gui.addWindow(MyInspector.create(&gui), window_area);
 
     while (!win.should_exit) {
         try draw.begin(0xff, win.screen_dimensions.toF());
-        win.pumpEvents(.wait); //Important that this is called after draw.begin for input lag reasons
+        win.pumpEvents(if (do_test_builder) .wait else .poll);
         if (win.keyRising(.ESCAPE))
             win.should_exit = true;
 
         try gui.update();
+        if (do_test_builder) {
+            try gui.handleSdlEvents();
+        } else {
+            if (demo.next()) |up|
+                try gui.handleEvent(up);
+        }
         try gui.draw(dstate, false);
 
         gui.drawFbos(&draw);
