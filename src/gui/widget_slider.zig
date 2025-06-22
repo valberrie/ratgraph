@@ -10,7 +10,34 @@ const Color = graph.Colori;
 const VScroll = g.Widget.VScroll;
 const Widget = g.Widget;
 
-pub fn Slider(comptime number_T: type) type {
+pub const SliderOptions = struct {
+    nudge: f32 = 1,
+};
+
+fn numberTypeFromPtr(comptime T: type) type {
+    const invalid_type_error = "Slider: " ++ "Argument \'ptr\' expects a mutable pointer to an int or float. Recieved: " ++ @typeName(@TypeOf(T));
+    const info = @typeInfo(T);
+    switch (info) {
+        .Pointer => |p| {
+            if (p.is_const or p.size != .One) @compileError(invalid_type_error);
+            const cinfo = @typeInfo(p.child);
+            switch (cinfo) {
+                .Int, .Float => return p.child,
+                else => @compileError(invalid_type_error),
+            }
+        },
+        else => @compileError(invalid_type_error),
+    }
+}
+
+pub const Slider = struct {
+    pub fn build(gui: *Gui, area_o: ?Rect, ptr: anytype, min: anytype, max: anytype, opts: SliderOptions) ?*iArea {
+        const Gen = SliderGeneric(numberTypeFromPtr(@TypeOf(ptr)));
+        return Gen.build(gui, area_o, ptr, min, max, opts);
+    }
+};
+
+pub fn SliderGeneric(comptime number_T: type) type {
     const info = @typeInfo(number_T);
     switch (info) {
         .Int, .Float => {},
@@ -24,8 +51,9 @@ pub fn Slider(comptime number_T: type) type {
         ptr: *number_T,
         min: number_T,
         max: number_T,
+        nudge_dist: f32,
 
-        pub fn build(gui: *Gui, area_o: ?Rect, ptr: *number_T, min: anytype, max: anytype) ?*iArea {
+        pub fn build(gui: *Gui, area_o: ?Rect, ptr: *number_T, min: anytype, max: anytype, opts: SliderOptions) ?*iArea {
             const area = area_o orelse return null;
             if (min >= max) return null;
             const self = gui.create(@This());
@@ -36,7 +64,10 @@ pub fn Slider(comptime number_T: type) type {
                 .shuttle_rect = Rec(0, 0, 16 * gui.scale, area.h),
                 .min = std.math.lossyCast(number_T, min),
                 .max = std.math.lossyCast(number_T, max),
+                .nudge_dist = opts.nudge,
             };
+            self.vt.can_tab_focus = true;
+            self.vt.focusEvent = &fevent;
             self.shuttle_rect.x = self.valueToShuttlePos();
             self.vt.draw_fn = &draw;
             self.vt.deinit_fn = &deinit; //we must free our memory !
@@ -44,11 +75,45 @@ pub fn Slider(comptime number_T: type) type {
             return &self.vt;
         }
 
+        pub fn fevent(vt: *iArea, ev: g.FocusedEvent) void {
+            const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
+            switch (ev.event) {
+                .focusChanged => vt.dirty(ev.gui),
+                else => {},
+                .keydown => |kev| {
+                    for (kev.keys) |k| {
+                        switch (@as(graph.SDL.keycodes.Scancode, @enumFromInt(k.key_id))) {
+                            else => {},
+                            .LEFT => {
+                                vt.dirty(ev.gui);
+                                self.nudge(-self.nudge_dist);
+                            },
+                            .RIGHT => {
+                                vt.dirty(ev.gui);
+                                self.nudge(self.nudge_dist);
+                            },
+                        }
+                    }
+                },
+            }
+        }
+
+        fn nudge(self: *@This(), amount: f32) void {
+            var float: f32 = std.math.lossyCast(f32, self.ptr.*);
+            float += amount;
+
+            float = std.math.clamp(float, std.math.lossyCast(f32, self.min), std.math.lossyCast(f32, self.max));
+            self.ptr.* = std.math.lossyCast(number_T, float);
+            self.shuttle_rect.x = self.valueToShuttlePos();
+        }
+
         fn shuttlePosToValue(self: *const @This()) number_T {
             const ss_per_val = self.ss_per_v();
             if (ss_per_val == 0)
                 return self.ptr.*;
-            return std.math.lossyCast(number_T, self.shuttle_rect.x / ss_per_val);
+
+            //Add back self.min as shuttle.x always starts at 0
+            return std.math.lossyCast(number_T, self.shuttle_rect.x / ss_per_val) + self.min;
         }
 
         fn ss_per_v(self: *const @This()) f32 {
@@ -65,7 +130,8 @@ pub fn Slider(comptime number_T: type) type {
             if (ss_per_value == 0)
                 return 0;
 
-            const pos = std.math.lossyCast(f32, self.ptr.*) * ss_per_value;
+            //Subtract self.min so value is measured from 0
+            const pos = std.math.lossyCast(f32, self.ptr.* - self.min) * ss_per_value;
             return std.math.clamp(pos, 0, self.vt.area.w - self.shuttle_rect.w);
         }
 
@@ -84,6 +150,7 @@ pub fn Slider(comptime number_T: type) type {
             const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
             if (self.shuttleSS().containsPoint(cb.pos)) {
                 vt.dirty(cb.gui);
+                cb.gui.grabFocus(vt, win);
                 cb.gui.grabMouse(&mouseGrabbed, vt, win);
             }
         }
@@ -127,6 +194,7 @@ pub fn Slider(comptime number_T: type) type {
                     }
                 }
             }
+            const is_focused = d.gui.isFocused(vt);
 
             //const hr = Rec(vt.area.w / 3, 0, 16 * d.scale, vt.area.h);
             d.ctx.nineSlice(
@@ -134,7 +202,7 @@ pub fn Slider(comptime number_T: type) type {
                 shuttle,
                 d.style.texture,
                 d.scale,
-                d.tint,
+                if (is_focused) d.style.config.colors.selected else d.tint,
             );
 
             //d.ctx.("{d:.2}", .{value.*}, textb, self.style.config.text_h, (0xff), .{ .justify = .center }, self.font);

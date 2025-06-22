@@ -154,7 +154,7 @@ pub const Checkbox = struct {
         const br = Rect.newV(.{ .x = area.x + bw, .y = area.y + pad }, .{ .x = @min(cr.w * d.scale, area.w), .y = h });
         d.ctx.rect(vt.area, d.style.config.colors.background);
         if (is_focused)
-            d.ctx.rectBorder(vt.area, bw, 0xff);
+            d.ctx.rectBorder(vt.area, bw, d.style.config.colors.selected);
         d.ctx.rectTex(
             br,
             cr,

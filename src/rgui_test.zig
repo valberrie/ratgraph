@@ -101,8 +101,9 @@ pub const MyInspector = struct {
         a.addChildOpt(gui, vt, Wg.Textbox.build(gui, ly.getArea()));
         a.addChildOpt(gui, vt, Wg.Textbox.build(gui, ly.getArea()));
         a.addChildOpt(gui, vt, Wg.TextboxNumber.build(gui, ly.getArea(), &self.number, vt));
-        a.addChildOpt(gui, vt, Wg.Slider(f32).build(gui, ly.getArea(), &self.number, -10, 10));
-        a.addChildOpt(gui, vt, Wg.Slider(i32).build(gui, ly.getArea(), &self.i32_n, -10, 10));
+        a.addChildOpt(gui, vt, Wg.Slider.build(gui, ly.getArea(), &self.number, -10, 10, .{}));
+        a.addChildOpt(gui, vt, Wg.Slider.build(gui, ly.getArea(), &self.i32_n, -10, 10, .{}));
+        a.addChildOpt(gui, vt, Wg.Slider.build(gui, ly.getArea(), &self.i32_n, 0, 10, .{}));
 
         ly.pushRemaining();
         a.addChildOpt(gui, vt, Wg.VScroll.build(
