@@ -273,9 +273,7 @@ pub const Textbox = struct {
     }
 
     fn commitNumber(self: *@This()) void {
-        std.debug.print("cmmimm\n", .{});
         if (self.number) |num| {
-            std.debug.print("COMMIT \n", .{});
             num.parse_cb(num.vt, self.codepoints.items) catch return;
         }
     }
