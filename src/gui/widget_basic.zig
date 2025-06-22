@@ -144,15 +144,20 @@ pub const Checkbox = struct {
         const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
         const cr = d.style.getRect(if (self.bool_ptr.*) .checkbox_checked else .checkbox_empty);
         const is_focused = d.gui.isFocused(vt);
+
         const area = vt.area;
-        const br = Rect.newV(area.pos(), .{ .x = @min(cr.w * d.scale, area.w), .y = @min(cr.h * d.scale, area.h) });
+        const h = @min(cr.h * d.scale, area.h);
+        const pad = (area.h - h) / 2;
+        const br = Rect.newV(.{ .x = area.x, .y = area.y + pad }, .{ .x = @min(cr.w * d.scale, area.w), .y = h });
         d.ctx.rect(vt.area, d.style.config.colors.background);
+        if (is_focused)
+            d.ctx.rectBorder(vt.area, 1, 0xff);
         d.ctx.rectTex(
             br,
             cr,
             d.style.texture,
         );
-        const tarea = Rec(br.farX(), area.y, area.w - br.farX(), area.h);
+        const tarea = Rec(br.farX() + pad, area.y + pad, area.w - br.farX(), area.h);
         d.ctx.textFmt(tarea.pos(), "{s}{s}", .{ if (is_focused) "focus" else "", self.name }, d.font, d.style.config.text_h, Color.Black, .{});
 
         //std.debug.print("{s} says: {any}\n", .{ self.name, self.bool_ptr.* });
@@ -366,8 +371,9 @@ pub const Text = struct {
 
     pub fn draw(vt: *iArea, d: DrawState) void {
         const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
-        d.ctx.rect(vt.area, 0x5ffff0ff);
-        d.ctx.textFmt(vt.area.pos(), "{s}", .{self.text.items}, d.font, vt.area.h, 0xff, .{});
+        //d.ctx.rect(vt.area, 0x5ffff0ff);
+        const h = d.style.config.default_item_h;
+        d.ctx.textFmt(vt.area.pos(), "{s}", .{self.text.items}, d.font, h, 0xff, .{});
     }
 };
 

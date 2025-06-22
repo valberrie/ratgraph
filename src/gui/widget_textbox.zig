@@ -104,6 +104,7 @@ pub const Textbox = struct {
     const None = M.mask(&.{.NONE});
     //TODO make this configurable
     const edit_keys_list = graph.Bind(&.{
+        .{ .name = "commit", .bind = .{ .RETURN, None } },
         .{ .name = "backspace", .bind = .{ .BACKSPACE, None } },
         .{ .name = "delete", .bind = .{ .DELETE, None } },
         .{ .name = "delete_word_right", .bind = .{ .DELETE, M.mask(&.{.LCTRL}) } },
@@ -250,20 +251,20 @@ pub const Textbox = struct {
         fevent_err(vt, ev) catch return;
     }
 
+    fn commitNumber(self: *@This()) void {
+        std.debug.print("cmmimm\n", .{});
+        if (self.number) |num| {
+            std.debug.print("COMMIT \n", .{});
+            num.parse_cb(num.vt, self.codepoints.items) catch return;
+        }
+    }
+
     pub fn fevent_err(vt: *iArea, ev: g.FocusedEvent) !void {
         const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
         switch (ev.event) {
             .focusChanged => |focused| {
                 if (focused) ev.gui.startTextinput(vt.area) else ev.gui.stopTextInput();
-
-                if (self.number) |num| {
-                    if (focused) {
-                        //Do nothing,
-                    } else {
-                        // Set the number to what we have
-                        num.parse_cb(num.vt, self.codepoints.items) catch return;
-                    }
-                }
+                if (!focused) self.commitNumber();
 
                 vt.dirty(ev.gui);
             },
@@ -282,6 +283,7 @@ pub const Textbox = struct {
                 }
                 for (kev.keys) |key| {
                     switch (StaticData.key_binds.getWithMod(@enumFromInt(key.key_id), mod) orelse continue) {
+                        .commit => self.commitNumber(),
                         .move_left => tb.move_to(.left),
                         .move_right => tb.move_to(.right),
                         .move_word_right => tb.move_to(.next_word_end),
