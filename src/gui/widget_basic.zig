@@ -96,7 +96,7 @@ pub fn Combo(comptime enumT: type) type {
         pub fn onclick(vt: *iArea, cb: MouseCbState, win: *iWindow) void {
             const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
             _ = win;
-            self.makeTransientWindow(cb.gui, Rec(0, 0, 600, 300)) catch return;
+            self.makeTransientWindow(cb.gui, Rec(vt.area.x, vt.area.y, vt.area.w, 500)) catch return;
         }
 
         pub fn buttonCb(vt: *iArea, id: usize, gui: *Gui) void {
@@ -331,6 +331,7 @@ pub const Button = struct {
 
     pub fn onclick(vt: *iArea, cb: MouseCbState, win: *iWindow) void {
         const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
+        vt.dirty(cb.gui);
         if (self.callback_fn) |cbfn|
             cbfn(self.callback_vt.?, self.user_id, cb.gui);
         cb.gui.grabMouse(&@This().mouseGrabbed, vt, win);

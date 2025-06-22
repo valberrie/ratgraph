@@ -148,7 +148,6 @@ pub fn main() !void {
     try gui.addWindow(try MyInspector.create(&gui), window_area);
 
     var fbo = try graph.RenderTexture.init(800, 600);
-    win.startTextInput(null);
 
     var transient_fbo = try graph.RenderTexture.init(600, 600);
     defer transient_fbo.deinit();
@@ -158,7 +157,7 @@ pub fn main() !void {
         if (try fbo.setSize(win.screen_dimensions.x, win.screen_dimensions.y))
             force_redraw = true;
         try draw.begin(0xff, win.screen_dimensions.toF());
-        win.pumpEvents(.poll); //Important that this is called after draw.begin for input lag reasons
+        win.pumpEvents(.wait); //Important that this is called after draw.begin for input lag reasons
         if (win.keyRising(.ESCAPE))
             win.should_exit = true;
 

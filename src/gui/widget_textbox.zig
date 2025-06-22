@@ -150,6 +150,7 @@ pub const Textbox = struct {
             },
             .text_input => |st| textinput_cb(vt, st, ev.window),
             .keydown => |kev| {
+                vt.dirty(ev.gui);
                 const mod = kev.mod_state & ~M.mask(&.{ .SCROLL, .NUM, .CAPS });
                 const tb = self;
                 const StaticData = struct {
