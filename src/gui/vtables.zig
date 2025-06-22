@@ -37,6 +37,8 @@ pub const iArea = struct {
     can_tab_focus: bool = false,
 
     parent: ?*iArea = null,
+    /// If this area is set dirty, set parents dirty (dirty_parents) deep
+    dirty_parents: u8 = 0,
     index: usize = 0,
     area: Rect,
     children: std.ArrayList(*iArea),
@@ -47,6 +49,10 @@ pub const iArea = struct {
             .area = area,
             .children = std.ArrayList(*iArea).init(gui.alloc),
         };
+    }
+
+    pub fn getLastChild(self: *@This()) ?*iArea {
+        return self.children.getLastOrNull();
     }
 
     pub fn deinit(self: *@This(), gui: *Gui, win: *iWindow) void {
@@ -548,7 +554,16 @@ pub const Gui = struct {
 
     pub fn setDirty(self: *Self, vt: *iArea, win: *iWindow) void {
         if (self.cached_drawing) {
-            win.to_draw.append(vt) catch return;
+            if (vt.dirty_parents > 0) {
+                var parent: *iArea = vt;
+                for (0..@intCast(vt.dirty_parents)) |_| {
+                    if (parent.parent) |p|
+                        parent = p;
+                }
+                win.to_draw.append(parent) catch return;
+            } else {
+                win.to_draw.append(vt) catch return;
+            }
         }
     }
 

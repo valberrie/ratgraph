@@ -94,6 +94,11 @@ pub const TextboxNumber = struct {
 pub const NumberPrintFn = *const fn (*iArea, *std.ArrayList(u8)) void;
 pub const NumberParseFn = *const fn (*iArea, []const u8) error{invalid}!void;
 
+pub const TextboxOptions = struct {
+    commit_cb: ?*const fn (*iArea, *Gui, []const u8) void = null,
+    commit_vt: ?*iArea = null,
+};
+
 //Can we stick some kind of comptime thing as a child of this that gets set with number?
 //onFocus, needs to call printNumber
 const utf8 = @import("../utf8.zig");
@@ -144,6 +149,8 @@ pub const Textbox = struct {
         restricted_charset: ?[]const u8 = null,
         max_len: ?usize = null,
     } = .{},
+
+    opts: TextboxOptions = .{},
 
     number: ?struct {
         print_cb: NumberPrintFn,
@@ -208,11 +215,16 @@ pub const Textbox = struct {
     //}
 
     pub fn build(gui: *Gui, area_o: ?Rect) ?*iArea {
+        return buildOpts(gui, area_o, .{});
+    }
+
+    pub fn buildOpts(gui: *Gui, area_o: ?Rect, opts: TextboxOptions) ?*iArea {
         const area = area_o orelse return null;
         const self = gui.create(@This());
         self.* = .{
             .vt = iArea.init(gui, area),
             .codepoints = std.ArrayList(u8).init(gui.alloc),
+            .opts = opts,
             .head = 0,
             .tail = 0,
         };
@@ -253,6 +265,13 @@ pub const Textbox = struct {
         fevent_err(vt, ev) catch return;
     }
 
+    fn setNumber(self: *@This()) void {
+        if (self.number) |num| {
+            self.reset("") catch return;
+            num.print_cb(num.vt, &self.codepoints);
+        }
+    }
+
     fn commitNumber(self: *@This()) void {
         std.debug.print("cmmimm\n", .{});
         if (self.number) |num| {
@@ -266,7 +285,7 @@ pub const Textbox = struct {
         switch (ev.event) {
             .focusChanged => |focused| {
                 if (focused) ev.gui.startTextinput(vt.area) else ev.gui.stopTextInput();
-                if (!focused) self.commitNumber();
+                if (focused) self.setNumber() else self.commitNumber();
 
                 vt.dirty(ev.gui);
             },
@@ -285,7 +304,12 @@ pub const Textbox = struct {
                 }
                 for (kev.keys) |key| {
                     switch (StaticData.key_binds.getWithMod(@enumFromInt(key.key_id), mod) orelse continue) {
-                        .commit => self.commitNumber(),
+                        .commit => {
+                            self.commitNumber();
+                            if (self.opts.commit_vt) |cvt| {
+                                self.opts.commit_cb.?(cvt, ev.gui, self.codepoints.items);
+                            }
+                        },
                         .move_left => tb.move_to(.left),
                         .move_right => tb.move_to(.right),
                         .move_word_right => tb.move_to(.next_word_end),

@@ -205,8 +205,7 @@ pub fn SliderGeneric(comptime number_T: type) type {
                 if (is_focused) d.style.config.colors.selected else d.tint,
             );
 
-            //d.ctx.("{d:.2}", .{value.*}, textb, self.style.config.text_h, (0xff), .{ .justify = .center }, self.font);
-            d.ctx.textFmt(textb.pos(), "{d:.2}", .{self.ptr.*}, d.textP(null));
+            d.ctx.textClipped(textb, "{d:.2}", .{self.ptr.*}, d.textP(null), .center);
         }
     };
 }

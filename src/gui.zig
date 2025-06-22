@@ -2202,7 +2202,7 @@ pub const GuiDrawContext = struct {
             if (i >= self.window_fbs.items.len) {
                 try self.window_fbs.append(try graph.RenderTexture.init(w.area.w, w.area.h));
             } else {
-                try self.window_fbs.items[i].setSize(w.area.w, w.area.h);
+                _ = try self.window_fbs.items[i].setSize(w.area.w, w.area.h);
             }
             self.camera_bounds = w.area;
             self.window_fbs.items[i].bind(ignore_cache);
@@ -2341,7 +2341,7 @@ pub const GuiDrawContext = struct {
             .text => |t| {
                 const p = t.pos.toF();
 
-                draw.text(p, t.string, t.font, t.size, (t.color), .{});
+                draw.text(p, t.string, .{ .color = t.color, .px_size = t.size, .font = t.font });
             },
             .line => |l| {
                 draw.line(l.a, l.b, (l.color));

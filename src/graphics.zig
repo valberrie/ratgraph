@@ -967,14 +967,19 @@ pub const MultiLineText = struct {
 
     pub fn text(self: *@This(), str: []const u8, px_size: f32, col: u32) void {
         var w: f32 = 0;
-        self.ctx.text(self.pos, str, self.font, px_size, col, .{ .width_pointer = &w });
+        self.ctx.text(self.pos, str, .{ .width_pointer = &w, .color = col, .font = self.font, .px_size = px_size });
         self.max_width = @max(w, self.max_width);
         self.pos.y += px_size;
     }
 
     pub fn textFmt(self: *@This(), comptime fmt: []const u8, args: anytype, px_size: f32, color: u32) void {
         var w: f32 = 0;
-        self.ctx.textFmt(self.pos, fmt, args, self.font, px_size, color, .{ .width_pointer = &w });
+        self.ctx.textFmt(self.pos, fmt, args, .{
+            .width_pointer = &w,
+            .color = color,
+            .px_size = px_size,
+            .font = self.font,
+        });
         self.max_width = @max(w, self.max_width);
         self.pos.y += px_size;
     }
