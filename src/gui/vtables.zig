@@ -11,6 +11,7 @@ pub const Widget = struct {
     pub usingnamespace @import("widget_textbox.zig");
     pub usingnamespace @import("widget_basic.zig");
     pub usingnamespace @import("widget_combo.zig");
+    pub usingnamespace @import("widget_colorpicker.zig");
 };
 
 pub fn getVt(comptime T: type, vt: anytype) *T {
@@ -225,6 +226,32 @@ pub const FocusedEvent = struct {
 //start with a window
 //call to register window, that window has a "build" vfunc?
 
+pub const HorizLayout = struct {
+    count: usize,
+    paddingh: f32 = 20,
+    index: usize = 0,
+    current_w: f32 = 0,
+    hidden: bool = false,
+    count_override: ?usize = null,
+
+    bounds: Rect,
+
+    pub fn getArea(self: *@This()) ?Rect {
+        defer self.index += if (self.count_override) |co| co else 1;
+        const fc: f32 = @floatFromInt(self.count);
+        const w = ((self.bounds.w - self.paddingh * (fc - 1)) / fc) * @as(f32, @floatFromInt(if (self.count_override) |co| co else 1));
+        self.count_override = null;
+
+        defer self.current_w += w + self.paddingh;
+
+        return .{ .x = self.bounds.x + self.current_w, .y = self.bounds.y, .w = w, .h = self.bounds.h };
+    }
+
+    pub fn pushCount(self: *HorizLayout, next_count: usize) void {
+        self.count_override = next_count;
+    }
+};
+
 pub const VerticalLayout = struct {
     const Self = @This();
     padding: graph.Padding = .{ .top = 0, .bottom = 0, .left = 0, .right = 0 },
@@ -305,6 +332,7 @@ pub const Gui = struct {
     draws_since_cached: i32 = 0,
     max_cached_before_full_flush: i32 = 60 * 10, //Ten seconds
     cached_drawing: bool = true,
+    clamp_window: Rect,
 
     text_input_enabled: bool = false,
     sdl_win: *graph.SDL.Window,
@@ -316,6 +344,7 @@ pub const Gui = struct {
         return Gui{
             .alloc = alloc,
             .area_window_map = std.AutoHashMap(*iArea, *iWindow).init(alloc),
+            .clamp_window = graph.Rec(0, 0, win.screen_dimensions.x, win.screen_dimensions.y),
             .windows = std.ArrayList(*iWindow).init(alloc),
             .transient_fbo = try graph.RenderTexture.init(100, 100),
             .fbos = std.AutoHashMap(*iWindow, graph.RenderTexture).init(alloc),
@@ -339,6 +368,12 @@ pub const Gui = struct {
         self.closeTransientWindow();
         self.area_window_map.deinit();
         self.style.deinit();
+    }
+
+    /// Wrapper around alloc.create that never fails
+    /// Graceful handling of OOM is not a concern for us
+    pub fn create(self: *Self, T: type) *T {
+        return self.alloc.create(T) catch std.process.exit(1);
     }
 
     pub fn needsDraw(self: *Self, vt: *iArea, window: *iWindow) bool {
@@ -501,6 +536,31 @@ pub const Gui = struct {
         };
         if (vt.focusEvent) |fc|
             fc(vt, .{ .gui = self, .window = win, .event = .{ .focusChanged = true } });
+    }
+
+    pub fn clampRectToWindow(self: *const Self, area: Rect) Rect {
+        const wr = self.clamp_window.toAbsoluteRect();
+        var other = area.toAbsoluteRect();
+        //TODO do y axis aswell
+
+        if (other.w > wr.w) {
+            const diff = other.w - wr.w;
+            other.w = wr.w;
+            other.x -= diff;
+        }
+
+        if (other.x < wr.x)
+            other.x = wr.x;
+
+        if (other.h > wr.h) {
+            const diff = other.h - wr.h;
+            other.h = wr.h;
+            other.y -= diff;
+        }
+
+        if (other.y < wr.y)
+            other.y = wr.y;
+        return graph.Rec(other.x, other.y, other.w - other.x, other.h - other.y);
     }
 
     pub fn isFocused(self: *Self, vt: *iArea) bool {
@@ -714,5 +774,18 @@ pub const Gui = struct {
         }
         if (win.mouse.wheel_delta.y != 0)
             self.dispatchScroll(win.mouse.pos, win.mouse.wheel_delta.y);
+    }
+};
+
+pub const GuiHelp = struct {
+    pub fn drawWindowFrame(d: DrawState, area: Rect) void {
+        const _br = d.style.getRect(.window);
+        d.ctx.nineSlice(area, _br, d.style.texture, d.scale, d.tint);
+    }
+
+    pub fn insetAreaForWindowFrame(gui: *Gui, area: Rect) Rect {
+        const _br = gui.style.getRect(.window);
+        const border_area = area.inset((_br.h / 3) * gui.scale);
+        return border_area;
     }
 };

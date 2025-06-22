@@ -23,8 +23,8 @@ pub const VScroll = struct {
     index: usize = 0,
     count: usize = 10,
 
-    pub fn build(gui: *Gui, area: Rect, build_cb: BuildCb, build_cb_vt: *iArea, win: *iWindow, count: usize, item_h_hint: f32) !*iArea {
-        const self = try gui.alloc.create(@This());
+    pub fn build(gui: *Gui, area: Rect, build_cb: BuildCb, build_cb_vt: *iArea, win: *iWindow, count: usize, item_h_hint: f32) *iArea {
+        const self = gui.create(@This());
         self.* = .{
             .vt = iArea.init(gui, area),
             .count = count,
@@ -38,7 +38,7 @@ pub const VScroll = struct {
         const SW = 30;
         const split = self.vt.area.split(.vertical, self.vt.area.w - SW);
         _ = self.vt.addEmpty(gui, win, split[0]);
-        self.vt.addChild(gui, win, try ScrollBar.build(
+        self.vt.addChild(gui, win, ScrollBar.build(
             gui,
             split[1],
             &self.index,
@@ -99,8 +99,8 @@ pub const Checkbox = struct {
     bool_ptr: *bool,
     name: []const u8,
 
-    pub fn build(gui: *Gui, area: Rect, bool_ptr: *bool, name: []const u8) !*iArea {
-        const self = try gui.alloc.create(@This());
+    pub fn build(gui: *Gui, area: Rect, bool_ptr: *bool, name: []const u8) *iArea {
+        const self = gui.create(@This());
         self.* = .{
             .vt = iArea.init(gui, area),
             .bool_ptr = bool_ptr,
@@ -176,8 +176,8 @@ pub const Button = struct {
     text: []const u8,
     is_down: bool = false,
 
-    pub fn build(gui: *Gui, area: Rect, name: []const u8, cb_vt: ?*iArea, cb_fn: ?ButtonCallbackT, id: usize) !*iArea {
-        const self = try gui.alloc.create(@This());
+    pub fn build(gui: *Gui, area: Rect, name: []const u8, cb_vt: ?*iArea, cb_fn: ?ButtonCallbackT, id: usize) *iArea {
+        const self = gui.create(@This());
         self.* = .{
             .vt = iArea.init(gui, area),
             .text = name,
@@ -219,6 +219,7 @@ pub const Button = struct {
     pub fn onclick(vt: *iArea, cb: MouseCbState, win: *iWindow) void {
         const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
         vt.dirty(cb.gui);
+        self.is_down = true;
         if (self.callback_fn) |cbfn|
             cbfn(self.callback_vt.?, self.user_id, cb.gui, win);
         cb.gui.grabMouse(&@This().mouseGrabbed, vt, win);
@@ -237,8 +238,8 @@ pub const ScrollBar = struct {
     shuttle_h: f32 = 0,
     shuttle_pos: f32 = 0,
 
-    pub fn build(gui: *Gui, area: Rect, index_ptr: *usize, count: usize, item_h: f32, parent_vt: *iArea, notify_fn: NotifyFn) !*iArea {
-        const self = try gui.alloc.create(@This());
+    pub fn build(gui: *Gui, area: Rect, index_ptr: *usize, count: usize, item_h: f32, parent_vt: *iArea, notify_fn: NotifyFn) *iArea {
+        const self = gui.create(@This());
 
         const shuttle_min_w = 50;
         self.* = .{
@@ -377,8 +378,8 @@ pub const Slider = struct {
     min: f32,
     max: f32,
 
-    pub fn build(gui: *Gui, area: Rect, num: f32, min: f32, max: f32) !*iArea {
-        const self = try gui.alloc.create(@This());
+    pub fn build(gui: *Gui, area: Rect, num: f32, min: f32, max: f32) *iArea {
+        const self = gui.create(@This());
         self.* = .{
             .vt = iArea.init(gui, area),
             .num = num,

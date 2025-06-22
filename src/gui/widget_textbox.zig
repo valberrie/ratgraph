@@ -111,8 +111,8 @@ pub const Textbox = struct {
     //    return Self{ .codepoints = std.ArrayList(u8).init(alloc), .head = 0, .tail = 0 };
     //}
 
-    pub fn build(gui: *Gui, area: Rect) !*iArea {
-        const self = try gui.alloc.create(@This());
+    pub fn build(gui: *Gui, area: Rect) *iArea {
+        const self = gui.create(@This());
         self.* = .{
             .vt = iArea.init(gui, area),
             .codepoints = std.ArrayList(u8).init(gui.alloc),

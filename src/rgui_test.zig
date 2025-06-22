@@ -3,6 +3,7 @@ const graph = @import("graphics.zig");
 const Dctx = graph.ImmediateDrawingContext;
 const Os9Gui = @import("gui_app.zig");
 const GuiConfig = Os9Gui.GuiConfig;
+const GuiHelp = guis.GuiHelp;
 
 const Rect = graph.Rect;
 const Rec = graph.Rec;
@@ -37,12 +38,13 @@ pub const MyInspector = struct {
     bool2: bool = false,
     my_enum: MyEnum = .hello,
     fenum: std.fs.File.Kind = .file,
+    color: u32 = 0xff_ff,
     //This subscribes to onScroll
     //has two child layouts,
     //the act of splitting is not the Layouts job
 
-    pub fn create(gui: *Gui) !*iWindow {
-        const self = try gui.alloc.create(@This());
+    pub fn create(gui: *Gui) *iWindow {
+        const self = gui.create(@This());
         self.* = .{
             .area = iArea.init(gui, Rec(0, 0, 0, 0)),
             .vt = iWindow.init(&@This().build, gui, &@This().deinit, &self.area),
@@ -63,12 +65,7 @@ pub const MyInspector = struct {
     pub fn area_deinit(_: *iArea, _: *Gui, _: *iWindow) void {}
 
     pub fn draw(vt: *iArea, d: DrawState) void {
-        //const self: *@This() = @alignCast(@fieldParentPtr("area", vt));
-        const _br = d.style.getRect(.window);
-        const win_area = vt.area;
-        //const border_area = win_area.inset((_br.h / 3) * d.scale);
-        d.ctx.nineSlice(win_area, _br, d.style.texture, d.scale, d.tint);
-        //self.layout.draw(d);
+        GuiHelp.drawWindowFrame(d, vt.area);
     }
 
     pub fn build(vt: *iWindow, gui: *Gui, area: Rect) void {
@@ -78,33 +75,32 @@ pub const MyInspector = struct {
         //self.layout.reset(gui, vt);
         //start a vlayout
         //var ly = Vert{ .area = vt.area };
-        const _br = gui.style.getRect(.window);
-        const win_area = vt.area.area;
-        const border_area = win_area.inset((_br.h / 3) * gui.scale);
         var ly = guis.VerticalLayout{
             .padding = .{},
             .item_height = gui.style.config.default_item_h,
-            .bounds = border_area,
+            .bounds = GuiHelp.insetAreaForWindowFrame(gui, vt.area.area),
         };
         ly.padding.left = 10;
         ly.padding.right = 10;
         ly.padding.top = 10;
+        const a = &self.area;
 
-        self.area.addChild(gui, vt, Wg.Checkbox.build(gui, ly.getArea().?, &self.bool1, "first button") catch return);
-        self.area.addChild(gui, vt, Wg.Checkbox.build(gui, ly.getArea().?, &self.bool2, "secnd button") catch return);
-        self.area.addChild(gui, vt, Wg.Slider.build(gui, ly.getArea().?, 4, 0, 10) catch return);
-        self.area.addChild(gui, vt, Wg.Combo(MyEnum).build(gui, ly.getArea().?, &self.my_enum) catch return);
-        self.area.addChild(gui, vt, Wg.Combo(std.fs.File.Kind).build(gui, ly.getArea().?, &self.fenum) catch return);
+        a.addChild(gui, vt, Wg.Checkbox.build(gui, ly.getArea().?, &self.bool1, "first button"));
+        a.addChild(gui, vt, Wg.Checkbox.build(gui, ly.getArea().?, &self.bool2, "secnd button"));
+        a.addChild(gui, vt, Wg.Slider.build(gui, ly.getArea().?, 4, 0, 10));
+        a.addChild(gui, vt, Wg.Combo(MyEnum).build(gui, ly.getArea().?, &self.my_enum));
+        a.addChild(gui, vt, Wg.Combo(std.fs.File.Kind).build(gui, ly.getArea().?, &self.fenum));
 
-        self.area.addChild(gui, vt, Wg.Button.build(gui, ly.getArea().?, "My button", &self.area, @This().btnCb, 48) catch return);
-        self.area.addChild(gui, vt, Wg.Button.build(gui, ly.getArea().?, "My button 2", null, null, 48) catch return);
-        self.area.addChild(gui, vt, Wg.Button.build(gui, ly.getArea().?, "My button 3", null, null, 48) catch return);
+        a.addChild(gui, vt, Wg.Button.build(gui, ly.getArea().?, "My button", &self.area, @This().btnCb, 48));
+        a.addChild(gui, vt, Wg.Button.build(gui, ly.getArea().?, "My button 2", null, null, 48));
+        a.addChild(gui, vt, Wg.Button.build(gui, ly.getArea().?, "My button 3", null, null, 48));
+        a.addChild(gui, vt, Wg.Colorpicker.build(gui, ly.getArea().?, &self.color));
 
-        self.area.addChild(gui, vt, Wg.Textbox.build(gui, ly.getArea().?) catch return);
-        self.area.addChild(gui, vt, Wg.Textbox.build(gui, ly.getArea().?) catch return);
+        a.addChild(gui, vt, Wg.Textbox.build(gui, ly.getArea().?));
+        a.addChild(gui, vt, Wg.Textbox.build(gui, ly.getArea().?));
 
         ly.pushRemaining();
-        self.area.addChild(gui, vt, Wg.VScroll.build(
+        a.addChild(gui, vt, Wg.VScroll.build(
             gui,
             ly.getArea().?,
             &buildScrollItems,
@@ -112,7 +108,7 @@ pub const MyInspector = struct {
             vt,
             10,
             gui.style.config.default_item_h,
-        ) catch return);
+        ));
     }
 
     pub fn buildScrollItems(window_area: *iArea, vt: *iArea, index: usize, gui: *Gui, window: *iWindow) void {
@@ -154,7 +150,7 @@ pub fn main() !void {
     const window_area = .{ .x = 0, .y = 0, .w = 1000, .h = 1000 };
 
     const dstate = guis.DrawState{ .ctx = &draw, .font = &font.font, .style = &gui.style, .gui = &gui };
-    try gui.addWindow(try MyInspector.create(&gui), window_area);
+    try gui.addWindow(MyInspector.create(&gui), window_area);
 
     while (!win.should_exit) {
         try draw.begin(0xff, win.screen_dimensions.toF());

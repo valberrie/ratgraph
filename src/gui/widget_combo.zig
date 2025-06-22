@@ -23,9 +23,10 @@ pub fn Combo(comptime enumT: type) type {
             pub fn build(vt: *iWindow, gui: *Gui, area: Rect) void {
                 const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
                 self.area.area = area;
+                self.area.clearChildren(gui, vt);
                 const info = @typeInfo(enumT);
                 vt.area.dirty(gui);
-                self.area.addChild(gui, vt, VScroll.build(gui, area, &build_cb, &self.area, vt, info.Enum.fields.len, gui.style.config.default_item_h) catch return);
+                self.area.addChild(gui, vt, VScroll.build(gui, area, &build_cb, &self.area, vt, info.Enum.fields.len, gui.style.config.default_item_h));
             }
 
             pub fn build_cb(vt: *iArea, area: *iArea, index: usize, gui: *Gui, win: *iWindow) void {
@@ -41,7 +42,7 @@ pub fn Combo(comptime enumT: type) type {
                             self.parent_vt,
                             &ParentT.buttonCb,
                             field.value,
-                        ) catch return);
+                        ));
                     }
                 }
             }
@@ -67,8 +68,8 @@ pub fn Combo(comptime enumT: type) type {
 
         enum_ptr: *enumT,
 
-        pub fn build(gui: *Gui, area: Rect, enum_ptr: *enumT) !*iArea {
-            const self = try gui.alloc.create(@This());
+        pub fn build(gui: *Gui, area: Rect, enum_ptr: *enumT) *iArea {
+            const self = gui.create(@This());
             self.* = .{
                 .vt = iArea.init(gui, area),
                 .enum_ptr = enum_ptr,
@@ -102,7 +103,7 @@ pub fn Combo(comptime enumT: type) type {
         pub fn onclick(vt: *iArea, cb: g.MouseCbState, win: *iWindow) void {
             const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
             _ = win;
-            self.makeTransientWindow(cb.gui, Rec(vt.area.x, vt.area.y, vt.area.w, cb.gui.style.config.default_item_h * 4)) catch return;
+            self.makeTransientWindow(cb.gui, Rec(vt.area.x, vt.area.y, vt.area.w, cb.gui.style.config.default_item_h * 4));
         }
 
         pub fn buttonCb(vt: *iArea, id: usize, gui: *Gui, _: *iWindow) void {
@@ -112,8 +113,8 @@ pub fn Combo(comptime enumT: type) type {
             gui.deferTransientClose();
         }
 
-        pub fn makeTransientWindow(self: *@This(), gui: *Gui, area: Rect) !void {
-            const popped = try gui.alloc.create(PoppedWindow);
+        pub fn makeTransientWindow(self: *@This(), gui: *Gui, area: Rect) void {
+            const popped = gui.create(PoppedWindow);
             popped.* = .{
                 .parent_vt = &self.vt,
                 .vt = iWindow.init(
