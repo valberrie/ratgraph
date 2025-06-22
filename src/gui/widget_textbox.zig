@@ -122,9 +122,8 @@ pub const Textbox = struct {
         self.vt.can_tab_focus = true;
         self.vt.deinit_fn = &deinit;
         self.vt.draw_fn = &draw;
-        self.vt.focus_lost = &focusLost;
+        self.vt.focusEvent = &fevent;
         self.vt.onclick = &onclick;
-        self.vt.textinput = &textinput_cb;
         return &self.vt;
     }
 
@@ -134,8 +133,87 @@ pub const Textbox = struct {
         gui.alloc.destroy(self);
     }
 
-    pub fn focusLost(vt: *iArea, gui: *Gui) void {
+    pub fn focusChanged(vt: *iArea, gui: *Gui, _: bool) void {
         vt.dirty(gui);
+    }
+
+    pub fn fevent(vt: *iArea, ev: g.FocusedEvent) void {
+        fevent_err(vt, ev) catch return;
+    }
+
+    pub fn fevent_err(vt: *iArea, ev: g.FocusedEvent) !void {
+        const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
+        switch (ev.event) {
+            .focusChanged => |focused| {
+                if (focused) ev.gui.startTextinput(vt.area) else ev.gui.stopTextInput();
+                vt.dirty(ev.gui);
+            },
+            .text_input => |st| textinput_cb(vt, st, ev.window),
+            .keydown => |kev| {
+                const mod = kev.mod_state & ~M.mask(&.{ .SCROLL, .NUM, .CAPS });
+                const tb = self;
+                const StaticData = struct {
+                    var are_binds_init: bool = false;
+                    var key_binds: edit_keys_list = undefined;
+                };
+                if (!StaticData.are_binds_init) {
+                    StaticData.are_binds_init = true;
+                    StaticData.key_binds = edit_keys_list.init();
+                }
+                for (kev.keys) |key| {
+                    switch (StaticData.key_binds.getWithMod(@enumFromInt(key.key_id), mod) orelse continue) {
+                        .move_left => tb.move_to(.left),
+                        .move_right => tb.move_to(.right),
+                        .move_word_right => tb.move_to(.next_word_end),
+                        .move_word_left => tb.move_to(.prev_word_end),
+                        .backspace => {
+                            if (tb.tail != tb.head) {
+                                try tb.deleteSelection();
+                            } else {
+                                try tb.delete_to(.left);
+                            }
+                        },
+                        .delete => try tb.delete_to(.right),
+                        .delete_word_right => try tb.delete_to(.next_word_end),
+                        .delete_word_left => try tb.delete_to(.prev_word_end),
+                        .select_left => tb.select_to(.left),
+                        .select_right => tb.select_to(.right),
+                        .select_word_right => tb.select_to(.next_word_end),
+                        .select_word_left => tb.select_to(.prev_word_end),
+                        .select_all => {
+                            tb.tail = 0;
+                            tb.head = @intCast(tb.codepoints.items.len);
+                            //_ = Utf8It.lastCodepointSlice(&tb.head, tb.codepoints.items);
+                        },
+                        .copy => {
+                            try setClipboard(tb.codepoints.allocator, tb.getSelectionSlice());
+                        },
+                        .paste => {
+                            try tb.deleteSelection();
+                            const clip = try getClipboard(tb.codepoints.allocator);
+                            defer tb.codepoints.allocator.free(clip);
+                            // creating a utf8view ensures the paste contains valid unicode and allows us to find the length
+                            if (std.unicode.Utf8View.init(clip)) |clip_view| {
+                                var clip_it = clip_view.iterator();
+                                var len: usize = 0;
+                                while (clip_it.nextCodepointSlice()) |_|
+                                    len += 1;
+                                if (self.options.max_len) |ml| { //If the paste will exceed bounds don't paste anything
+                                    if (tb.codepoints.items.len + len > ml)
+                                        continue;
+                                }
+                                try tb.codepoints.insertSlice(@intCast(tb.head), clip);
+                                tb.head += @intCast(clip.len);
+                                tb.tail = tb.head;
+                            } else |err| switch (err) {
+                                //error.InvalidUtf8 => Context.log.err("Paste was not valid unicode!", .{}),
+                                error.InvalidUtf8 => std.debug.print("Paste was not valid unicode!", .{}),
+                            }
+                        },
+                    }
+                }
+            },
+        }
     }
 
     pub fn draw(vt: *iArea, d: g.DrawState) void {
@@ -242,14 +320,6 @@ pub const Textbox = struct {
 
     pub fn textinput_cb_err(vt: *iArea, d: g.TextCbState, _: *iWindow) !void {
         const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
-        const StaticData = struct {
-            var are_binds_init: bool = false;
-            var key_binds: edit_keys_list = undefined;
-        };
-        if (!StaticData.are_binds_init) {
-            StaticData.are_binds_init = true;
-            StaticData.key_binds = edit_keys_list.init();
-        }
 
         const view = try std.unicode.Utf8View.init(d.text);
         var it = view.iterator();
@@ -278,61 +348,6 @@ pub const Textbox = struct {
             try self.codepoints.insertSlice(@intCast(self.head), new_cp);
             self.head += new_cp.len;
             self.tail = self.head;
-        }
-
-        const mod = d.mod_state & ~M.mask(&.{ .SCROLL, .NUM, .CAPS });
-        const tb = self;
-        for (d.keys) |key| {
-            switch (StaticData.key_binds.getWithMod(@enumFromInt(key.key_id), mod) orelse continue) {
-                .move_left => tb.move_to(.left),
-                .move_right => tb.move_to(.right),
-                .move_word_right => tb.move_to(.next_word_end),
-                .move_word_left => tb.move_to(.prev_word_end),
-                .backspace => {
-                    if (tb.tail != tb.head) {
-                        try tb.deleteSelection();
-                    } else {
-                        try tb.delete_to(.left);
-                    }
-                },
-                .delete => try tb.delete_to(.right),
-                .delete_word_right => try tb.delete_to(.next_word_end),
-                .delete_word_left => try tb.delete_to(.prev_word_end),
-                .select_left => tb.select_to(.left),
-                .select_right => tb.select_to(.right),
-                .select_word_right => tb.select_to(.next_word_end),
-                .select_word_left => tb.select_to(.prev_word_end),
-                .select_all => {
-                    tb.tail = 0;
-                    tb.head = @intCast(tb.codepoints.items.len);
-                    //_ = Utf8It.lastCodepointSlice(&tb.head, tb.codepoints.items);
-                },
-                .copy => {
-                    try setClipboard(tb.codepoints.allocator, tb.getSelectionSlice());
-                },
-                .paste => {
-                    try tb.deleteSelection();
-                    const clip = try getClipboard(tb.codepoints.allocator);
-                    defer tb.codepoints.allocator.free(clip);
-                    // creating a utf8view ensures the paste contains valid unicode and allows us to find the length
-                    if (std.unicode.Utf8View.init(clip)) |clip_view| {
-                        var clip_it = clip_view.iterator();
-                        var len: usize = 0;
-                        while (clip_it.nextCodepointSlice()) |_|
-                            len += 1;
-                        if (self.options.max_len) |ml| { //If the paste will exceed bounds don't paste anything
-                            if (tb.codepoints.items.len + len > ml)
-                                continue;
-                        }
-                        try tb.codepoints.insertSlice(@intCast(tb.head), clip);
-                        tb.head += @intCast(clip.len);
-                        tb.tail = tb.head;
-                    } else |err| switch (err) {
-                        //error.InvalidUtf8 => Context.log.err("Paste was not valid unicode!", .{}),
-                        error.InvalidUtf8 => std.debug.print("Paste was not valid unicode!", .{}),
-                    }
-                },
-            }
         }
     }
 

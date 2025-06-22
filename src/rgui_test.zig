@@ -136,7 +136,7 @@ pub fn main() !void {
     var draw = graph.ImmediateDrawingContext.init(alloc);
     defer draw.deinit();
 
-    var gui = try Gui.init(alloc);
+    var gui = try Gui.init(alloc, &win);
     defer gui.deinit();
     gui.style.config.default_item_h = @trunc(25 * 1.6);
     gui.style.config.text_h = @trunc(20 * 1.6);
@@ -190,12 +190,20 @@ pub fn main() !void {
                 }
             },
         }
-        gui.dispatchTextinput(.{
-            .gui = &gui,
-            .text = win.text_input,
-            .mod_state = win.mod,
-            .keys = win.keys.slice(),
-        });
+        {
+            const keys = win.keys.slice();
+            if (keys.len > 0) {
+                gui.dispatchKeydown(.{ .keys = keys, .mod_state = win.mod });
+            }
+        }
+        if (gui.text_input_enabled and win.text_input.len > 0) {
+            gui.dispatchTextinput(.{
+                .gui = &gui,
+                .text = win.text_input,
+                .mod_state = win.mod,
+                .keys = win.keys.slice(),
+            });
+        }
         if (win.mouse.wheel_delta.y != 0)
             gui.dispatchScroll(win.mouse.pos, win.mouse.wheel_delta.y);
 

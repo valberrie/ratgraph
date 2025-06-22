@@ -29,8 +29,7 @@ pub const iArea = struct {
     deinit_fn: ?*const fn (*iArea, *Gui, *iWindow) void = null,
     onclick: ?*const fn (*iArea, MouseCbState, *iWindow) void = null,
     onscroll: ?*const fn (*iArea, *Gui, *iWindow, distance: f32) void = null,
-    textinput: ?*const fn (*iArea, TextCbState, *iWindow) void = null,
-    focus_lost: ?*const fn (*iArea, *Gui) void = null,
+    focusEvent: ?*const fn (*iArea, FocusedEvent) void = null,
 
     can_tab_focus: bool = false,
 
@@ -99,6 +98,11 @@ pub const iArea = struct {
             child.deinit(gui, window);
         }
         self.children.clearRetainingCapacity();
+    }
+
+    pub fn genericSetDirtyOnFocusChange(self: *iArea, gui: *Gui, is_focused: bool) void {
+        _ = is_focused;
+        self.dirty(gui);
     }
 };
 
@@ -181,6 +185,23 @@ pub const MouseCbState = struct {
     delta: Vec2f,
     gui: *Gui,
     state: graph.SDL.ButtonState,
+};
+
+pub const KeydownState = struct {
+    keys: []const graph.SDL.KeyState,
+    mod_state: graph.SDL.keycodes.KeymodMask = 0,
+};
+
+pub const FocusedEvent = struct {
+    pub const Event = union(enum) {
+        focusChanged: bool,
+        text_input: TextCbState,
+        keydown: KeydownState,
+    };
+    gui: *Gui,
+    window: *iWindow,
+
+    event: Event,
 };
 
 //Two options for this, we use a button widget which registers itself for onclick
@@ -269,14 +290,17 @@ pub const Gui = struct {
     cache_map: std.AutoHashMap(*iArea, void),
     to_draw: std.ArrayList(*iArea),
 
+    text_input_enabled: bool = false,
+    sdl_win: *graph.SDL.Window,
     text_listeners: std.ArrayList(*iArea),
 
     style: GuiConfig,
 
-    pub fn init(alloc: AL) !Self {
+    pub fn init(alloc: AL, win: *graph.SDL.Window) !Self {
         return Gui{
             .alloc = alloc,
             .windows = std.ArrayList(*iWindow).init(alloc),
+            .sdl_win = win,
             .cache_map = std.AutoHashMap(*iArea, void).init(alloc),
             .to_draw = std.ArrayList(*iArea).init(alloc),
             .text_listeners = std.ArrayList(*iArea).init(alloc),
@@ -443,13 +467,15 @@ pub const Gui = struct {
 
     pub fn grabFocus(self: *Self, vt: *iArea, win: *iWindow) void {
         if (self.focused) |f| {
-            if (f.vt != vt and f.vt.focus_lost != null)
-                f.vt.focus_lost.?(f.vt, self);
+            if (f.vt != vt and f.vt.focusEvent != null)
+                f.vt.focusEvent.?(f.vt, .{ .gui = self, .window = win, .event = .{ .focusChanged = false } });
         }
         self.focused = .{
             .vt = vt,
             .win = win,
         };
+        if (vt.focusEvent) |fc|
+            fc(vt, .{ .gui = self, .window = win, .event = .{ .focusChanged = true } });
     }
 
     pub fn isFocused(self: *Self, vt: *iArea) bool {
@@ -468,9 +494,22 @@ pub const Gui = struct {
 
     pub fn dispatchTextinput(self: *Self, cb: TextCbState) void {
         if (self.focused) |f| {
-            if (f.vt.textinput) |func| {
-                func(f.vt, cb, f.win);
+            if (f.vt.focusEvent) |func| {
+                func(f.vt, .{ .gui = self, .window = f.win, .event = .{
+                    .text_input = cb,
+                } });
             }
+        }
+    }
+
+    pub fn dispatchKeydown(self: *Self, state: KeydownState) void {
+        self.dispatchFocusedEvent(.{ .keydown = state });
+    }
+
+    pub fn dispatchFocusedEvent(self: *Self, event: FocusedEvent.Event) void {
+        if (self.focused) |f| {
+            if (f.vt.focusEvent) |func|
+                func(f.vt, .{ .gui = self, .window = f.win, .event = event });
         }
     }
 
@@ -487,6 +526,16 @@ pub const Gui = struct {
             if (win.dispatchClick(mstate))
                 break;
         }
+    }
+
+    pub fn startTextinput(self: *Self, rect: Rect) void {
+        self.text_input_enabled = true;
+        self.sdl_win.startTextInput(rect);
+    }
+
+    pub fn stopTextInput(self: *Self) void {
+        self.text_input_enabled = false;
+        self.sdl_win.stopTextInput();
     }
 
     pub fn dispatchScroll(self: *Self, pos: Vec2f, dist: f32) void {

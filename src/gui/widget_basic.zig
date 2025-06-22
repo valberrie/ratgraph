@@ -219,7 +219,9 @@ pub const Checkbox = struct {
             .bool_ptr = bool_ptr,
             .name = name,
         };
+        self.vt.can_tab_focus = true;
         self.vt.onclick = &onclick;
+        self.vt.focusEvent = &fevent;
         self.vt.draw_fn = &draw;
         self.vt.deinit_fn = &deinit;
         return &self.vt;
@@ -230,9 +232,31 @@ pub const Checkbox = struct {
         gui.alloc.destroy(self);
     }
 
+    pub fn fevent(vt: *iArea, ev: g.FocusedEvent) void {
+        const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
+        switch (ev.event) {
+            .focusChanged => vt.dirty(ev.gui),
+            .text_input => {},
+            .keydown => |kev| {
+                for (kev.keys) |k| {
+                    switch (@as(graph.SDL.keycodes.Scancode, @enumFromInt(k.key_id))) {
+                        else => {},
+                        .SPACE => self.toggle(ev.gui),
+                    }
+                }
+            },
+        }
+    }
+
+    fn toggle(self: *@This(), gui: *Gui) void {
+        self.bool_ptr.* = !self.bool_ptr.*;
+        self.vt.dirty(gui);
+    }
+
     pub fn draw(vt: *iArea, d: DrawState) void {
         const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
         const cr = d.style.getRect(if (self.bool_ptr.*) .checkbox_checked else .checkbox_empty);
+        const is_focused = d.gui.isFocused(vt);
         const area = vt.area;
         const br = Rect.newV(area.pos(), .{ .x = @min(cr.w * d.scale, area.w), .y = @min(cr.h * d.scale, area.h) });
         d.ctx.rect(vt.area, d.style.config.colors.background);
@@ -242,7 +266,7 @@ pub const Checkbox = struct {
             d.style.texture,
         );
         const tarea = Rec(br.farX(), area.y, area.w - br.farX(), area.h);
-        d.ctx.textFmt(tarea.pos(), "{s}", .{self.name}, d.font, d.style.config.text_h, Color.Black, .{});
+        d.ctx.textFmt(tarea.pos(), "{s}{s}", .{ if (is_focused) "focus" else "", self.name }, d.font, d.style.config.text_h, Color.Black, .{});
 
         //std.debug.print("{s} says: {any}\n", .{ self.name, self.bool_ptr.* });
     }
