@@ -7,6 +7,94 @@ const Rect = g.Rect;
 const iWindow = g.iWindow;
 const Color = graph.Colori;
 
+fn charsetForNum(comptime T: type) []const u8 {
+    const info = @typeInfo(T);
+    switch (info) {
+        .Float => return "ainf.-0123456789",
+        .Int => |int| switch (int.signedness) {
+            .signed => return "-0123456789xabcdefABCDEF",
+            .unsigned => return "0123456789xabcdefABCDEF",
+        },
+        else => @compileError("invalid number type"),
+    }
+}
+fn getNumtype(comptime T: type) enum { float, int, uint } {
+    return switch (@typeInfo(T)) {
+        .Float => .float,
+        .Int => |int| switch (int.signedness) {
+            .signed => .int,
+            .unsigned => .uint,
+        },
+        else => @compileError("invalid number type"),
+    };
+}
+
+pub fn NumberDummy(comptime T: type) type {
+    return struct {
+        const charset = charsetForNum(T);
+        const num_type = getNumtype(T);
+        vt: iArea,
+
+        ptr: *T,
+
+        pub fn build(gui: *Gui, area: Rect, number: *T) *iArea {
+            const self = gui.create(@This());
+            self.* = .{
+                .ptr = number,
+                .vt = iArea.init(gui, area),
+            };
+            self.vt.deinit_fn = &deinit;
+            return &self.vt;
+        }
+
+        pub fn deinit(vt: *iArea, gui: *Gui, _: *iWindow) void {
+            const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
+            gui.alloc.destroy(self);
+        }
+
+        pub fn printTo(vt: *iArea, arraylist: *std.ArrayList(u8)) void {
+            const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
+            arraylist.writer().print("{d:.2}", .{self.ptr.*}) catch return;
+        }
+
+        pub fn parseFrom(vt: *iArea, slice: []const u8) error{invalid}!void {
+            const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
+            self.ptr.* = switch (num_type) {
+                .float => std.fmt.parseFloat(T, slice) catch return error.invalid,
+                .uint, .int => std.fmt.parseInt(T, slice, 0) catch return error.invalid,
+            };
+        }
+    };
+}
+
+pub const TextboxNumber = struct {
+    pub fn build(gui: *Gui, area: Rect, number: anytype, win: *iWindow) *iArea {
+        const invalid_type_error = "wrong type for textbox number!";
+        const pinfo = @typeInfo(@TypeOf(number));
+        if (pinfo != .Pointer or pinfo.Pointer.is_const) @compileError(invalid_type_error);
+        const number_type = pinfo.Pointer.child;
+        const ND = NumberDummy(number_type);
+
+        const dummy = ND.build(gui, area, number);
+        dummy.addChild(gui, win, Textbox.buildNumber(
+            gui,
+            area,
+            dummy,
+            &ND.printTo,
+            &ND.parseFrom,
+
+            charsetForNum(number_type),
+        ));
+
+        return dummy;
+    }
+};
+
+pub const NumberPrintFn = *const fn (*iArea, *std.ArrayList(u8)) void;
+pub const NumberParseFn = *const fn (*iArea, []const u8) error{invalid}!void;
+
+//Can we stick some kind of comptime thing as a child of this that gets set with number?
+//onFocus, needs to call printNumber
 const utf8 = @import("../utf8.zig");
 pub const Textbox = struct {
     const Utf8It = utf8.BiDirectionalUtf8Iterator;
@@ -54,6 +142,12 @@ pub const Textbox = struct {
         restricted_charset: ?[]const u8 = null,
         max_len: ?usize = null,
     } = .{},
+
+    number: ?struct {
+        print_cb: NumberPrintFn,
+        parse_cb: NumberParseFn,
+        vt: *iArea,
+    } = null,
 
     head: usize,
     tail: usize,
@@ -127,6 +221,21 @@ pub const Textbox = struct {
         return &self.vt;
     }
 
+    pub fn buildNumber(gui: *Gui, area: Rect, num_vt: *iArea, num_print: NumberPrintFn, num_parse: NumberParseFn, charset: []const u8) *iArea {
+        const vt = build(gui, area);
+        const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
+        vt.dirty(gui);
+        self.reset("") catch return vt;
+        num_print(num_vt, &self.codepoints);
+        self.number = .{
+            .print_cb = num_print,
+            .parse_cb = num_parse,
+            .vt = num_vt,
+        };
+        self.options.restricted_charset = charset;
+        return vt;
+    }
+
     pub fn deinit(vt: *iArea, gui: *Gui, _: *iWindow) void {
         const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
         self.codepoints.deinit();
@@ -146,6 +255,16 @@ pub const Textbox = struct {
         switch (ev.event) {
             .focusChanged => |focused| {
                 if (focused) ev.gui.startTextinput(vt.area) else ev.gui.stopTextInput();
+
+                if (self.number) |num| {
+                    if (focused) {
+                        //Do nothing,
+                    } else {
+                        // Set the number to what we have
+                        num.parse_cb(num.vt, self.codepoints.items) catch return;
+                    }
+                }
+
                 vt.dirty(ev.gui);
             },
             .text_input => |st| textinput_cb(vt, st, ev.window),

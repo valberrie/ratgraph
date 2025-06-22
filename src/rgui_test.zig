@@ -36,6 +36,7 @@ pub const MyInspector = struct {
     inspector_state: u32 = 0,
     bool1: bool = false,
     bool2: bool = false,
+    number: f32 = 488.8,
     my_enum: MyEnum = .hello,
     fenum: std.fs.File.Kind = .file,
     color: u32 = 0xff_ff,
@@ -98,6 +99,7 @@ pub const MyInspector = struct {
 
         a.addChild(gui, vt, Wg.Textbox.build(gui, ly.getArea().?));
         a.addChild(gui, vt, Wg.Textbox.build(gui, ly.getArea().?));
+        a.addChild(gui, vt, Wg.TextboxNumber.build(gui, ly.getArea().?, &self.number, vt));
 
         ly.pushRemaining();
         a.addChild(gui, vt, Wg.VScroll.build(
