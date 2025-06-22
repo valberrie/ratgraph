@@ -26,7 +26,7 @@ pub fn Combo(comptime enumT: type) type {
                 self.area.clearChildren(gui, vt);
                 const info = @typeInfo(enumT);
                 vt.area.dirty(gui);
-                self.area.addChild(gui, vt, VScroll.build(gui, area, &build_cb, &self.area, vt, info.Enum.fields.len, gui.style.config.default_item_h));
+                self.area.addChildOpt(gui, vt, VScroll.build(gui, area, &build_cb, &self.area, vt, info.Enum.fields.len, gui.style.config.default_item_h));
             }
 
             pub fn build_cb(vt: *iArea, area: *iArea, index: usize, gui: *Gui, win: *iWindow) void {
@@ -37,12 +37,12 @@ pub fn Combo(comptime enumT: type) type {
                     if (i >= index) {
                         area.addChild(gui, win, Widget.Button.build(
                             gui,
-                            ly.getArea() orelse return,
+                            ly.getArea(),
                             field.name,
                             self.parent_vt,
                             &ParentT.buttonCb,
                             field.value,
-                        ));
+                        ) orelse return);
                     }
                 }
             }

@@ -73,6 +73,11 @@ pub const iArea = struct {
         self.is_dirty = true;
     }
 
+    pub fn addChildOpt(self: *@This(), gui: *Gui, win: *iWindow, vto: ?*iArea) void {
+        if (vto) |vt|
+            self.addChild(gui, win, vt);
+    }
+
     pub fn addChild(self: *@This(), gui: *Gui, win: *iWindow, vt: *iArea) void {
         gui.register(vt, win);
         if (vt.onclick != null)

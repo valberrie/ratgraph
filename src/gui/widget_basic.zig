@@ -23,7 +23,8 @@ pub const VScroll = struct {
     index: usize = 0,
     count: usize = 10,
 
-    pub fn build(gui: *Gui, area: Rect, build_cb: BuildCb, build_cb_vt: *iArea, win: *iWindow, count: usize, item_h_hint: f32) *iArea {
+    pub fn build(gui: *Gui, area_o: ?Rect, build_cb: BuildCb, build_cb_vt: *iArea, win: *iWindow, count: usize, item_h_hint: f32) ?*iArea {
+        const area = area_o orelse return null;
         const self = gui.create(@This());
         self.* = .{
             .vt = iArea.init(gui, area),
@@ -38,7 +39,7 @@ pub const VScroll = struct {
         const SW = 30;
         const split = self.vt.area.split(.vertical, self.vt.area.w - SW);
         _ = self.vt.addEmpty(gui, win, split[0]);
-        self.vt.addChild(gui, win, ScrollBar.build(
+        self.vt.addChildOpt(gui, win, ScrollBar.build(
             gui,
             split[1],
             &self.index,
@@ -99,7 +100,8 @@ pub const Checkbox = struct {
     bool_ptr: *bool,
     name: []const u8,
 
-    pub fn build(gui: *Gui, area: Rect, bool_ptr: *bool, name: []const u8) *iArea {
+    pub fn build(gui: *Gui, area_o: ?Rect, bool_ptr: *bool, name: []const u8) ?*iArea {
+        const area = area_o orelse return null;
         const self = gui.create(@This());
         self.* = .{
             .vt = iArea.init(gui, area),
@@ -145,20 +147,21 @@ pub const Checkbox = struct {
         const cr = d.style.getRect(if (self.bool_ptr.*) .checkbox_checked else .checkbox_empty);
         const is_focused = d.gui.isFocused(vt);
 
+        const bw = 1;
         const area = vt.area;
         const h = @min(cr.h * d.scale, area.h);
         const pad = (area.h - h) / 2;
-        const br = Rect.newV(.{ .x = area.x, .y = area.y + pad }, .{ .x = @min(cr.w * d.scale, area.w), .y = h });
+        const br = Rect.newV(.{ .x = area.x + bw, .y = area.y + pad }, .{ .x = @min(cr.w * d.scale, area.w), .y = h });
         d.ctx.rect(vt.area, d.style.config.colors.background);
         if (is_focused)
-            d.ctx.rectBorder(vt.area, 1, 0xff);
+            d.ctx.rectBorder(vt.area, bw, 0xff);
         d.ctx.rectTex(
             br,
             cr,
             d.style.texture,
         );
         const tarea = Rec(br.farX() + pad, area.y + pad, area.w - br.farX(), area.h);
-        d.ctx.textFmt(tarea.pos(), "{s}{s}", .{ if (is_focused) "focus" else "", self.name }, d.font, d.style.config.text_h, Color.Black, .{});
+        d.ctx.textFmt(tarea.pos(), "{s}{s}", .{ self.name, if (is_focused) " space to toggle" else "" }, d.font, d.style.config.text_h, Color.Black, .{});
 
         //std.debug.print("{s} says: {any}\n", .{ self.name, self.bool_ptr.* });
     }
@@ -181,7 +184,8 @@ pub const Button = struct {
     text: []const u8,
     is_down: bool = false,
 
-    pub fn build(gui: *Gui, area: Rect, name: []const u8, cb_vt: ?*iArea, cb_fn: ?ButtonCallbackT, id: usize) *iArea {
+    pub fn build(gui: *Gui, area_o: ?Rect, name: []const u8, cb_vt: ?*iArea, cb_fn: ?ButtonCallbackT, id: usize) ?*iArea {
+        const area = area_o orelse return null;
         const self = gui.create(@This());
         self.* = .{
             .vt = iArea.init(gui, area),
@@ -243,7 +247,8 @@ pub const ScrollBar = struct {
     shuttle_h: f32 = 0,
     shuttle_pos: f32 = 0,
 
-    pub fn build(gui: *Gui, area: Rect, index_ptr: *usize, count: usize, item_h: f32, parent_vt: *iArea, notify_fn: NotifyFn) *iArea {
+    pub fn build(gui: *Gui, area_o: ?Rect, index_ptr: *usize, count: usize, item_h: f32, parent_vt: *iArea, notify_fn: NotifyFn) ?*iArea {
+        const area = area_o orelse return null;
         const self = gui.create(@This());
 
         const shuttle_min_w = 50;
@@ -349,10 +354,15 @@ pub const Text = struct {
 
     text: std.ArrayList(u8),
 
-    pub fn build(gui: *Gui, area: Rect, comptime fmt: []const u8, args: anytype) !*iArea {
-        const self = try gui.alloc.create(@This());
+    pub fn build(gui: *Gui, area_o: ?Rect, comptime fmt: []const u8, args: anytype) ?*iArea {
+        const area = area_o orelse return null;
+        const self = gui.create(@This());
         var vec = std.ArrayList(u8).init(gui.alloc);
-        try vec.writer().print(fmt, args);
+        vec.writer().print(fmt, args) catch {
+            vec.deinit();
+            gui.alloc.destroy(self);
+            return null;
+        };
 
         self.* = .{
             .vt = iArea.init(gui, area),
@@ -384,7 +394,8 @@ pub const Slider = struct {
     min: f32,
     max: f32,
 
-    pub fn build(gui: *Gui, area: Rect, num: f32, min: f32, max: f32) *iArea {
+    pub fn build(gui: *Gui, area_o: ?Rect, num: f32, min: f32, max: f32) ?*iArea {
+        const area = area_o orelse return null;
         const self = gui.create(@This());
         self.* = .{
             .vt = iArea.init(gui, area),

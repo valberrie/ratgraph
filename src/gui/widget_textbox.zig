@@ -68,7 +68,8 @@ pub fn NumberDummy(comptime T: type) type {
 }
 
 pub const TextboxNumber = struct {
-    pub fn build(gui: *Gui, area: Rect, number: anytype, win: *iWindow) *iArea {
+    pub fn build(gui: *Gui, area_o: ?Rect, number: anytype, win: *iWindow) ?*iArea {
+        const area = area_o orelse return null;
         const invalid_type_error = "wrong type for textbox number!";
         const pinfo = @typeInfo(@TypeOf(number));
         if (pinfo != .Pointer or pinfo.Pointer.is_const) @compileError(invalid_type_error);
@@ -84,7 +85,7 @@ pub const TextboxNumber = struct {
             &ND.parseFrom,
 
             charsetForNum(number_type),
-        ));
+        ) orelse return dummy);
 
         return dummy;
     }
@@ -206,7 +207,8 @@ pub const Textbox = struct {
     //    return Self{ .codepoints = std.ArrayList(u8).init(alloc), .head = 0, .tail = 0 };
     //}
 
-    pub fn build(gui: *Gui, area: Rect) *iArea {
+    pub fn build(gui: *Gui, area_o: ?Rect) ?*iArea {
+        const area = area_o orelse return null;
         const self = gui.create(@This());
         self.* = .{
             .vt = iArea.init(gui, area),
@@ -222,8 +224,8 @@ pub const Textbox = struct {
         return &self.vt;
     }
 
-    pub fn buildNumber(gui: *Gui, area: Rect, num_vt: *iArea, num_print: NumberPrintFn, num_parse: NumberParseFn, charset: []const u8) *iArea {
-        const vt = build(gui, area);
+    pub fn buildNumber(gui: *Gui, area: Rect, num_vt: *iArea, num_print: NumberPrintFn, num_parse: NumberParseFn, charset: []const u8) ?*iArea {
+        const vt = build(gui, area) orelse return null;
         const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
         vt.dirty(gui);
         self.reset("") catch return vt;

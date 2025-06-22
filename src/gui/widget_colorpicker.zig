@@ -120,13 +120,13 @@ const ColorpickerTransient = struct {
 
         var vy = g.VerticalLayout{ .item_height = gui.style.config.default_item_h, .bounds = ly.getArea() orelse return };
 
-        a.addChild(gui, win, Widget.Button.build(gui, vy.getArea() orelse return, "Done", &self.area, &closeBtnCb, 0));
+        a.addChildOpt(gui, win, Widget.Button.build(gui, vy.getArea(), "Done", &self.area, &closeBtnCb, 0));
 
         {
             const hue_s = vy.getArea() orelse return;
             var vy2 = g.HorizLayout{ .count = 3, .bounds = hue_s };
-            a.addChild(gui, win, Widget.Text.build(gui, vy2.getArea() orelse return, "Hue", .{}) catch return);
-            a.addChild(gui, win, Widget.TextboxNumber.build(gui, vy2.getArea().?, &self.parent_ptr.color_hsv.h, win));
+            a.addChildOpt(gui, win, Widget.Text.build(gui, vy2.getArea(), "Hue", .{}));
+            a.addChildOpt(gui, win, Widget.TextboxNumber.build(gui, vy2.getArea(), &self.parent_ptr.color_hsv.h, win));
         }
 
         //draw.rectVertexColors(rf.r, &cols);

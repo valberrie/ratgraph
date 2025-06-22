@@ -86,25 +86,25 @@ pub const MyInspector = struct {
         ly.padding.top = 10;
         const a = &self.area;
 
-        a.addChild(gui, vt, Wg.Checkbox.build(gui, ly.getArea().?, &self.bool1, "first button"));
-        a.addChild(gui, vt, Wg.Checkbox.build(gui, ly.getArea().?, &self.bool2, "secnd button"));
-        a.addChild(gui, vt, Wg.Slider.build(gui, ly.getArea().?, 4, 0, 10));
-        a.addChild(gui, vt, Wg.Combo(MyEnum).build(gui, ly.getArea().?, &self.my_enum));
-        a.addChild(gui, vt, Wg.Combo(std.fs.File.Kind).build(gui, ly.getArea().?, &self.fenum));
+        a.addChildOpt(gui, vt, Wg.Checkbox.build(gui, ly.getArea(), &self.bool1, "first button"));
+        a.addChildOpt(gui, vt, Wg.Checkbox.build(gui, ly.getArea(), &self.bool2, "secnd button"));
+        a.addChildOpt(gui, vt, Wg.Slider.build(gui, ly.getArea(), 4, 0, 10));
+        a.addChild(gui, vt, Wg.Combo(MyEnum).build(gui, ly.getArea() orelse return, &self.my_enum));
+        a.addChild(gui, vt, Wg.Combo(std.fs.File.Kind).build(gui, ly.getArea() orelse return, &self.fenum));
 
-        a.addChild(gui, vt, Wg.Button.build(gui, ly.getArea().?, "My button", &self.area, @This().btnCb, 48));
-        a.addChild(gui, vt, Wg.Button.build(gui, ly.getArea().?, "My button 2", null, null, 48));
-        a.addChild(gui, vt, Wg.Button.build(gui, ly.getArea().?, "My button 3", null, null, 48));
-        a.addChild(gui, vt, Wg.Colorpicker.build(gui, ly.getArea().?, &self.color));
+        a.addChildOpt(gui, vt, Wg.Button.build(gui, ly.getArea(), "My button", &self.area, @This().btnCb, 48));
+        a.addChildOpt(gui, vt, Wg.Button.build(gui, ly.getArea(), "My button 2", null, null, 48));
+        a.addChildOpt(gui, vt, Wg.Button.build(gui, ly.getArea(), "My button 3", null, null, 48));
+        a.addChild(gui, vt, Wg.Colorpicker.build(gui, ly.getArea() orelse return, &self.color));
 
-        a.addChild(gui, vt, Wg.Textbox.build(gui, ly.getArea().?));
-        a.addChild(gui, vt, Wg.Textbox.build(gui, ly.getArea().?));
-        a.addChild(gui, vt, Wg.TextboxNumber.build(gui, ly.getArea().?, &self.number, vt));
+        a.addChildOpt(gui, vt, Wg.Textbox.build(gui, ly.getArea()));
+        a.addChildOpt(gui, vt, Wg.Textbox.build(gui, ly.getArea()));
+        a.addChildOpt(gui, vt, Wg.TextboxNumber.build(gui, ly.getArea(), &self.number, vt));
 
         ly.pushRemaining();
-        a.addChild(gui, vt, Wg.VScroll.build(
+        a.addChildOpt(gui, vt, Wg.VScroll.build(
             gui,
-            ly.getArea().?,
+            ly.getArea(),
             &buildScrollItems,
             &self.area,
             vt,
@@ -117,7 +117,7 @@ pub const MyInspector = struct {
         const self: *@This() = @alignCast(@fieldParentPtr("area", window_area));
         var ly = guis.VerticalLayout{ .item_height = gui.style.config.default_item_h, .bounds = vt.area };
         for (index..10) |i| {
-            vt.addChild(gui, window, Wg.Text.build(gui, ly.getArea() orelse return, "item {d}", .{i}) catch return);
+            vt.addChildOpt(gui, window, Wg.Text.build(gui, ly.getArea(), "item {d}", .{i}));
         }
         _ = self;
     }
@@ -135,7 +135,7 @@ pub fn main() !void {
 
     var win = try graph.SDL.Window.createWindow("My window", .{
         // Optional, see Window.createWindow definition for full list of options
-        .window_size = .{ .x = 800, .y = 600 },
+        .window_size = .{ .x = 1000, .y = 1000 },
     });
     defer win.destroyWindow();
 
@@ -149,7 +149,7 @@ pub fn main() !void {
     var font = try graph.Font.initFromBuffer(alloc, @embedFile("font/roboto.ttf"), gui.style.config.text_h, .{});
     defer font.deinit();
 
-    const window_area = .{ .x = 0, .y = 0, .w = 1000, .h = 1000 };
+    const window_area = .{ .x = 0, .y = 0, .w = 800, .h = 600 };
 
     const dstate = guis.DrawState{ .ctx = &draw, .font = &font.font, .style = &gui.style, .gui = &gui };
     try gui.addWindow(MyInspector.create(&gui), window_area);
