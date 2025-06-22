@@ -171,6 +171,9 @@ pub const ImmediateDrawingContext = struct {
     const log = std.log.scoped(.ImmediateDrawingContext);
     pub const TextParam = struct {
         background_rect: ?u32 = null,
+        color: u32,
+        px_size: f32,
+        font: *FontInterface,
 
         /// If not null, gets filled with the width of the rendered text in pixels.
         width_pointer: ?*f32 = null,
@@ -532,12 +535,14 @@ pub const ImmediateDrawingContext = struct {
         }) catch return;
     }
 
-    pub fn text(self: *Self, pos: Vec2f, str: []const u8, font: *FontInterface, px_size: f32, col: u32, param: TextParam) void {
-        const SF = (px_size / font.font_size);
+    pub fn text(self: *Self, pos: Vec2f, str: []const u8, param: TextParam) void {
+        const font = param.font;
+        const SF = (param.px_size / font.font_size);
         const fac = 1;
         const x = pos.x;
         const y = pos.y;
 
+        const col = param.color;
         const b = &(self.getBatch(.{
             .batch_kind = .color_tri_tex,
             //Text should always be drawn last for best transparency
@@ -594,15 +599,48 @@ pub const ImmediateDrawingContext = struct {
         self.zindex += 1; //one for rz
     }
 
-    pub fn textFmt(self: *Self, pos: Vec2f, comptime fmt: []const u8, args: anytype, font: *FontInterface, pt_size: f32, color: u32, param: TextParam) void {
+    pub fn textFmt(self: *Self, pos: Vec2f, comptime fmt: []const u8, args: anytype, param: TextParam) void {
         var fbs = std.io.FixedBufferStream([]u8){ .pos = 0, .buffer = &textFmtBuffer };
         fbs.writer().print(fmt, args) catch {
             log.warn("string exceeded textFmt buffer", .{});
             log.warn(fmt, args);
             return;
         };
-        self.text(pos, fbs.getWritten(), font, pt_size, color, param);
+        self.text(pos, fbs.getWritten(), param);
     }
+
+    pub fn textClipped(self: *Self, area: Rect, comptime fmt: []const u8, args: anytype, param: TextParam, justify: enum { left, right, center }) void {
+        var fbs = std.io.FixedBufferStream([]u8){ .pos = 0, .buffer = &textFmtBuffer };
+        fbs.writer().print(fmt, args) catch {
+            log.warn("string exceeded textFmt buffer", .{});
+            log.warn(fmt, args);
+            return;
+        };
+
+        const slice = fbs.getWritten();
+        //const slice = fbs.getWritten();
+        const bounds = param.font.textBounds(slice, param.px_size);
+        const last_char_index = blk: {
+            if (param.font.nearestGlyphX(slice, param.px_size, .{ .x = area.w, .y = 0 })) |lci| {
+                if (lci > 0)
+                    break :blk lci - 1;
+                break :blk lci;
+            }
+            break :blk slice.len;
+        };
+
+        const x_ = switch (justify) {
+            .left => area.x,
+            .right => area.x + area.w - bounds.x,
+            .center => area.x + area.w / 2 - bounds.x / 2,
+        };
+        const x = if (last_char_index < slice.len) area.x else x_;
+        const sl = if (last_char_index < slice.len) slice[0..last_char_index] else slice;
+        self.text(Vec2f.new(x, area.y), sl, param);
+        //self.drawText(sl, Vec2f.new(x, area.y), size, color, font);
+    }
+
+    //pub fn textFmtOpts(self: *Self, area: Rect, comptime fmt: []const u8, args: anytype, font)
 
     pub fn point3D(self: *Self, point: za.Vec3, color: u32) void {
         const b = &(self.getBatch(.{ .batch_kind = .color_point3D, .params = .{ .shader = colored_point3d_shader, .camera = ._3d } }) catch unreachable).color_point3D;

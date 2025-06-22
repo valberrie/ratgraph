@@ -206,7 +206,7 @@ pub fn SliderGeneric(comptime number_T: type) type {
             );
 
             //d.ctx.("{d:.2}", .{value.*}, textb, self.style.config.text_h, (0xff), .{ .justify = .center }, self.font);
-            d.ctx.textFmt(textb.pos(), "{d:.2}", .{self.ptr.*}, d.font, d.style.config.text_h, 0xff, .{});
+            d.ctx.textFmt(textb.pos(), "{d:.2}", .{self.ptr.*}, d.textP(null));
         }
     };
 }

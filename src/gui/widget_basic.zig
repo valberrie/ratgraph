@@ -161,7 +161,7 @@ pub const Checkbox = struct {
             d.style.texture,
         );
         const tarea = Rec(br.farX() + pad, area.y + pad, area.w - br.farX(), area.h);
-        d.ctx.textFmt(tarea.pos(), "{s}{s}", .{ self.name, if (is_focused) " space to toggle" else "" }, d.font, d.style.config.text_h, Color.Black, .{});
+        d.ctx.textClipped(tarea, "{s}{s}", .{ self.name, if (is_focused) " space to toggle" else "" }, d.textP(null), .left);
 
         //std.debug.print("{s} says: {any}\n", .{ self.name, self.bool_ptr.* });
     }
@@ -222,7 +222,7 @@ pub const Button = struct {
         const color = d.style.config.colors.button_text;
         d.ctx.nineSlice(vt.area, sl, d.style.texture, d.scale, d.tint);
         const ta = vt.area.inset(3 * d.scale);
-        d.ctx.textFmt(ta.pos(), "{s}", .{self.text}, d.font, d.style.config.text_h, color, .{});
+        d.ctx.textClipped(ta, "{s}", .{self.text}, d.textP(color), .center);
     }
 
     pub fn onclick(vt: *iArea, cb: MouseCbState, win: *iWindow) void {
@@ -382,8 +382,7 @@ pub const Text = struct {
     pub fn draw(vt: *iArea, d: DrawState) void {
         const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
         //d.ctx.rect(vt.area, 0x5ffff0ff);
-        const h = d.style.config.default_item_h;
-        d.ctx.textFmt(vt.area.pos(), "{s}", .{self.text.items}, d.font, h, 0xff, .{});
+        d.ctx.textClipped(vt.area, "{s}", .{self.text.items}, d.textP(null), .left);
     }
 };
 
@@ -419,7 +418,7 @@ pub const StaticSlider = struct {
     pub fn draw(vt: *iArea, d: DrawState) void {
         const self = getVt(@This(), vt);
         d.ctx.rect(vt.area, 0x00ffffff);
-        d.ctx.textFmt(vt.area.pos(), "{d:.2}", .{self.num}, d.font, vt.area.h, 0xff, .{});
+        d.ctx.textClipped(vt.area, "{d:.2}", .{self.num}, d.textP(null), .center);
     }
 
     pub fn mouseGrabbed(vt: *iArea, cb: MouseCbState, _: *iWindow) void {

@@ -198,6 +198,15 @@ pub const DrawState = struct {
     style: *GuiConfig,
     scale: f32 = 2,
     tint: u32 = 0xffff_ffff, //Tint for textures
+
+    /// return params for black text with config.text_h
+    pub fn textP(self: *const @This(), color: ?u32) graph.ImmediateDrawingContext.TextParam {
+        return .{
+            .font = self.font,
+            .color = color orelse 0xff,
+            .px_size = self.style.config.text_h,
+        };
+    }
 };
 
 pub const MouseCbState = struct {

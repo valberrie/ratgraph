@@ -366,13 +366,14 @@ pub const Textbox = struct {
             selection_pos_max - selection_pos_min,
             tr.h,
         ), d.style.config.colors.text_highlight);
+        //TODO "scroll" the text when it exceeds text bounds
         if (is_focused) {
             d.ctx.rect(
                 Rect.new(caret_x + tr.x, tr.y + 2, d.style.config.textbox_caret_width, tr.h - 4),
                 d.style.config.colors.textbox_caret,
             );
         }
-        d.ctx.textFmt(tr.pos(), "{s}", .{s.codepoints.items}, d.font, text_h, Color.Black, .{});
+        d.ctx.textClipped(tr, "{s}", .{s.codepoints.items}, d.textP(null), .left);
     }
 
     pub fn onclick(vt: *iArea, cb: g.MouseCbState, win: *iWindow) void {

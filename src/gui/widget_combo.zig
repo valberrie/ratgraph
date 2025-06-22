@@ -92,7 +92,7 @@ pub fn Combo(comptime enumT: type) type {
             const cb = d.style.getRect(.combo_background);
             d.ctx.nineSlice(vt.area, cb, d.style.texture, d.scale, d.tint);
             const texta = vt.area.inset(cb.w / 3 * d.scale);
-            d.ctx.textFmt(texta.pos(), "{s}", .{@tagName(self.enum_ptr.*)}, d.font, d.style.config.text_h, 0xff, .{});
+            d.ctx.textClipped(texta, "{s}", .{@tagName(self.enum_ptr.*)}, d.textP(null), .center);
             //self.gui.drawTextFmt(fmt, args, texta, self.style.config.text_h, 0xff, .{ .justify = .center }, self.font);
             const cbb = d.style.getRect(.combo_button);
             const da = d.style.getRect(.down_arrow);
