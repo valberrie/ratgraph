@@ -221,19 +221,18 @@ pub const Textbox = struct {
         const s: *@This() = @alignCast(@fieldParentPtr("vt", vt));
         const is_focused = d.gui.isFocused(vt);
         d.ctx.rect(vt.area, if (is_focused) 0xff00ffff else 0x222222ff);
-        d.ctx.textFmt(vt.area.pos(), "{s}", .{s.codepoints.items}, d.font, vt.area.h, 0xff, .{});
 
         const text_h = d.style.config.text_h;
         const inset = d.style.config.textbox_inset * d.scale;
         const tr = vt.area.inset(inset);
-        d.ctx.nineSlice(vt.area, d.style.getRect(.basic_inset), d.style.texture, d.scale, 0xffff_ffff);
+        d.ctx.nineSlice(vt.area, d.style.getRect(.basic_inset), d.style.texture, d.scale, d.tint);
         //if (params.invalid)
         //    gui.drawRectFilled(tr, self.style.config.colors.textbox_invalid);
         var selection_pos_min: f32 = 0;
         var selection_pos_max: f32 = 0;
         const sl = s.codepoints.items;
         const caret_x = d.font.textBounds(sl[0..@as(usize, @intCast(s.head))], text_h).x;
-        if (s.head != s.tail) {
+        if (s.head != s.tail and is_focused) {
             const tail_x = d.font.textBounds(sl[0..@intCast(s.tail)], text_h).x;
             selection_pos_max = @max(caret_x, tail_x);
             selection_pos_min = @min(caret_x, tail_x);

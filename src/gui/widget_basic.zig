@@ -13,119 +13,6 @@ const Rec = g.Rec;
 const graph = g.graph;
 const getVt = g.getVt;
 
-pub fn Combo(comptime enumT: type) type {
-    return struct {
-        const ParentT = @This();
-        pub const PoppedWindow = struct {
-            vt: iWindow,
-            area: iArea,
-
-            parent_vt: *iArea,
-            name: []const u8,
-
-            pub fn build(vt: *iWindow, gui: *Gui, area: Rect, style: *GuiConfig) void {
-                const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
-                self.area.area = area;
-                const info = @typeInfo(enumT);
-                self.area.addChild(gui, vt, VScroll.build(gui, area, &build_cb, &self.area, vt, info.Enum.fields.len, style.config.default_item_h) catch return);
-            }
-
-            pub fn build_cb(vt: *iArea, area: *iArea, index: usize, gui: *Gui, win: *iWindow) void {
-                const self: *@This() = @alignCast(@fieldParentPtr("area", vt));
-                var ly = VerticalLayout{ .item_height = gui.style.config.default_item_h, .bounds = area.area };
-                const info = @typeInfo(enumT);
-                inline for (info.Enum.fields, 0..) |field, i| {
-                    if (i >= index) {
-                        area.addChild(gui, win, Button.build(
-                            gui,
-                            ly.getArea() orelse return,
-                            field.name,
-                            self.parent_vt,
-                            &ParentT.buttonCb,
-                            field.value,
-                        ) catch return);
-                    }
-                }
-            }
-
-            pub fn deinit(vt: *iWindow, gui: *Gui) void {
-                const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
-                vt.deinit(gui);
-                gui.alloc.destroy(self);
-            }
-
-            pub fn draw(vt: *iArea, d: DrawState) void {
-                const self: *@This() = @alignCast(@fieldParentPtr("area", vt));
-                _ = d;
-                _ = self;
-            }
-
-            pub fn deinit_area(vt: *iArea, _: *Gui, _: *iWindow) void {
-                _ = vt;
-            }
-        };
-
-        vt: iArea,
-
-        enum_ptr: *enumT,
-
-        pub fn build(gui: *Gui, area: Rect, enum_ptr: *enumT) !*iArea {
-            const self = try gui.alloc.create(@This());
-            self.* = .{
-                .vt = iArea.init(gui, area),
-                .enum_ptr = enum_ptr,
-            };
-            self.vt.onclick = &onclick;
-            self.vt.draw_fn = &draw;
-            self.vt.deinit_fn = &deinit;
-            return &self.vt;
-        }
-
-        pub fn deinit(vt: *iArea, gui: *Gui, _: *iWindow) void {
-            const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
-            gui.alloc.destroy(self);
-        }
-
-        pub fn draw(vt: *iArea, d: DrawState) void {
-            const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
-            d.ctx.rect(vt.area, 0x2ffff0ff);
-            d.ctx.textFmt(vt.area.pos(), "{s}", .{@tagName(self.enum_ptr.*)}, d.font, vt.area.h, 0xff, .{});
-            //std.debug.print("{s} says: {any}\n", .{ self.name, self.bool_ptr.* });
-        }
-
-        pub fn onclick(vt: *iArea, cb: MouseCbState, win: *iWindow) void {
-            const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
-            _ = win;
-            self.makeTransientWindow(cb.gui, Rec(vt.area.x, vt.area.y, vt.area.w, 500)) catch return;
-        }
-
-        pub fn buttonCb(vt: *iArea, id: usize, gui: *Gui) void {
-            const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
-            self.enum_ptr.* = @enumFromInt(id);
-            gui.deferTransientClose();
-        }
-
-        pub fn makeTransientWindow(self: *@This(), gui: *Gui, area: Rect) !void {
-            const popped = try gui.alloc.create(PoppedWindow);
-            popped.* = .{
-                .parent_vt = &self.vt,
-                .vt = iWindow.init(
-                    &PoppedWindow.build,
-                    gui,
-                    &PoppedWindow.deinit,
-                    &popped.area,
-                ),
-                .area = iArea.init(gui, area),
-                .name = "noname",
-            };
-            popped.area.draw_fn = &PoppedWindow.draw;
-            popped.area.deinit_fn = &PoppedWindow.deinit_area;
-            popped.vt.build_fn(&popped.vt, gui, area, &gui.style);
-            gui.transient_window = &popped.vt;
-        }
-    };
-}
-
 pub const VScroll = struct {
     pub const BuildCb = *const fn (*iArea, current_area: *iArea, index: usize, *Gui, *iWindow) void;
 
@@ -241,14 +128,14 @@ pub const Checkbox = struct {
                 for (kev.keys) |k| {
                     switch (@as(graph.SDL.keycodes.Scancode, @enumFromInt(k.key_id))) {
                         else => {},
-                        .SPACE => self.toggle(ev.gui),
+                        .SPACE => self.toggle(ev.gui, ev.window),
                     }
                 }
             },
         }
     }
 
-    fn toggle(self: *@This(), gui: *Gui) void {
+    fn toggle(self: *@This(), gui: *Gui, _: *iWindow) void {
         self.bool_ptr.* = !self.bool_ptr.*;
         self.vt.dirty(gui);
     }
@@ -280,7 +167,7 @@ pub const Checkbox = struct {
 };
 
 pub const Button = struct {
-    pub const ButtonCallbackT = *const fn (*iArea, usize, *Gui) void;
+    pub const ButtonCallbackT = *const fn (*iArea, usize, *Gui, *iWindow) void;
     vt: iArea,
 
     callback_vt: ?*iArea = null,
@@ -324,7 +211,7 @@ pub const Button = struct {
         //d.ctx.rect(vt.area, 0x5ffff0ff);
         const sl = if (self.is_down) d.style.getRect(.button_clicked) else d.style.getRect(.button);
         const color = d.style.config.colors.button_text;
-        d.ctx.nineSlice(vt.area, sl, d.style.texture, d.scale, 0xffffffff);
+        d.ctx.nineSlice(vt.area, sl, d.style.texture, d.scale, d.tint);
         const ta = vt.area.inset(3 * d.scale);
         d.ctx.textFmt(ta.pos(), "{s}", .{self.text}, d.font, d.style.config.text_h, color, .{});
     }
@@ -333,7 +220,7 @@ pub const Button = struct {
         const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
         vt.dirty(cb.gui);
         if (self.callback_fn) |cbfn|
-            cbfn(self.callback_vt.?, self.user_id, cb.gui);
+            cbfn(self.callback_vt.?, self.user_id, cb.gui, win);
         cb.gui.grabMouse(&@This().mouseGrabbed, vt, win);
     }
 };
@@ -444,10 +331,10 @@ pub const ScrollBar = struct {
         const sp = calculateShuttlePos(self.index_ptr.*, self.count, vt.area.h, self.shuttle_h);
         //d.ctx.rect(vt.area, 0x5ffff0ff);
         //d.ctx.nineSlice(vt.area, sl, d.style.texture, d.scale, 0xffffffff);
-        d.ctx.nineSlice(vt.area, d.style.getRect(.slider_box), d.style.texture, d.scale, 0xffff_ffff);
+        d.ctx.nineSlice(vt.area, d.style.getRect(.slider_box), d.style.texture, d.scale, d.tint);
         const handle = shuttleRect(vt.area, sp, self.shuttle_h);
 
-        d.ctx.nineSlice(handle, d.style.getRect(.slider_shuttle), d.style.texture, d.scale, 0xffff_ffff);
+        d.ctx.nineSlice(handle, d.style.getRect(.slider_shuttle), d.style.texture, d.scale, d.tint);
     }
 };
 

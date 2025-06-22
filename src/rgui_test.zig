@@ -36,6 +36,7 @@ pub const MyInspector = struct {
     bool1: bool = false,
     bool2: bool = false,
     my_enum: MyEnum = .hello,
+    fenum: std.fs.File.Kind = .file,
     //This subscribes to onScroll
     //has two child layouts,
     //the act of splitting is not the Layouts job
@@ -63,30 +64,37 @@ pub const MyInspector = struct {
 
     pub fn draw(vt: *iArea, d: DrawState) void {
         //const self: *@This() = @alignCast(@fieldParentPtr("area", vt));
-        d.ctx.rect(vt.area, d.style.config.colors.background);
+        const _br = d.style.getRect(.window);
+        const win_area = vt.area;
+        //const border_area = win_area.inset((_br.h / 3) * d.scale);
+        d.ctx.nineSlice(win_area, _br, d.style.texture, d.scale, d.tint);
         //self.layout.draw(d);
     }
 
-    pub fn build(vt: *iWindow, gui: *Gui, area: Rect, style: *GuiConfig) void {
+    pub fn build(vt: *iWindow, gui: *Gui, area: Rect) void {
         const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
         self.area.area = area;
         self.area.clearChildren(gui, vt);
         //self.layout.reset(gui, vt);
         //start a vlayout
         //var ly = Vert{ .area = vt.area };
+        const _br = gui.style.getRect(.window);
+        const win_area = vt.area.area;
+        const border_area = win_area.inset((_br.h / 3) * gui.scale);
         var ly = guis.VerticalLayout{
             .padding = .{},
-            .item_height = style.config.default_item_h,
-            .bounds = area,
+            .item_height = gui.style.config.default_item_h,
+            .bounds = border_area,
         };
         ly.padding.left = 10;
         ly.padding.right = 10;
-        ly.padding.bottom = 10;
+        ly.padding.top = 10;
 
         self.area.addChild(gui, vt, Wg.Checkbox.build(gui, ly.getArea().?, &self.bool1, "first button") catch return);
         self.area.addChild(gui, vt, Wg.Checkbox.build(gui, ly.getArea().?, &self.bool2, "secnd button") catch return);
         self.area.addChild(gui, vt, Wg.Slider.build(gui, ly.getArea().?, 4, 0, 10) catch return);
         self.area.addChild(gui, vt, Wg.Combo(MyEnum).build(gui, ly.getArea().?, &self.my_enum) catch return);
+        self.area.addChild(gui, vt, Wg.Combo(std.fs.File.Kind).build(gui, ly.getArea().?, &self.fenum) catch return);
 
         self.area.addChild(gui, vt, Wg.Button.build(gui, ly.getArea().?, "My button", &self.area, @This().btnCb, 48) catch return);
         self.area.addChild(gui, vt, Wg.Button.build(gui, ly.getArea().?, "My button 2", null, null, 48) catch return);
@@ -103,7 +111,7 @@ pub const MyInspector = struct {
             &self.area,
             vt,
             10,
-            style.config.default_item_h,
+            gui.style.config.default_item_h,
         ) catch return);
     }
 
@@ -116,7 +124,7 @@ pub const MyInspector = struct {
         _ = self;
     }
 
-    pub fn btnCb(_: *iArea, id: usize, _: *Gui) void {
+    pub fn btnCb(_: *iArea, id: usize, _: *Gui, _: *iWindow) void {
         std.debug.print("BUTTON CLICKED {d}\n", .{id});
     }
 };
@@ -145,79 +153,19 @@ pub fn main() !void {
 
     const window_area = .{ .x = 0, .y = 0, .w = 1000, .h = 1000 };
 
+    const dstate = guis.DrawState{ .ctx = &draw, .font = &font.font, .style = &gui.style, .gui = &gui };
     try gui.addWindow(try MyInspector.create(&gui), window_area);
 
-    var fbo = try graph.RenderTexture.init(800, 600);
-
-    var transient_fbo = try graph.RenderTexture.init(600, 600);
-    defer transient_fbo.deinit();
-
     while (!win.should_exit) {
-        var force_redraw = false;
-        if (try fbo.setSize(win.screen_dimensions.x, win.screen_dimensions.y))
-            force_redraw = true;
         try draw.begin(0xff, win.screen_dimensions.toF());
         win.pumpEvents(.wait); //Important that this is called after draw.begin for input lag reasons
         if (win.keyRising(.ESCAPE))
             win.should_exit = true;
 
         try gui.update();
-        const mstate = guis.MouseCbState{
-            .gui = &gui,
-            .pos = win.mouse.pos,
-            .delta = win.mouse.delta,
-            .state = win.mouse.left,
-        };
-        if (win.keyRising(.TAB))
-            gui.tabFocus(!win.keyHigh(.LSHIFT));
-        switch (win.mouse.left) {
-            .rising => gui.dispatchClick(mstate),
-            .low => {
-                gui.mouse_grab = null;
-            },
-            .falling => {
-                if (gui.mouse_grab) |g|
-                    g.cb(
-                        g.vt,
-                        mstate,
-                        g.win,
-                    );
-            },
-            .high => {
-                if (gui.mouse_grab) |g| {
-                    g.cb(g.vt, mstate, g.win);
-                }
-            },
-        }
-        {
-            const keys = win.keys.slice();
-            if (keys.len > 0) {
-                gui.dispatchKeydown(.{ .keys = keys, .mod_state = win.mod });
-            }
-        }
-        if (gui.text_input_enabled and win.text_input.len > 0) {
-            gui.dispatchTextinput(.{
-                .gui = &gui,
-                .text = win.text_input,
-                .mod_state = win.mod,
-                .keys = win.keys.slice(),
-            });
-        }
-        if (win.mouse.wheel_delta.y != 0)
-            gui.dispatchScroll(win.mouse.pos, win.mouse.wheel_delta.y);
+        try gui.draw(dstate, false);
 
-        fbo.bind(!gui.cached_drawing);
-        gui.draw(.{ .ctx = &draw, .font = &font.font, .style = &gui.style, .gui = &gui }, force_redraw);
-        try draw.flush(null, null);
-
-        graph.c.glBindFramebuffer(graph.c.GL_FRAMEBUFFER, 0);
-        graph.c.glViewport(0, 0, @intFromFloat(draw.screen_dimensions.x), @intFromFloat(draw.screen_dimensions.y));
-        const tr = fbo.texture.rect();
-        draw.rectTex(
-            graph.Rec(0, 0, win.screen_dimensions.x, win.screen_dimensions.y),
-            graph.Rec(0, 0, tr.w, -tr.h),
-            fbo.texture,
-        );
+        gui.drawFbos(&draw);
 
         try draw.flush(null, null); //Flush any draw commands
 

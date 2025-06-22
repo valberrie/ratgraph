@@ -10,6 +10,7 @@ const AL = std.mem.Allocator;
 pub const Widget = struct {
     pub usingnamespace @import("widget_textbox.zig");
     pub usingnamespace @import("widget_basic.zig");
+    pub usingnamespace @import("widget_combo.zig");
 };
 
 pub fn getVt(comptime T: type, vt: anytype) *T {
@@ -53,23 +54,26 @@ pub const iArea = struct {
             dfn(self, gui, win);
     }
 
-    pub fn draw(self: *@This(), dctx: DrawState) void {
-        if (dctx.gui.needsDraw(self)) {
+    pub fn draw(self: *@This(), dctx: DrawState, window: *iWindow) void {
+        if (dctx.gui.needsDraw(self, window)) {
             if (self.draw_fn) |drawf|
                 drawf(self, dctx);
             for (self.children.items) |child|
-                child.draw(dctx);
+                child.draw(dctx, window);
         }
         self.is_dirty = false;
     }
 
     pub fn dirty(self: *@This(), gui: *Gui) void {
-        if (!self.is_dirty)
-            gui.setDirty(self);
+        if (!self.is_dirty) {
+            if (gui.getWindow(self)) |win|
+                gui.setDirty(self, win);
+        }
         self.is_dirty = true;
     }
 
     pub fn addChild(self: *@This(), gui: *Gui, win: *iWindow, vt: *iArea) void {
+        gui.register(vt, win);
         if (vt.onclick != null)
             gui.registerOnClick(vt, win) catch return;
         if (vt.onscroll != null)
@@ -77,7 +81,7 @@ pub const iArea = struct {
         vt.parent = self;
         vt.index = self.children.items.len;
         self.children.append(vt) catch return;
-        gui.setDirty(vt);
+        gui.setDirty(vt, win);
     }
 
     pub fn deinitEmpty(vt: *iArea, gui: *Gui, _: *iWindow) void {
@@ -107,7 +111,7 @@ pub const iArea = struct {
 };
 
 pub const iWindow = struct {
-    const BuildfnT = *const fn (*iWindow, *Gui, Rect, *GuiConfig) void;
+    const BuildfnT = *const fn (*iWindow, *Gui, Rect) void;
 
     build_fn: BuildfnT,
     deinit_fn: *const fn (*iWindow, *Gui) void,
@@ -117,8 +121,11 @@ pub const iWindow = struct {
     click_listeners: std.ArrayList(*iArea),
     scroll_list: std.ArrayList(*iArea),
 
+    cache_map: std.AutoHashMap(*iArea, void),
+    to_draw: std.ArrayList(*iArea),
+
     pub fn draw(self: *iWindow, dctx: DrawState) void {
-        self.area.draw(dctx);
+        self.area.draw(dctx, self);
         //self.area.draw_fn(self.area, dctx);
     }
 
@@ -128,6 +135,8 @@ pub const iWindow = struct {
             .build_fn = build_fn,
             .click_listeners = std.ArrayList(*iArea).init(gui.alloc),
             .scroll_list = std.ArrayList(*iArea).init(gui.alloc),
+            .cache_map = std.AutoHashMap(*iArea, void).init(gui.alloc),
+            .to_draw = std.ArrayList(*iArea).init(gui.alloc),
             .area = area,
         };
     }
@@ -135,6 +144,7 @@ pub const iWindow = struct {
     // the implementers deinit fn should call this first
     pub fn deinit(self: *iWindow, gui: *Gui) void {
         //self.layout.vt.deinit_fn(&self.layout.vt, gui, self);
+        gui.deregister(self.area, self);
         self.area.deinit(gui, self);
         if (self.click_listeners.items.len != 0)
             std.debug.print("BROKEN\n", .{});
@@ -142,6 +152,8 @@ pub const iWindow = struct {
             std.debug.print("BROKEN\n", .{});
         self.click_listeners.deinit();
         self.scroll_list.deinit();
+        self.to_draw.deinit();
+        self.cache_map.deinit();
     }
 
     /// Returns true if this window contains the mouse
@@ -178,6 +190,7 @@ pub const DrawState = struct {
     font: *graph.FontInterface,
     style: *GuiConfig,
     scale: f32 = 2,
+    tint: u32 = 0xffff_ffff, //Tint for textures
 };
 
 pub const MouseCbState = struct {
@@ -284,26 +297,29 @@ pub const Gui = struct {
         win: *iWindow,
     } = null,
 
+    fbos: std.AutoHashMap(*iWindow, graph.RenderTexture),
+    transient_fbo: graph.RenderTexture,
+
+    area_window_map: std.AutoHashMap(*iArea, *iWindow),
+
     draws_since_cached: i32 = 0,
     max_cached_before_full_flush: i32 = 60 * 10, //Ten seconds
     cached_drawing: bool = true,
-    cache_map: std.AutoHashMap(*iArea, void),
-    to_draw: std.ArrayList(*iArea),
 
     text_input_enabled: bool = false,
     sdl_win: *graph.SDL.Window,
-    text_listeners: std.ArrayList(*iArea),
 
     style: GuiConfig,
+    scale: f32 = 2,
 
     pub fn init(alloc: AL, win: *graph.SDL.Window) !Self {
         return Gui{
             .alloc = alloc,
+            .area_window_map = std.AutoHashMap(*iArea, *iWindow).init(alloc),
             .windows = std.ArrayList(*iWindow).init(alloc),
+            .transient_fbo = try graph.RenderTexture.init(100, 100),
+            .fbos = std.AutoHashMap(*iWindow, graph.RenderTexture).init(alloc),
             .sdl_win = win,
-            .cache_map = std.AutoHashMap(*iArea, void).init(alloc),
-            .to_draw = std.ArrayList(*iArea).init(alloc),
-            .text_listeners = std.ArrayList(*iArea).init(alloc),
             .style = try GuiConfig.init(alloc, std.fs.cwd(), "asset/os9gui", std.fs.cwd()),
         };
     }
@@ -312,19 +328,24 @@ pub const Gui = struct {
         for (self.windows.items) |win|
             win.deinit_fn(win, self);
 
+        {
+            var it = self.fbos.valueIterator();
+            while (it.next()) |item|
+                item.deinit();
+        }
+        self.transient_fbo.deinit();
+        self.fbos.deinit();
         self.windows.deinit();
-        self.text_listeners.deinit();
         self.closeTransientWindow();
-        self.to_draw.deinit();
-        self.cache_map.deinit();
+        self.area_window_map.deinit();
         self.style.deinit();
     }
 
-    pub fn needsDraw(self: *Self, vt: *iArea) bool {
+    pub fn needsDraw(self: *Self, vt: *iArea, window: *iWindow) bool {
         if (!self.cached_drawing)
             return true;
-        if (!self.cache_map.contains(vt)) {
-            self.cache_map.put(vt, {}) catch return true;
+        if (!window.cache_map.contains(vt)) {
+            window.cache_map.put(vt, {}) catch return true;
             return true;
         }
         return false;
@@ -398,25 +419,26 @@ pub const Gui = struct {
         try window.click_listeners.append(vt);
     }
 
-    pub fn registerTextinput(self: *Self, vt: *iArea, window: *iWindow) !void {
-        _ = window;
-
-        try self.text_listeners.append(vt);
-    }
-
-    pub fn setDirty(self: *Self, vt: *iArea) void {
+    pub fn setDirty(self: *Self, vt: *iArea, win: *iWindow) void {
         if (self.cached_drawing) {
-            self.to_draw.append(vt) catch return;
+            win.to_draw.append(vt) catch return;
         }
     }
 
     pub fn update(self: *Self) !void {
-        self.to_draw.clearRetainingCapacity();
-        self.cache_map.clearRetainingCapacity();
+        for (self.windows.items) |win| {
+            win.to_draw.clearRetainingCapacity();
+            win.cache_map.clearRetainingCapacity();
+        }
+        if (self.transient_window) |tw| {
+            tw.to_draw.clearRetainingCapacity();
+            tw.cache_map.clearRetainingCapacity();
+        }
         if (self.transient_should_close) {
             self.transient_should_close = false;
             self.closeTransientWindow();
         }
+        try self.handleSdlEvents();
     }
 
     /// If transient windows destroy themselves, the program will crash as used memory is freed.
@@ -429,7 +451,16 @@ pub const Gui = struct {
         try window.scroll_list.append(vt);
     }
 
+    pub fn register(self: *Self, vt: *iArea, window: *iWindow) void {
+        self.area_window_map.put(vt, window) catch return;
+    }
+
+    pub fn getWindow(self: *Self, vt: *iArea) ?*iWindow {
+        return self.area_window_map.get(vt);
+    }
+
     pub fn deregister(self: *Self, vt: *iArea, window: *iWindow) void {
+        _ = self.area_window_map.remove(vt);
         for (window.scroll_list.items, 0..) |item, index| {
             if (item == vt) {
                 _ = window.scroll_list.swapRemove(index);
@@ -442,15 +473,9 @@ pub const Gui = struct {
                 break;
             }
         }
-        for (self.to_draw.items, 0..) |item, index| {
+        for (window.to_draw.items, 0..) |item, index| {
             if (item == vt) {
-                _ = self.to_draw.swapRemove(index);
-                break;
-            }
-        }
-        for (self.text_listeners.items, 0..) |item, index| {
-            if (item == vt) {
-                _ = self.text_listeners.swapRemove(index);
+                _ = window.to_draw.swapRemove(index);
                 break;
             }
         }
@@ -483,6 +508,13 @@ pub const Gui = struct {
             return f.vt == vt;
         }
         return false;
+    }
+
+    pub fn setTransientWindow(self: *Self, win: *iWindow) void {
+        self.closeTransientWindow();
+        self.transient_window = win;
+        self.register(win.area, win);
+        _ = self.transient_fbo.setSize(win.area.area.w, win.area.area.h) catch return;
     }
 
     pub fn closeTransientWindow(self: *Self) void {
@@ -567,29 +599,120 @@ pub const Gui = struct {
     }
 
     pub fn addWindow(self: *Self, window: *iWindow, area: Rect) !void {
-        window.build_fn(window, self, area, &self.style); //Rebuild it
+        window.build_fn(window, self, area); //Rebuild it
+        try self.fbos.put(window, try graph.RenderTexture.init(area.w, area.h));
+        self.register(window.area, window);
         try self.windows.append(window);
     }
 
-    pub fn draw(self: *Self, dctx: DrawState, force_redraw: bool) void {
+    pub fn drawFbos(self: *Self, ctx: *Dctx) void {
+        for (self.windows.items) |w| {
+            const fbo = self.fbos.getPtr(w) orelse continue;
+            drawFbo(w.area.area, fbo, ctx);
+        }
+
+        if (self.transient_window) |tw| {
+            drawFbo(tw.area.area, &self.transient_fbo, ctx);
+        }
+    }
+
+    pub fn draw(self: *Self, dctx: DrawState, force_redraw: bool) !void {
+        defer {
+            graph.c.glBindFramebuffer(graph.c.GL_FRAMEBUFFER, 0);
+            graph.c.glViewport(0, 0, @intFromFloat(dctx.ctx.screen_dimensions.x), @intFromFloat(dctx.ctx.screen_dimensions.y));
+        }
         if (self.cached_drawing and !force_redraw) {
             defer self.draws_since_cached += 1;
             if (self.draws_since_cached < 1 or self.draws_since_cached > self.max_cached_before_full_flush)
                 return self.draw_all(dctx);
             //Otherwise we do the cached
-            for (self.to_draw.items) |draw_area| {
-                draw_area.draw(dctx);
+            for (self.windows.items) |win| {
+                const fbo = self.fbos.getPtr(win) orelse continue;
+                fbo.bind(false);
+                for (win.to_draw.items) |draw_area| {
+                    draw_area.draw(dctx, win);
+                }
+                try dctx.ctx.flush(win.area.area, null);
+            }
+            if (self.transient_window) |tw| {
+                self.transient_fbo.bind(false);
+                for (tw.to_draw.items) |td| {
+                    td.draw(dctx, tw);
+                }
+                try dctx.ctx.flush(tw.area.area, null);
             }
         } else {
-            self.draw_all(dctx);
+            try self.draw_all(dctx);
         }
     }
 
-    pub fn draw_all(self: *Self, dctx: DrawState) void {
+    pub fn draw_all(self: *Self, dctx: DrawState) !void {
         self.draws_since_cached = 1;
-        for (self.windows.items) |window|
+        for (self.windows.items) |window| {
+            const fbo = self.fbos.getPtr(window) orelse continue;
+            fbo.bind(true);
             window.draw(dctx);
-        if (self.transient_window) |tw|
+            try dctx.ctx.flush(window.area.area, null);
+        }
+        if (self.transient_window) |tw| {
+            self.transient_fbo.bind(true);
             tw.draw(dctx);
+            try dctx.ctx.flush(tw.area.area, null);
+        }
+    }
+
+    pub fn drawFbo(area: Rect, fbo: *graph.RenderTexture, dctx: *Dctx) void {
+        dctx.rectTex(
+            area,
+            graph.Rec(0, 0, area.w, -area.h),
+            fbo.texture,
+        );
+    }
+
+    pub fn handleSdlEvents(self: *Self) !void {
+        const win = self.sdl_win;
+        const mstate = MouseCbState{
+            .gui = self,
+            .pos = win.mouse.pos,
+            .delta = win.mouse.delta,
+            .state = win.mouse.left,
+        };
+        if (win.keyRising(.TAB))
+            self.tabFocus(!win.keyHigh(.LSHIFT));
+        switch (win.mouse.left) {
+            .rising => self.dispatchClick(mstate),
+            .low => {
+                self.mouse_grab = null;
+            },
+            .falling => {
+                if (self.mouse_grab) |g|
+                    g.cb(
+                        g.vt,
+                        mstate,
+                        g.win,
+                    );
+            },
+            .high => {
+                if (self.mouse_grab) |g| {
+                    g.cb(g.vt, mstate, g.win);
+                }
+            },
+        }
+        {
+            const keys = win.keys.slice();
+            if (keys.len > 0) {
+                self.dispatchKeydown(.{ .keys = keys, .mod_state = win.mod });
+            }
+        }
+        if (self.text_input_enabled and win.text_input.len > 0) {
+            self.dispatchTextinput(.{
+                .gui = self,
+                .text = win.text_input,
+                .mod_state = win.mod,
+                .keys = win.keys.slice(),
+            });
+        }
+        if (win.mouse.wheel_delta.y != 0)
+            self.dispatchScroll(win.mouse.pos, win.mouse.wheel_delta.y);
     }
 };
