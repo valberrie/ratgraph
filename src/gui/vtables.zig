@@ -13,6 +13,7 @@ pub const Widget = struct {
     pub usingnamespace @import("widget_combo.zig");
     pub usingnamespace @import("widget_colorpicker.zig");
     pub usingnamespace @import("widget_slider.zig");
+    pub usingnamespace @import("widget_tabs.zig");
 };
 
 pub fn getVt(comptime T: type, vt: anytype) *T {
@@ -173,10 +174,18 @@ pub const iWindow = struct {
     /// Returns true if this window contains the mouse
     pub fn dispatchClick(win: *iWindow, cb: MouseCbState) bool {
         if (win.area.area.containsPoint(cb.pos)) {
+            std.debug.print("DD ", .{});
+            for (win.click_listeners.items) |item_|
+                std.debug.print("{*} ", .{item_});
+            std.debug.print("\n", .{});
+
             for (win.click_listeners.items) |vt| {
+                std.debug.print("C {*}\n", .{vt});
                 if (vt.area.containsPoint(cb.pos)) {
-                    if (vt.onclick) |oc|
+                    if (vt.onclick) |oc| {
                         oc(vt, cb, win);
+                        return true;
+                    }
                 }
             }
             return true;
@@ -383,6 +392,21 @@ pub const Gui = struct {
     pub const TextinputFn = *const fn (*iArea, TextCbState, *iWindow) void;
     const MouseGrabState = enum { high, falling };
 
+    tracker: struct {
+        register_count: usize = 0,
+        deregister_count: usize = 0,
+
+        fn reset(self: *@This()) void {
+            self.register_count = 0;
+            self.deregister_count = 0;
+        }
+        fn print(self: *@This()) void {
+            if (self.register_count == 0 and self.deregister_count == 0)
+                return;
+            std.debug.print("{}\n", .{self});
+        }
+    } = .{},
+
     test_builder: TestBuilder = .{},
 
     alloc: std.mem.Allocator,
@@ -550,6 +574,7 @@ pub const Gui = struct {
     }
 
     pub fn registerOnClick(_: *Self, vt: *iArea, window: *iWindow) !void {
+        std.debug.print("REGISTERING CLICK {*}\n", .{vt});
         try window.click_listeners.append(vt);
     }
 
@@ -569,6 +594,11 @@ pub const Gui = struct {
     }
 
     pub fn pre_update(self: *Self, windows: []const *iWindow) !void {
+        {
+            self.tracker.print();
+            self.tracker.reset();
+        }
+
         for (windows) |win| {
             win.to_draw.clearRetainingCapacity();
             win.cache_map.clearRetainingCapacity();
@@ -598,6 +628,7 @@ pub const Gui = struct {
     }
 
     pub fn register(self: *Self, vt: *iArea, window: *iWindow) void {
+        self.tracker.register_count += 1;
         self.area_window_map.put(vt, window) catch return;
     }
 
@@ -606,6 +637,7 @@ pub const Gui = struct {
     }
 
     pub fn deregister(self: *Self, vt: *iArea, window: *iWindow) void {
+        self.tracker.deregister_count += 1;
         _ = self.area_window_map.remove(vt);
         for (window.scroll_list.items, 0..) |item, index| {
             if (item == vt) {
@@ -616,6 +648,10 @@ pub const Gui = struct {
         for (window.click_listeners.items, 0..) |item, index| {
             if (item == vt) {
                 _ = window.click_listeners.swapRemove(index);
+                std.debug.print("D________NG CLICK {*}\n", .{vt});
+                for (window.click_listeners.items) |item_|
+                    std.debug.print("{*} ", .{item_});
+                std.debug.print("\n", .{});
                 break;
             }
         }

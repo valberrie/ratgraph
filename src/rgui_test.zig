@@ -90,8 +90,8 @@ pub const MyInspector = struct {
         a.addChildOpt(gui, vt, Wg.Checkbox.build(gui, ly.getArea(), &self.bool1, "first button"));
         a.addChildOpt(gui, vt, Wg.Checkbox.build(gui, ly.getArea(), &self.bool2, "secnd button"));
         a.addChildOpt(gui, vt, Wg.StaticSlider.build(gui, ly.getArea(), 4, 0, 10));
-        a.addChild(gui, vt, Wg.Combo(MyEnum).build(gui, ly.getArea() orelse return, &self.my_enum));
-        a.addChild(gui, vt, Wg.Combo(std.fs.File.Kind).build(gui, ly.getArea() orelse return, &self.fenum));
+        a.addChildOpt(gui, vt, Wg.Combo.build(gui, ly.getArea() orelse return, &self.my_enum));
+        a.addChildOpt(gui, vt, Wg.Combo.build(gui, ly.getArea() orelse return, &self.fenum));
 
         a.addChildOpt(gui, vt, Wg.Button.build(gui, ly.getArea(), "My button", &self.area, @This().btnCb, 48));
         a.addChildOpt(gui, vt, Wg.Button.build(gui, ly.getArea(), "My button 2", null, null, 48));
@@ -106,15 +106,34 @@ pub const MyInspector = struct {
         a.addChildOpt(gui, vt, Wg.Slider.build(gui, ly.getArea(), &self.i32_n, 0, 10, .{}));
 
         ly.pushRemaining();
-        a.addChildOpt(gui, vt, Wg.VScroll.build(
-            gui,
-            ly.getArea(),
-            &buildScrollItems,
-            &self.area,
-            vt,
-            10,
-            gui.style.config.default_item_h,
-        ));
+        a.addChildOpt(gui, vt, Wg.Tabs.build(gui, ly.getArea(), &.{ "main", "next", "third" }, vt, &buildTabs, &self.area));
+
+        //a.addChildOpt(gui, vt, Wg.VScroll.build(
+        //    gui,
+        //    ly.getArea(),
+        //    &buildScrollItems,
+        //    &self.area,
+        //    vt,
+        //    10,
+        //    gui.style.config.default_item_h,
+        //));
+    }
+
+    pub fn buildTabs(user_vt: *iArea, vt: *iArea, tab_name: []const u8, gui: *Gui, win: *iWindow) void {
+        const self: *@This() = @alignCast(@fieldParentPtr("area", user_vt));
+        const eql = std.mem.eql;
+        var ly = guis.VerticalLayout{ .item_height = gui.style.config.default_item_h, .bounds = vt.area };
+        ly.padding.top = 10;
+        if (eql(u8, tab_name, "main")) {
+            vt.addChildOpt(gui, win, Wg.Textbox.build(gui, ly.getArea()));
+            vt.addChildOpt(gui, win, Wg.Textbox.build(gui, ly.getArea()));
+            return;
+        }
+        if (eql(u8, tab_name, "next")) {
+            vt.addChildOpt(gui, win, Wg.Slider.build(gui, ly.getArea(), &self.number, -10, 10, .{}));
+            vt.addChildOpt(gui, win, Wg.Slider.build(gui, ly.getArea(), &self.i32_n, -10, 10, .{}));
+            vt.addChildOpt(gui, win, Wg.Slider.build(gui, ly.getArea(), &self.i32_n, 0, 10, .{}));
+        }
     }
 
     pub fn buildScrollItems(window_area: *iArea, vt: *iArea, index: usize, gui: *Gui, window: *iWindow) void {
@@ -146,7 +165,7 @@ pub fn main() !void {
     var draw = graph.ImmediateDrawingContext.init(alloc);
     defer draw.deinit();
 
-    var gui = try Gui.init(alloc, &win);
+    var gui = try Gui.init(alloc, &win, std.fs.cwd());
     defer gui.deinit();
     const do_test_builder = true;
     if (do_test_builder)
@@ -177,16 +196,17 @@ pub fn main() !void {
         if (win.keyRising(.ESCAPE))
             win.should_exit = true;
 
-        try gui.update();
+        const wins = gui.windows.items;
+        try gui.pre_update(wins);
         if (do_test_builder) {
-            try gui.handleSdlEvents();
+            try gui.handleSdlEvents(wins);
         } else {
             if (demo.next()) |up|
-                try gui.handleEvent(up);
+                try gui.handleEvent(up, wins);
         }
-        try gui.draw(dstate, false);
+        try gui.draw(dstate, false, wins);
 
-        gui.drawFbos(&draw);
+        gui.drawFbos(&draw, wins);
 
         try draw.flush(null, null); //Flush any draw commands
 
