@@ -87,7 +87,6 @@ const TabHeader = struct {
         self.vt.draw_fn = &draw;
         self.vt.deinit_fn = &deinit;
         self.vt.onclick = &onclick;
-        std.debug.print("REG TABHADE\n", .{});
 
         return &self.vt;
     }
@@ -128,7 +127,6 @@ const TabHeader = struct {
     }
 
     pub fn deinit(vt: *iArea, gui: *Gui, _: *iWindow) void {
-        std.debug.print("DEREG\n", .{});
         const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
         gui.alloc.destroy(self);
     }

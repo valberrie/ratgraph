@@ -1205,8 +1205,10 @@ pub const RenderTexture = struct {
     pub fn bind(self: *Self, clear: bool) void {
         c.glBindFramebuffer(c.GL_FRAMEBUFFER, self.fb);
         c.glViewport(0, 0, self.w, self.h);
-        if (clear)
+        if (clear) {
+            c.glClearColor(1, 1, 1, 1);
             c.glClear(c.GL_COLOR_BUFFER_BIT);
+        }
         c.glClear(c.GL_DEPTH_BUFFER_BIT);
     }
 };

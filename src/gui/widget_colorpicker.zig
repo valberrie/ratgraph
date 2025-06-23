@@ -208,8 +208,10 @@ const ColorpickerTransient = struct {
         const color = &self.parent_ptr.color_hsv;
         const temp = (graph.Hsva{ .h = color.h, .s = 1, .v = 1, .a = 1 }).toInt();
         const black_trans = 0;
-        d.ctx.rectVertexColors(sv_area, &.{ Color.White, Color.White, temp, temp });
-        d.ctx.rectVertexColors(sv_area, &.{ black_trans, Color.Black, Color.Black, black_trans });
+        if (true) {
+            d.ctx.rectVertexColors(sv_area, &.{ Color.White, Color.White, temp, temp });
+            d.ctx.rectVertexColors(sv_area, &.{ black_trans, Color.Black, Color.Black, black_trans });
+        }
 
         //Ported from Nuklear
         { //Hue slider

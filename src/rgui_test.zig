@@ -107,16 +107,6 @@ pub const MyInspector = struct {
 
         ly.pushRemaining();
         a.addChildOpt(gui, vt, Wg.Tabs.build(gui, ly.getArea(), &.{ "main", "next", "third" }, vt, &buildTabs, &self.area));
-
-        //a.addChildOpt(gui, vt, Wg.VScroll.build(
-        //    gui,
-        //    ly.getArea(),
-        //    &buildScrollItems,
-        //    &self.area,
-        //    vt,
-        //    10,
-        //    gui.style.config.default_item_h,
-        //));
     }
 
     pub fn buildTabs(user_vt: *iArea, vt: *iArea, tab_name: []const u8, gui: *Gui, win: *iWindow) void {
@@ -133,6 +123,18 @@ pub const MyInspector = struct {
             vt.addChildOpt(gui, win, Wg.Slider.build(gui, ly.getArea(), &self.number, -10, 10, .{}));
             vt.addChildOpt(gui, win, Wg.Slider.build(gui, ly.getArea(), &self.i32_n, -10, 10, .{}));
             vt.addChildOpt(gui, win, Wg.Slider.build(gui, ly.getArea(), &self.i32_n, 0, 10, .{}));
+        }
+        if (eql(u8, tab_name, "third")) {
+            ly.pushRemaining();
+            vt.addChildOpt(gui, win, Wg.VScroll.build(
+                gui,
+                ly.getArea(),
+                &buildScrollItems,
+                &self.area,
+                win,
+                10,
+                gui.style.config.default_item_h,
+            ));
         }
     }
 
@@ -193,6 +195,7 @@ pub fn main() !void {
     while (!win.should_exit) {
         try draw.begin(0xff, win.screen_dimensions.toF());
         win.pumpEvents(if (do_test_builder) .wait else .poll);
+        gui.clamp_window = Rec(0, 0, draw.screen_dimensions.x, draw.screen_dimensions.y);
         if (win.keyRising(.ESCAPE))
             win.should_exit = true;
 

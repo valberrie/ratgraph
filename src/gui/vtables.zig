@@ -174,13 +174,7 @@ pub const iWindow = struct {
     /// Returns true if this window contains the mouse
     pub fn dispatchClick(win: *iWindow, cb: MouseCbState) bool {
         if (win.area.area.containsPoint(cb.pos)) {
-            std.debug.print("DD ", .{});
-            for (win.click_listeners.items) |item_|
-                std.debug.print("{*} ", .{item_});
-            std.debug.print("\n", .{});
-
             for (win.click_listeners.items) |vt| {
-                std.debug.print("C {*}\n", .{vt});
                 if (vt.area.containsPoint(cb.pos)) {
                     if (vt.onclick) |oc| {
                         oc(vt, cb, win);
@@ -574,7 +568,6 @@ pub const Gui = struct {
     }
 
     pub fn registerOnClick(_: *Self, vt: *iArea, window: *iWindow) !void {
-        std.debug.print("REGISTERING CLICK {*}\n", .{vt});
         try window.click_listeners.append(vt);
     }
 
@@ -594,7 +587,7 @@ pub const Gui = struct {
     }
 
     pub fn pre_update(self: *Self, windows: []const *iWindow) !void {
-        {
+        if (false) {
             self.tracker.print();
             self.tracker.reset();
         }
@@ -648,10 +641,6 @@ pub const Gui = struct {
         for (window.click_listeners.items, 0..) |item, index| {
             if (item == vt) {
                 _ = window.click_listeners.swapRemove(index);
-                std.debug.print("D________NG CLICK {*}\n", .{vt});
-                for (window.click_listeners.items) |item_|
-                    std.debug.print("{*} ", .{item_});
-                std.debug.print("\n", .{});
                 break;
             }
         }
@@ -839,6 +828,10 @@ pub const Gui = struct {
             graph.c.glBindFramebuffer(graph.c.GL_FRAMEBUFFER, 0);
             graph.c.glViewport(0, 0, @intFromFloat(dctx.ctx.screen_dimensions.x), @intFromFloat(dctx.ctx.screen_dimensions.y));
         }
+        graph.c.glEnable(graph.c.GL_DEPTH_TEST);
+        graph.c.glEnable(graph.c.GL_BLEND);
+        graph.c.glBlendFunc(graph.c.GL_SRC_ALPHA, graph.c.GL_ONE_MINUS_SRC_ALPHA);
+        graph.c.glBlendEquation(graph.c.GL_FUNC_ADD);
         for (windows) |win| {
             const fbo = self.fbos.getPtr(win) orelse continue;
             try self.drawWindow(win, dctx, force_redraw, fbo);
