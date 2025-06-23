@@ -10,7 +10,21 @@ const Color = graph.Colori;
 const VScroll = g.Widget.VScroll;
 const Widget = g.Widget;
 
-pub fn Combo(comptime enumT: type) type {
+pub const Combo = struct {
+    pub fn build(gui: *Gui, area_o: ?Rect, enum_ptr: anytype) ?*iArea {
+        const info = @typeInfo(@TypeOf(enum_ptr));
+        if (info != .Pointer) @compileError("expected a pointer to enum");
+        if (info.Pointer.is_const or info.Pointer.size != .One) @compileError("invalid pointer");
+        const child_info = @typeInfo(info.Pointer.child);
+        if (child_info != .Enum) @compileError("Expected an enum");
+
+        const Gen = ComboGeneric(info.Pointer.child);
+        const area = area_o orelse return null;
+        return Gen.build(gui, area, enum_ptr);
+    }
+};
+
+pub fn ComboGeneric(comptime enumT: type) type {
     return struct {
         const ParentT = @This();
         pub const PoppedWindow = struct {

@@ -161,7 +161,7 @@ pub const Checkbox = struct {
             d.style.texture,
         );
         const tarea = Rec(br.farX() + pad, area.y + pad, area.w - br.farX(), area.h);
-        d.ctx.textClipped(tarea, "{s}{s}", .{ self.name, if (is_focused) " space to toggle" else "" }, d.textP(null), .left);
+        d.ctx.textClipped(tarea, "{s}{s}", .{ self.name, if (is_focused) " [space to toggle]" else "" }, d.textP(null), .left);
 
         //std.debug.print("{s} says: {any}\n", .{ self.name, self.bool_ptr.* });
     }

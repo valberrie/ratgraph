@@ -136,6 +136,7 @@ pub const iWindow = struct {
 
     cache_map: std.AutoHashMap(*iArea, void),
     to_draw: std.ArrayList(*iArea),
+    draws_since_cached: i32 = 0,
 
     pub fn draw(self: *iWindow, dctx: DrawState) void {
         self.area.draw(dctx, self);
@@ -417,7 +418,7 @@ pub const Gui = struct {
     style: GuiConfig,
     scale: f32 = 2,
 
-    pub fn init(alloc: AL, win: *graph.SDL.Window) !Self {
+    pub fn init(alloc: AL, win: *graph.SDL.Window, style_dir: std.fs.Dir) !Self {
         return Gui{
             .alloc = alloc,
             .area_window_map = std.AutoHashMap(*iArea, *iWindow).init(alloc),
@@ -426,7 +427,7 @@ pub const Gui = struct {
             .transient_fbo = try graph.RenderTexture.init(100, 100),
             .fbos = std.AutoHashMap(*iWindow, graph.RenderTexture).init(alloc),
             .sdl_win = win,
-            .style = try GuiConfig.init(alloc, std.fs.cwd(), "asset/os9gui", std.fs.cwd()),
+            .style = try GuiConfig.init(alloc, style_dir, "asset/os9gui", style_dir),
         };
     }
 
@@ -567,8 +568,8 @@ pub const Gui = struct {
         }
     }
 
-    pub fn update(self: *Self) !void {
-        for (self.windows.items) |win| {
+    pub fn pre_update(self: *Self, windows: []const *iWindow) !void {
+        for (windows) |win| {
             win.to_draw.clearRetainingCapacity();
             win.cache_map.clearRetainingCapacity();
         }
@@ -580,6 +581,10 @@ pub const Gui = struct {
             self.transient_should_close = false;
             self.closeTransientWindow();
         }
+    }
+
+    pub fn update(self: *Self, windows: []const *iWindow) !void {
+        try self.handleSdlEvents(windows);
     }
 
     /// If transient windows destroy themselves, the program will crash as used memory is freed.
@@ -711,7 +716,7 @@ pub const Gui = struct {
         }
     }
 
-    pub fn dispatchClick(self: *Self, mstate: MouseCbState) void {
+    pub fn dispatchClick(self: *Self, mstate: MouseCbState, windows: []const *iWindow) void {
         if (self.transient_window) |tw| {
             if (tw.dispatchClick(mstate)) {
                 return; //Don't click top level windows
@@ -720,7 +725,7 @@ pub const Gui = struct {
                 self.closeTransientWindow();
             }
         }
-        for (self.windows.items) |win| {
+        for (windows) |win| {
             if (win.dispatchClick(mstate))
                 break;
         }
@@ -736,7 +741,7 @@ pub const Gui = struct {
         self.sdl_win.stopTextInput();
     }
 
-    pub fn dispatchScroll(self: *Self, pos: Vec2f, dist: f32) void {
+    pub fn dispatchScroll(self: *Self, pos: Vec2f, dist: f32, windows: []const *iWindow) void {
         if (self.transient_window) |tw| {
             if (tw.dispatchScroll(pos, self, dist)) {
                 return; //Don't click top level windows
@@ -745,7 +750,7 @@ pub const Gui = struct {
                 self.closeTransientWindow();
             }
         }
-        for (self.windows.items) |win| {
+        for (windows) |win| {
             if (win.dispatchScroll(pos, self, dist))
                 break;
         }
@@ -771,8 +776,19 @@ pub const Gui = struct {
         try self.windows.append(window);
     }
 
-    pub fn drawFbos(self: *Self, ctx: *Dctx) void {
-        for (self.windows.items) |w| {
+    pub fn updateWindowSize(self: *Self, window: *iWindow, area: Rect) !void {
+        if (window.area.area.eql(area))
+            return;
+        if (self.fbos.getPtr(window)) |fbo| {
+            _ = try fbo.setSize(area.w, area.h);
+            window.build_fn(window, self, area);
+        }
+    }
+
+    //pub fn updateSpecific(self: *Self, windows: []const *iWindow)!void{ }
+
+    pub fn drawFbos(self: *Self, ctx: *Dctx, windows: []const *iWindow) void {
+        for (windows) |w| {
             const fbo = self.fbos.getPtr(w) orelse continue;
             drawFbo(w.area.area, fbo, ctx);
         }
@@ -782,49 +798,41 @@ pub const Gui = struct {
         }
     }
 
-    pub fn draw(self: *Self, dctx: DrawState, force_redraw: bool) !void {
+    pub fn draw(self: *Self, dctx: DrawState, force_redraw: bool, windows: []const *iWindow) !void {
         defer {
             graph.c.glBindFramebuffer(graph.c.GL_FRAMEBUFFER, 0);
             graph.c.glViewport(0, 0, @intFromFloat(dctx.ctx.screen_dimensions.x), @intFromFloat(dctx.ctx.screen_dimensions.y));
         }
-        if (self.cached_drawing and !force_redraw) {
-            defer self.draws_since_cached += 1;
-            if (self.draws_since_cached < 1 or self.draws_since_cached > self.max_cached_before_full_flush)
-                return self.draw_all(dctx);
-            //Otherwise we do the cached
-            for (self.windows.items) |win| {
-                const fbo = self.fbos.getPtr(win) orelse continue;
-                fbo.bind(false);
-                for (win.to_draw.items) |draw_area| {
-                    draw_area.draw(dctx, win);
-                }
-                try dctx.ctx.flush(win.area.area, null);
-            }
-            if (self.transient_window) |tw| {
-                self.transient_fbo.bind(false);
-                for (tw.to_draw.items) |td| {
-                    td.draw(dctx, tw);
-                }
-                try dctx.ctx.flush(tw.area.area, null);
-            }
-        } else {
-            try self.draw_all(dctx);
+        for (windows) |win| {
+            const fbo = self.fbos.getPtr(win) orelse continue;
+            try self.drawWindow(win, dctx, force_redraw, fbo);
+        }
+        if (self.transient_window) |tw| {
+            try self.drawWindow(tw, dctx, force_redraw, &self.transient_fbo);
         }
     }
 
-    pub fn draw_all(self: *Self, dctx: DrawState) !void {
-        self.draws_since_cached = 1;
-        for (self.windows.items) |window| {
-            const fbo = self.fbos.getPtr(window) orelse continue;
-            fbo.bind(true);
-            window.draw(dctx);
-            try dctx.ctx.flush(window.area.area, null);
+    pub fn drawWindow(self: *Self, win: *iWindow, dctx: DrawState, force_redraw: bool, fbo: *graph.RenderTexture) !void {
+        if (self.cached_drawing and !force_redraw) {
+            if (win.draws_since_cached < 1 or win.draws_since_cached > self.max_cached_before_full_flush)
+                return self.draw_all_window(dctx, win, fbo);
+
+            fbo.bind(false);
+            for (win.to_draw.items) |draw_area| {
+                draw_area.draw(dctx, win);
+            }
+            try dctx.ctx.flush(win.area.area, null);
+        } else {
+            try self.draw_all_window(dctx, win, fbo);
         }
-        if (self.transient_window) |tw| {
-            self.transient_fbo.bind(true);
-            tw.draw(dctx);
-            try dctx.ctx.flush(tw.area.area, null);
-        }
+    }
+
+    pub fn draw_all_window(self: *Self, dctx: DrawState, window: *iWindow, fbo: *graph.RenderTexture) !void {
+        _ = self;
+        window.draws_since_cached = 1;
+        fbo.bind(true);
+        window.draw(dctx);
+        try dctx.ctx.flush(window.area.area, null);
     }
 
     pub fn drawFbo(area: Rect, fbo: *graph.RenderTexture, dctx: *Dctx) void {
@@ -835,7 +843,7 @@ pub const Gui = struct {
         );
     }
 
-    pub fn handleEvent(self: *Self, us: *const UpdateState) !void {
+    pub fn handleEvent(self: *Self, us: *const UpdateState, windows: []const *iWindow) !void {
         const mstate = MouseCbState{
             .gui = self,
             .pos = us.mouse.pos,
@@ -845,7 +853,7 @@ pub const Gui = struct {
         if (us.tab == .rising)
             self.tabFocus(!(us.shift == .high));
         switch (us.mouse.left) {
-            .rising => self.dispatchClick(mstate),
+            .rising => self.dispatchClick(mstate, windows),
             .low => {
                 self.mouse_grab = null;
             },
@@ -878,10 +886,10 @@ pub const Gui = struct {
             });
         }
         if (us.mouse.scroll.y != 0)
-            self.dispatchScroll(us.mouse.pos, us.mouse.scroll.y);
+            self.dispatchScroll(us.mouse.pos, us.mouse.scroll.y, windows);
     }
 
-    pub fn handleSdlEvents(self: *Self) !void {
+    pub fn handleSdlEvents(self: *Self, windows: []const *iWindow) !void {
         const win = self.sdl_win;
         const us = UpdateState{
             .tab = win.keystate(.TAB),
@@ -894,7 +902,7 @@ pub const Gui = struct {
         if (ENABLE_TEST_BUILDER) {
             self.test_builder.emit(us);
         }
-        try self.handleEvent(&us);
+        try self.handleEvent(&us, windows);
     }
 };
 
