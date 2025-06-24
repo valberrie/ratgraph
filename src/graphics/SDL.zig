@@ -528,24 +528,20 @@ pub const Window = struct {
     }
 
     pub fn isBindState(self: *const Self, bind: NewBind, state: ButtonState) bool {
-        //
-        //If the bind is .ctrl, either lctrl or rctrl match
-        //
-        // r = bind ^ mod
-        // r2 = r & bind
-        // if r2 > 0 do it
-
-        // The intended behavior for this is as follows:
-        // ctrl shift z
-        // ctrl       z
-        //            z
-        // lctrl ors with ctrl
-        // rctrl doesn't or with
-        // we don't care about
-        // caps_lock ,
-        // scroll_lock
-        // num_lock
-        if (bind.mod == 0 or bind.mod ^ self.mod == 0) {
+        var new_mod = self.mod;
+        const km = keycodes.Keymod;
+        if (bind.mod != 0 and self.mod != 0) {
+            const CTRL: u32 = @intFromEnum(km.CTRL);
+            const ALT: u32 = @intFromEnum(km.ALT);
+            const SHIFT: u32 = @intFromEnum(km.SHIFT);
+            if (bind.mod & CTRL == CTRL and self.mod & CTRL != 0) //It matches any ctrl
+                new_mod |= CTRL;
+            if (bind.mod & ALT == ALT and self.mod & ALT != 0)
+                new_mod |= ALT;
+            if (bind.mod & SHIFT == SHIFT and self.mod & SHIFT != 0)
+                new_mod |= SHIFT;
+        }
+        if (bind.mod == 0 or bind.mod ^ new_mod == 0) {
             return self.key_state[
                 switch (bind.key) {
                     .scancode => |s| @intFromEnum(s),
@@ -557,15 +553,7 @@ pub const Window = struct {
     }
 
     pub fn bindHigh(self: *const Self, bind: NewBind) bool {
-        if (bind.mod == 0 or bind.mod ^ self.mod == 0) {
-            return self.key_state[
-                switch (bind.key) {
-                    .scancode => |s| @intFromEnum(s),
-                    .keycode => |k| @intFromEnum(getScancodeFromKey(k)),
-                }
-            ] == .high;
-        }
-        return false;
+        return self.isBindState(bind, .high);
     }
 
     pub fn rect(self: *const Self) ptypes.Rect {
