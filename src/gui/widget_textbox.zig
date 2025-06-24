@@ -68,7 +68,7 @@ pub fn NumberDummy(comptime T: type) type {
 }
 
 pub const TextboxNumber = struct {
-    pub fn build(gui: *Gui, area_o: ?Rect, number: anytype, win: *iWindow) ?*iArea {
+    pub fn build(gui: *Gui, area_o: ?Rect, number: anytype, win: *iWindow, opts: TextboxOptions) ?*iArea {
         const area = area_o orelse return null;
         const invalid_type_error = "wrong type for textbox number!";
         const pinfo = @typeInfo(@TypeOf(number));
@@ -85,6 +85,7 @@ pub const TextboxNumber = struct {
             &ND.parseFrom,
 
             charsetForNum(number_type),
+            opts,
         ) orelse return dummy);
 
         return dummy;
@@ -236,8 +237,8 @@ pub const Textbox = struct {
         return &self.vt;
     }
 
-    pub fn buildNumber(gui: *Gui, area: Rect, num_vt: *iArea, num_print: NumberPrintFn, num_parse: NumberParseFn, charset: []const u8) ?*iArea {
-        const vt = build(gui, area) orelse return null;
+    pub fn buildNumber(gui: *Gui, area: Rect, num_vt: *iArea, num_print: NumberPrintFn, num_parse: NumberParseFn, charset: []const u8, opts: TextboxOptions) ?*iArea {
+        const vt = buildOpts(gui, area, opts) orelse return null;
         const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
         vt.dirty(gui);
         self.reset("") catch return vt;
