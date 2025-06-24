@@ -35,12 +35,14 @@ pub fn NumberDummy(comptime T: type) type {
         const num_type = getNumtype(T);
         vt: iArea,
 
+        __value: T,
         ptr: *T,
 
-        pub fn build(gui: *Gui, area: Rect, number: *T) *iArea {
+        pub fn build(gui: *Gui, area: Rect, number: ?*T, default: T) *iArea {
             const self = gui.create(@This());
             self.* = .{
-                .ptr = number,
+                .__value = default,
+                .ptr = number orelse &self.__value,
                 .vt = iArea.init(gui, area),
             };
             self.vt.deinit_fn = &deinit;
@@ -70,13 +72,13 @@ pub fn NumberDummy(comptime T: type) type {
 pub const TextboxNumber = struct {
     pub fn build(gui: *Gui, area_o: ?Rect, number: anytype, win: *iWindow, opts: TextboxOptions) ?*iArea {
         const area = area_o orelse return null;
-        const invalid_type_error = "wrong type for textbox number!";
+        //const invalid_type_error = "wrong type for textbox number!";
         const pinfo = @typeInfo(@TypeOf(number));
-        if (pinfo != .Pointer or pinfo.Pointer.is_const) @compileError(invalid_type_error);
-        const number_type = pinfo.Pointer.child;
+        const is_pointer = (pinfo == .Pointer);
+        const number_type = if (is_pointer) pinfo.Pointer.child else @TypeOf(number);
         const ND = NumberDummy(number_type);
 
-        const dummy = ND.build(gui, area, number);
+        const dummy = ND.build(gui, area, if (is_pointer) number else null, if (is_pointer) 0 else number);
         dummy.addChild(gui, win, Textbox.buildNumber(
             gui,
             area,
@@ -96,8 +98,11 @@ pub const NumberPrintFn = *const fn (*iArea, *std.ArrayList(u8)) void;
 pub const NumberParseFn = *const fn (*iArea, []const u8) error{invalid}!void;
 
 pub const TextboxOptions = struct {
-    commit_cb: ?*const fn (*iArea, *Gui, []const u8) void = null,
+    commit_cb: ?*const fn (*iArea, *Gui, []const u8, user_id: usize) void = null,
     commit_vt: ?*iArea = null,
+    user_id: usize = 0,
+
+    init_string: []const u8 = "",
 };
 
 //Can we stick some kind of comptime thing as a child of this that gets set with number?
@@ -229,6 +234,7 @@ pub const Textbox = struct {
             .head = 0,
             .tail = 0,
         };
+        self.codepoints.appendSlice(opts.init_string) catch return null;
         self.vt.can_tab_focus = true;
         self.vt.deinit_fn = &deinit;
         self.vt.draw_fn = &draw;
@@ -306,7 +312,7 @@ pub const Textbox = struct {
                         .commit => {
                             self.commitNumber();
                             if (self.opts.commit_vt) |cvt| {
-                                self.opts.commit_cb.?(cvt, ev.gui, self.codepoints.items);
+                                self.opts.commit_cb.?(cvt, ev.gui, self.codepoints.items, self.opts.user_id);
                             }
                         },
                         .move_left => tb.move_to(.left),

@@ -138,6 +138,7 @@ pub const iWindow = struct {
     cache_map: std.AutoHashMap(*iArea, void),
     to_draw: std.ArrayList(*iArea),
     draws_since_cached: i32 = 0,
+    needs_rebuild: bool = false,
 
     pub fn draw(self: *iWindow, dctx: DrawState) void {
         self.area.draw(dctx, self);
@@ -284,6 +285,37 @@ pub const HorizLayout = struct {
 
     pub fn pushCount(self: *HorizLayout, next_count: usize) void {
         self.count_override = next_count;
+    }
+};
+
+pub const TableLayout = struct {
+    const Self = @This();
+    hidden: bool = false,
+
+    //Config
+    columns: u32,
+    item_height: f32,
+
+    //State
+    current_y: f32 = 0,
+    column_index: u32 = 0,
+    bounds: Rect,
+
+    pub fn getArea(self: *Self) ?Rect {
+        const bounds = self.bounds;
+        if (self.current_y > bounds.h) return null;
+
+        const col_w = bounds.w / @as(f32, @floatFromInt(self.columns));
+
+        const ci = @as(f32, @floatFromInt(self.column_index));
+        const area = graph.Rec(bounds.x + col_w * ci, bounds.y + self.current_y, col_w, self.item_height);
+        self.column_index += 1;
+        if (self.column_index >= self.columns) {
+            self.column_index = 0;
+            self.current_y += self.item_height;
+        }
+
+        return area;
     }
 };
 
@@ -595,6 +627,13 @@ pub const Gui = struct {
         for (windows) |win| {
             win.to_draw.clearRetainingCapacity();
             win.cache_map.clearRetainingCapacity();
+            if (win.needs_rebuild) {
+                win.needs_rebuild = false;
+                win.draws_since_cached = 0;
+                var time = try std.time.Timer.start();
+                win.build_fn(win, self, win.area.area);
+                std.debug.print("Built win in: {d:.2} us\n", .{time.read() / std.time.ns_per_us});
+            }
         }
         if (self.transient_window) |tw| {
             tw.to_draw.clearRetainingCapacity();

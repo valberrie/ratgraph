@@ -11,18 +11,26 @@ const VScroll = g.Widget.VScroll;
 const Widget = g.Widget;
 
 pub const Colorpicker = struct {
+    const CommitCb = *const fn (*iArea, *Gui, color: u32, user_id: usize) void;
+    pub const Opts = struct {
+        commit_vt: ?*iArea = null,
+        commit_cb: ?CommitCb = null,
+        user_id: usize = 0,
+    };
     vt: iArea,
 
-    color: *u32,
+    color: u32,
+    opts: Opts,
 
     color_hsv: graph.Hsva,
 
-    pub fn build(gui: *Gui, area: Rect, color: *u32) *iArea {
+    pub fn build(gui: *Gui, area: Rect, color: u32, opts: Opts) *iArea {
         const self = gui.create(@This());
         self.* = .{
             .vt = iArea.init(gui, area),
+            .opts = opts,
             .color = color,
-            .color_hsv = graph.ptypes.Hsva.fromInt(color.*),
+            .color_hsv = graph.ptypes.Hsva.fromInt(color),
         };
         self.vt.draw_fn = &draw;
         self.vt.onclick = &onclick;
@@ -32,12 +40,18 @@ pub const Colorpicker = struct {
 
     pub fn draw(vt: *iArea, d: g.DrawState) void {
         const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
-        d.ctx.rect(vt.area, self.color.*);
+        d.ctx.rect(vt.area, self.color);
     }
 
     pub fn deinit(vt: *iArea, gui: *Gui, _: *iWindow) void {
         const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
         gui.alloc.destroy(self);
+    }
+
+    pub fn commitColor(self: *@This(), gui: *Gui, new: u32) void {
+        self.color = new;
+        if (self.opts.commit_cb) |cb|
+            cb(self.opts.commit_vt orelse return, gui, new, self.opts.user_id);
     }
 
     pub fn onclick(vt: *iArea, cb: g.MouseCbState, win: *iWindow) void {
@@ -120,7 +134,12 @@ const ColorpickerTransient = struct {
 
         var vy = g.VerticalLayout{ .item_height = gui.style.config.default_item_h, .bounds = ly.getArea() orelse return };
 
-        a.addChildOpt(gui, win, Widget.Button.build(gui, vy.getArea(), "Done", &self.area, &closeBtnCb, 0));
+        a.addChildOpt(gui, win, Widget.Button.build(
+            gui,
+            vy.getArea(),
+            "Done",
+            .{ .cb_vt = &self.area, .cb_fn = &closeBtnCb, .id = 0 },
+        ));
 
         const Help = struct {
             fn valueGroup(a1: anytype, gui1: *Gui, win1: *iWindow, layout: anytype, ptr: *f32, name: []const u8, min: f32, max: f32, nudge: f32) void {
@@ -130,7 +149,7 @@ const ColorpickerTransient = struct {
                 (a1.getLastChild() orelse return).dirty_parents = 1;
                 a1.addChildOpt(gui1, win1, Widget.Slider.build(gui1, vy2.getArea(), ptr, min, max, .{ .nudge = nudge }));
                 (a1.getLastChild() orelse return).dirty_parents = 1;
-                a1.addChildOpt(gui1, win1, Widget.TextboxNumber.build(gui1, vy2.getArea(), ptr, win1));
+                a1.addChildOpt(gui1, win1, Widget.TextboxNumber.build(gui1, vy2.getArea(), ptr, win1, .{}));
                 (a1.getLastChild() orelse return).dirty_parents = 1;
             }
         };
@@ -146,7 +165,7 @@ const ColorpickerTransient = struct {
         }));
     }
 
-    pub fn pastedTextboxCb(vt: *iArea, gui: *Gui, slice: []const u8) void {
+    pub fn pastedTextboxCb(vt: *iArea, gui: *Gui, slice: []const u8, _: usize) void {
         const self: *@This() = @alignCast(@fieldParentPtr("area", vt));
         if (slice.len > 0) {
             _ = blk: {
@@ -154,7 +173,7 @@ const ColorpickerTransient = struct {
                     else => break :blk,
                 } << 8) | 0xff);
 
-                self.parent_ptr.color.* = newcolor;
+                self.parent_ptr.commitColor(gui, newcolor);
                 self.parent_ptr.color_hsv = graph.ptypes.Hsva.fromInt(newcolor);
                 self.parent_ptr.vt.dirty(gui);
                 vt.dirty(gui);
@@ -188,7 +207,7 @@ const ColorpickerTransient = struct {
     fn closeBtnCb(vt: *iArea, id: usize, gui: *Gui, _: *iWindow) void {
         const self: *@This() = @alignCast(@fieldParentPtr("area", vt));
 
-        self.parent_ptr.color.* = self.parent_ptr.color_hsv.toInt();
+        self.parent_ptr.commitColor(gui, self.parent_ptr.color_hsv.toInt());
         self.parent_ptr.vt.dirty(gui);
         _ = id;
         gui.deferTransientClose();

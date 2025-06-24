@@ -40,7 +40,13 @@ pub fn ComboGeneric(comptime enumT: type) type {
                 self.area.clearChildren(gui, vt);
                 const info = @typeInfo(enumT);
                 vt.area.dirty(gui);
-                self.area.addChildOpt(gui, vt, VScroll.build(gui, area, &build_cb, &self.area, vt, info.Enum.fields.len, gui.style.config.default_item_h));
+                self.area.addChildOpt(gui, vt, VScroll.build(gui, area, .{
+                    .build_cb = &build_cb,
+                    .build_vt = &self.area,
+                    .win = vt,
+                    .count = info.Enum.fields.len,
+                    .item_h = gui.style.config.default_item_h,
+                }));
             }
 
             pub fn build_cb(vt: *iArea, area: *iArea, index: usize, gui: *Gui, win: *iWindow) void {
@@ -53,9 +59,7 @@ pub fn ComboGeneric(comptime enumT: type) type {
                             gui,
                             ly.getArea(),
                             field.name,
-                            self.parent_vt,
-                            &ParentT.buttonCb,
-                            field.value,
+                            .{ .cb_vt = self.parent_vt, .cb_fn = &ParentT.buttonCb, .id = field.value },
                         ) orelse return);
                     }
                 }
