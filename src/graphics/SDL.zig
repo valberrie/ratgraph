@@ -116,6 +116,8 @@ pub const Window = struct {
 
     mouse: MouseState = undefined,
     mod: keycodes.KeymodMask = 0,
+    /// Never put scroll_lock, caps_lock and num_lock in Window.mod when set
+    exclude_locking_mod: bool = true,
 
     //key_state: [c.SDL_SCANCODE_COUNT]ButtonState = [_]ButtonState{.low} ** c.SDL_NUM_SCANCODES,
     key_state: KeyStateT = [_]ButtonState{.low} ** c.SDL_SCANCODE_COUNT,
@@ -397,6 +399,11 @@ pub const Window = struct {
             k.* = .low;
         }
         self.mod = c.SDL_GetModState();
+        if (self.exclude_locking_mod) {
+            const big: keycodes.KeymodMask = 0xff_ff_ff_ff;
+            const toggle_excluded = big ^ (keycodes.Keymod.mask(&.{ .NUM, .CAPS, .SCROLL }));
+            self.mod = self.mod & toggle_excluded;
+        }
 
         self.keys.resize(0) catch unreachable;
         self.last_frame_keyboard_state = self.keyboard_state;
@@ -521,6 +528,23 @@ pub const Window = struct {
     }
 
     pub fn isBindState(self: *const Self, bind: NewBind, state: ButtonState) bool {
+        //
+        //If the bind is .ctrl, either lctrl or rctrl match
+        //
+        // r = bind ^ mod
+        // r2 = r & bind
+        // if r2 > 0 do it
+
+        // The intended behavior for this is as follows:
+        // ctrl shift z
+        // ctrl       z
+        //            z
+        // lctrl ors with ctrl
+        // rctrl doesn't or with
+        // we don't care about
+        // caps_lock ,
+        // scroll_lock
+        // num_lock
         if (bind.mod == 0 or bind.mod ^ self.mod == 0) {
             return self.key_state[
                 switch (bind.key) {
