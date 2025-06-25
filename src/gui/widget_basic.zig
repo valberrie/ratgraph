@@ -13,6 +13,9 @@ const Rec = g.Rec;
 const graph = g.graph;
 const getVt = g.getVt;
 
+// Write a widget that is a static text box.
+// Works like a tabs or whatever which holds all the alloc for string, so scrolling doesn't realloc
+
 pub const VScroll = struct {
     pub const BuildCb = *const fn (*iArea, current_area: *iArea, index: usize, *Gui, *iWindow) void;
     pub const Opts = struct {
@@ -43,8 +46,7 @@ pub const VScroll = struct {
         self.vt.onscroll = &onScroll;
         self.vt.deinit_fn = &deinit;
 
-        const SW = 30;
-        const split = self.vt.area.split(.vertical, self.vt.area.w - SW);
+        const split = self.vt.area.split(.vertical, getAreaW(self.vt.area.w));
         _ = self.vt.addEmpty(gui, opts.win, split[0]);
         self.vt.addChildOpt(gui, opts.win, ScrollBar.build(
             gui,
@@ -58,6 +60,11 @@ pub const VScroll = struct {
 
         self.rebuild(gui, opts.win);
         return &self.vt;
+    }
+
+    pub fn getAreaW(parent_w: f32) f32 {
+        const SW = 30;
+        return parent_w - SW;
     }
 
     pub fn rebuild(self: *@This(), gui: *Gui, win: *iWindow) void {
@@ -380,7 +387,24 @@ pub const ScrollBar = struct {
 pub const Text = struct {
     vt: iArea,
 
-    text: std.ArrayList(u8),
+    is_alloced: bool,
+    text: []const u8,
+    bg_col: u32,
+
+    /// The passed in string is not copied or freed.
+    pub fn buildStatic(gui: *Gui, area_o: ?Rect, owned_string: []const u8, bg_col: ?u32) ?*iArea {
+        const area = area_o orelse return null;
+        const self = gui.create(@This());
+        self.* = .{
+            .vt = iArea.init(gui, area),
+            .is_alloced = false,
+            .bg_col = bg_col orelse gui.style.config.colors.background,
+            .text = owned_string,
+        };
+        self.vt.draw_fn = &draw;
+        self.vt.deinit_fn = &deinit;
+        return &self.vt;
+    }
 
     pub fn build(gui: *Gui, area_o: ?Rect, comptime fmt: []const u8, args: anytype) ?*iArea {
         const area = area_o orelse return null;
@@ -394,7 +418,9 @@ pub const Text = struct {
 
         self.* = .{
             .vt = iArea.init(gui, area),
-            .text = vec,
+            .bg_col = gui.style.config.colors.background,
+            .is_alloced = true,
+            .text = vec.toOwnedSlice() catch return null,
         };
         self.vt.draw_fn = &draw;
         self.vt.deinit_fn = &deinit;
@@ -403,15 +429,16 @@ pub const Text = struct {
 
     pub fn deinit(vt: *iArea, gui: *Gui, _: *iWindow) void {
         const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
-        self.text.deinit();
+        if (self.is_alloced)
+            gui.alloc.free(self.text);
         gui.alloc.destroy(self);
     }
 
     pub fn draw(vt: *iArea, d: DrawState) void {
         const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
         //d.ctx.rect(vt.area, 0x5ffff0ff);
-        d.ctx.rect(vt.area, d.style.config.colors.background);
-        d.ctx.textClipped(vt.area, "{s}", .{self.text.items}, d.textP(null), .left);
+        d.ctx.rect(vt.area, self.bg_col);
+        d.ctx.textClipped(vt.area, "{s}", .{self.text}, d.textP(null), .left);
     }
 };
 

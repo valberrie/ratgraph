@@ -176,6 +176,8 @@ pub const ImmediateDrawingContext = struct {
         px_size: f32,
         font: *FontInterface,
 
+        do_newlines: bool = true,
+
         /// If not null, gets filled with the width of the rendered text in pixels.
         width_pointer: ?*f32 = null,
     };
@@ -564,8 +566,10 @@ pub const ImmediateDrawingContext = struct {
         const z = self.zindex + 1;
         while (it.nextCodepoint()) |ch| {
             if (ch == '\n') {
-                vy += font.line_gap * SF;
-                vx = x * fac;
+                if (param.do_newlines) {
+                    vy += font.line_gap * SF;
+                    vx = x * fac;
+                }
                 continue;
             }
 

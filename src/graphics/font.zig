@@ -16,6 +16,23 @@ const Rec = Rect.NewAny;
 /// Any font type must implement the following methods or fields
 pub const PublicFontInterface = struct {
     const Self = @This();
+    pub const TextXWalker = struct {
+        it: std.unicode.Utf8Iterator,
+        font: *PublicFontInterface,
+        scale: f32,
+
+        pub fn next(tw: *@This()) ?struct { f32, u21 } {
+            if (tw.it.nextCodepoint()) |ch| {
+                const glyph = tw.font.getGlyph(ch);
+                return .{ (glyph.advance_x) * tw.scale, ch };
+            }
+            return null;
+        }
+
+        pub fn index(tw: *const @This()) usize {
+            return tw.it.i;
+        }
+    };
 
     //The units for all of these is pixels
     font_size: f32,
@@ -30,6 +47,15 @@ pub const PublicFontInterface = struct {
 
     pub fn getGlyph(self: *Self, codepoint: u21) Glyph {
         return self.getGlyphFn(self, codepoint);
+    }
+
+    pub fn xWalker(self: *Self, string: []const u8, size_px: anytype) TextXWalker {
+        const scale = lcast(f32, size_px) / self.font_size;
+        return TextXWalker{
+            .scale = scale,
+            .font = self,
+            .it = std.unicode.Utf8Iterator{ .bytes = string, .i = 0 },
+        };
     }
 
     pub fn textBounds(self: *Self, string: []const u8, size_px: anytype) Vec2f {

@@ -14,6 +14,7 @@ pub const Widget = struct {
     pub usingnamespace @import("widget_colorpicker.zig");
     pub usingnamespace @import("widget_slider.zig");
     pub usingnamespace @import("widget_tabs.zig");
+    pub usingnamespace @import("widget_textviewer.zig");
 };
 
 pub fn getVt(comptime T: type, vt: anytype) *T {
@@ -213,6 +214,7 @@ pub const DrawState = struct {
     /// return params for black text with config.text_h
     pub fn textP(self: *const @This(), color: ?u32) graph.ImmediateDrawingContext.TextParam {
         return .{
+            .do_newlines = false,
             .font = self.font,
             .color = color orelse 0xff,
             .px_size = self.style.config.text_h,
@@ -303,7 +305,7 @@ pub const TableLayout = struct {
 
     pub fn getArea(self: *Self) ?Rect {
         const bounds = self.bounds;
-        if (self.current_y > bounds.h) return null;
+        if (self.current_y + self.item_height > bounds.h) return null;
 
         const col_w = bounds.w / @as(f32, @floatFromInt(self.columns));
 
@@ -334,7 +336,9 @@ pub const VerticalLayout = struct {
         const h = if (self.next_height) |nh| nh else self.item_height;
         self.next_height = null;
 
-        if (self.current_h + self.padding.top > bounds.h) //We don't add h yet because the last element can be partially displayed. (if clipped)
+        //We don't add h yet because the last element can be partially displayed. (if clipped)
+        //nvm we do
+        if (self.current_h + self.padding.top + h > bounds.h)
             return null;
 
         if (self.give_remaining) {
@@ -358,6 +362,10 @@ pub const VerticalLayout = struct {
 
     pub fn pushHeight(self: *Self, h: f32) void {
         self.next_height = h;
+    }
+
+    pub fn pushCount(self: *Self, count: anytype) void {
+        self.next_height = self.item_height * count;
     }
 
     /// The next requested area will be the rest of the available space
@@ -468,9 +476,12 @@ pub const Gui = struct {
     style: GuiConfig,
     scale: f32 = 2,
 
-    pub fn init(alloc: AL, win: *graph.SDL.Window, style_dir: std.fs.Dir) !Self {
+    font: *graph.FontInterface,
+
+    pub fn init(alloc: AL, win: *graph.SDL.Window, style_dir: std.fs.Dir, font: *graph.FontInterface) !Self {
         return Gui{
             .alloc = alloc,
+            .font = font,
             .area_window_map = std.AutoHashMap(*iArea, *iWindow).init(alloc),
             .clamp_window = graph.Rec(0, 0, win.screen_dimensions.x, win.screen_dimensions.y),
             .windows = std.ArrayList(*iWindow).init(alloc),
