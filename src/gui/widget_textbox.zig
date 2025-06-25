@@ -103,6 +103,7 @@ pub const TextboxOptions = struct {
     user_id: usize = 0,
 
     init_string: []const u8 = "",
+    commit_when: enum { on_enter, never, on_change } = .on_enter,
 };
 
 //Can we stick some kind of comptime thing as a child of this that gets set with number?
@@ -285,6 +286,14 @@ pub const Textbox = struct {
         }
     }
 
+    fn commitChange(self: *@This(), ev: g.FocusedEvent) void {
+        if (self.opts.commit_when == .on_change) {
+            if (self.opts.commit_vt) |cvt| {
+                self.opts.commit_cb.?(cvt, ev.gui, self.codepoints.items, self.opts.user_id);
+            }
+        }
+    }
+
     pub fn fevent_err(vt: *iArea, ev: g.FocusedEvent) !void {
         const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
         switch (ev.event) {
@@ -294,7 +303,10 @@ pub const Textbox = struct {
 
                 vt.dirty(ev.gui);
             },
-            .text_input => |st| textinput_cb(vt, st, ev.window),
+            .text_input => |st| {
+                textinput_cb(vt, st, ev.window);
+                self.commitChange(ev);
+            },
             .keydown => |kev| {
                 vt.dirty(ev.gui);
                 const mod = kev.mod_state & ~M.mask(&.{ .SCROLL, .NUM, .CAPS });
@@ -307,12 +319,19 @@ pub const Textbox = struct {
                     StaticData.are_binds_init = true;
                     StaticData.key_binds = edit_keys_list.init();
                 }
+                var should_commit = false;
                 for (kev.keys) |key| {
-                    switch (StaticData.key_binds.getWithMod(@enumFromInt(key.key_id), mod) orelse continue) {
+                    const kb = StaticData.key_binds.getWithMod(@enumFromInt(key.key_id), mod) orelse continue;
+                    switch (kb) {
+                        .delete, .delete_word_right, .delete_word_left, .paste, .backspace => should_commit = true,
+                        else => {},
+                    }
+                    switch (kb) {
                         .commit => {
                             self.commitNumber();
                             if (self.opts.commit_vt) |cvt| {
-                                self.opts.commit_cb.?(cvt, ev.gui, self.codepoints.items, self.opts.user_id);
+                                if (self.opts.commit_when != .never)
+                                    self.opts.commit_cb.?(cvt, ev.gui, self.codepoints.items, self.opts.user_id);
                             }
                         },
                         .move_left => tb.move_to(.left),
@@ -364,6 +383,9 @@ pub const Textbox = struct {
                             }
                         },
                     }
+                }
+                if (should_commit) {
+                    self.commitChange(ev);
                 }
             },
         }

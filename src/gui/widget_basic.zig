@@ -66,6 +66,8 @@ pub const VScroll = struct {
         self.vt.dirty(gui);
         const child = self.vt.children.items[0];
         child.clearChildren(gui, win);
+
+        std.debug.print("BUILT WITH {d}\n", .{self.index_ptr.*});
         self.opts.build_cb(self.opts.build_vt, child, self.index_ptr.*, gui, win);
     }
 
