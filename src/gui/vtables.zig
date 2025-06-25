@@ -321,6 +321,39 @@ pub const TableLayout = struct {
     }
 };
 
+pub const TableLayoutCustom = struct {
+    const Self = @This();
+    hidden: bool = false,
+
+    //Config
+    column_widths: []const f32, // user must verify sum of widths <= bounsds.w!
+    item_height: f32,
+
+    //State
+    current_y: f32 = 0,
+    column_index: u32 = 0,
+    current_x: f32 = 0,
+    bounds: Rect,
+
+    pub fn getArea(self: *Self) ?Rect {
+        const bounds = self.bounds;
+        if (self.current_y + self.item_height > bounds.h) return null;
+
+        const col_w = self.column_widths[self.column_index];
+
+        const area = graph.Rec(bounds.x + self.current_x, bounds.y + self.current_y, col_w, self.item_height);
+        self.column_index += 1;
+        self.current_x += col_w;
+        if (self.column_index >= self.column_widths.len) {
+            self.column_index = 0;
+            self.current_x = 0;
+            self.current_y += self.item_height;
+        }
+
+        return area;
+    }
+};
+
 pub const VerticalLayout = struct {
     const Self = @This();
     padding: graph.Padding = .{ .top = 0, .bottom = 0, .left = 0, .right = 0 },
