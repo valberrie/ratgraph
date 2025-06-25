@@ -11,8 +11,9 @@ const VScroll = g.Widget.VScroll;
 const Widget = g.Widget;
 
 pub const TextView = struct {
+    pub const INSET_AMOUNT = 5;
     pub fn heightForN(gui: *const Gui, count: anytype) f32 {
-        const inset_amount = 2 * 3 * gui.scale;
+        const inset_amount = 2 * INSET_AMOUNT * gui.scale;
         const item_h = gui.style.config.default_item_h;
         return item_h * std.math.lossyCast(f32, count) + inset_amount;
     }
@@ -37,7 +38,7 @@ pub const TextView = struct {
         self.vt.draw_fn = &draw;
         self.vt.deinit_fn = &deinit;
 
-        const inset = area.inset(3 * gui.scale);
+        const inset = area.inset(INSET_AMOUNT * gui.scale);
 
         //First, walk through string with xWalker and stick in a buffer of lines
         const extra_margin = gui.style.config.text_h / 3;
