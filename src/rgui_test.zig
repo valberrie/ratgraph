@@ -87,16 +87,18 @@ pub const MyInspector = struct {
         ly.padding.top = 10;
         const a = &self.area;
 
-        a.addChildOpt(gui, vt, Wg.Checkbox.build(gui, ly.getArea(), &self.bool1, "first button"));
-        a.addChildOpt(gui, vt, Wg.Checkbox.build(gui, ly.getArea(), &self.bool2, "secnd button"));
+        a.addChildOpt(gui, vt, Wg.Checkbox.build(gui, ly.getArea(), "first button", .{
+            .bool_ptr = &self.bool1,
+        }, null));
+        a.addChildOpt(gui, vt, Wg.Checkbox.build(gui, ly.getArea(), "secnd button", .{ .bool_ptr = &self.bool2 }, null));
         a.addChildOpt(gui, vt, Wg.StaticSlider.build(gui, ly.getArea(), 4, 0, 10));
         a.addChildOpt(gui, vt, Wg.Combo.build(gui, ly.getArea() orelse return, &self.my_enum));
         a.addChildOpt(gui, vt, Wg.Combo.build(gui, ly.getArea() orelse return, &self.fenum));
 
-        a.addChildOpt(gui, vt, Wg.Button.build(gui, ly.getArea(), "My button", &self.area, @This().btnCb, 48));
-        a.addChildOpt(gui, vt, Wg.Button.build(gui, ly.getArea(), "My button 2", null, null, 48));
-        a.addChildOpt(gui, vt, Wg.Button.build(gui, ly.getArea(), "My button 3", null, null, 48));
-        a.addChild(gui, vt, Wg.Colorpicker.build(gui, ly.getArea() orelse return, &self.color));
+        a.addChildOpt(gui, vt, Wg.Button.build(gui, ly.getArea(), "My button", .{ .cb_vt = &self.area, .cb_fn = @This().btnCb, .id = 48 }));
+        a.addChildOpt(gui, vt, Wg.Button.build(gui, ly.getArea(), "My button 2", .{}));
+        a.addChildOpt(gui, vt, Wg.Button.build(gui, ly.getArea(), "My button 3", .{}));
+        a.addChild(gui, vt, Wg.Colorpicker.build(gui, ly.getArea() orelse return, self.color, .{}));
 
         a.addChildOpt(gui, vt, Wg.Textbox.build(gui, ly.getArea()));
         a.addChildOpt(gui, vt, Wg.Textbox.build(gui, ly.getArea()));
@@ -126,15 +128,13 @@ pub const MyInspector = struct {
         }
         if (eql(u8, tab_name, "third")) {
             ly.pushRemaining();
-            vt.addChildOpt(gui, win, Wg.VScroll.build(
-                gui,
-                ly.getArea(),
-                &buildScrollItems,
-                &self.area,
-                win,
-                10,
-                gui.style.config.default_item_h,
-            ));
+            vt.addChildOpt(gui, win, Wg.VScroll.build(gui, ly.getArea(), .{
+                .build_cb = &buildScrollItems,
+                .build_vt = &self.area,
+                .win = win,
+                .count = 10,
+                .item_h = gui.style.config.default_item_h,
+            }));
         }
     }
 
@@ -167,7 +167,11 @@ pub fn main() !void {
     var draw = graph.ImmediateDrawingContext.init(alloc);
     defer draw.deinit();
 
-    var gui = try Gui.init(alloc, &win, std.fs.cwd());
+    const TEXT_H = @trunc(20 * 1.6);
+    var font = try graph.Font.initFromBuffer(alloc, @embedFile("font/roboto.ttf"), TEXT_H, .{});
+    defer font.deinit();
+
+    var gui = try Gui.init(alloc, &win, std.fs.cwd(), &font.font);
     defer gui.deinit();
     const do_test_builder = true;
     if (do_test_builder)
@@ -183,9 +187,7 @@ pub fn main() !void {
             demo.deinit();
     }
     gui.style.config.default_item_h = @trunc(25 * 1.6);
-    gui.style.config.text_h = @trunc(20 * 1.6);
-    var font = try graph.Font.initFromBuffer(alloc, @embedFile("font/roboto.ttf"), gui.style.config.text_h, .{});
-    defer font.deinit();
+    gui.style.config.text_h = TEXT_H;
 
     const window_area = .{ .x = 0, .y = 0, .w = 1000, .h = 1000 };
 

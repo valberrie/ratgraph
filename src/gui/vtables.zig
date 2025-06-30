@@ -8,6 +8,8 @@ pub const Rec = graph.Rec;
 const AL = std.mem.Allocator;
 
 pub const Widget = struct {
+    //TOdo need a widget that is really cool. Like really cool.
+    //"resizable tabs"
     pub usingnamespace @import("widget_textbox.zig");
     pub usingnamespace @import("widget_basic.zig");
     pub usingnamespace @import("widget_combo.zig");

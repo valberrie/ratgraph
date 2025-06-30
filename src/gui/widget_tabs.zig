@@ -17,14 +17,18 @@ const Tab = []const u8;
 //cool thats it.
 pub const Tabs = struct {
     pub const BuildTabCb = *const fn (user_vt: *iArea, area_vt: *iArea, tab_name: []const u8, *Gui, *iWindow) void;
+    pub const Opts = struct {
+        build_cb: BuildTabCb,
+        cb_vt: *iArea,
+        index_ptr: ?*usize = null,
+    };
     vt: iArea,
 
     tabs: std.ArrayList(Tab),
-    selected_tab_index: usize = 0,
-    build_cb: BuildTabCb,
-    cb_vt: *iArea,
+    __selected_tab_index: usize = 0,
+    opts: Opts,
 
-    pub fn build(gui: *Gui, area_o: ?Rect, tabs: []const Tab, win: *iWindow, build_cb: BuildTabCb, cb_vt: *iArea) ?*iArea {
+    pub fn build(gui: *Gui, area_o: ?Rect, tabs: []const Tab, win: *iWindow, opts: Opts) ?*iArea {
         const area = area_o orelse return null;
         const self = gui.create(@This());
         if (tabs.len == 0)
@@ -33,9 +37,10 @@ pub const Tabs = struct {
         self.* = .{
             .vt = iArea.init(gui, area),
             .tabs = std.ArrayList(Tab).init(gui.alloc),
-            .build_cb = build_cb,
-            .cb_vt = cb_vt,
+            .opts = opts,
         };
+        if (opts.index_ptr == null)
+            self.opts.index_ptr = &self.__selected_tab_index;
         self.tabs.appendSlice(tabs) catch return null; //free memory oops!
         self.vt.draw_fn = &draw;
         self.vt.deinit_fn = &deinit;
@@ -53,12 +58,13 @@ pub const Tabs = struct {
     pub fn rebuild(self: *@This(), gui: *Gui, win: *iWindow) void {
         if (self.vt.children.items.len != 2)
             return;
-        if (self.selected_tab_index >= self.tabs.items.len)
+        const index = self.opts.index_ptr.?.*;
+        if (index >= self.tabs.items.len)
             return;
         self.vt.dirty(gui);
         const child = self.vt.children.items[1];
         child.clearChildren(gui, win);
-        self.build_cb(self.cb_vt, child, self.tabs.items[self.selected_tab_index], gui, win);
+        self.opts.build_cb(self.opts.cb_vt, child, self.tabs.items[index], gui, win);
     }
 
     pub fn deinit(vt: *iArea, gui: *Gui, _: *iWindow) void {
@@ -100,7 +106,7 @@ const TabHeader = struct {
         for (0..tabs.len) |i| {
             const a = ly.getArea() orelse return;
             if (a.containsPoint(cb.pos)) {
-                self.parent.selected_tab_index = i;
+                self.parent.opts.index_ptr.?.* = i;
                 self.parent.rebuild(cb.gui, win);
                 return;
             }
@@ -118,7 +124,7 @@ const TabHeader = struct {
         var ly = g.HorizLayout{ .count = tabs.len, .bounds = vt.area };
         for (tabs, 0..) |tab, i| {
             const a = ly.getArea() orelse continue;
-            const _9s = if (i == self.parent.selected_tab_index) active else inactive;
+            const _9s = if (i == self.parent.opts.index_ptr.?.*) active else inactive;
 
             d.ctx.nineSlice(a, _9s, d.style.texture, d.scale, d.tint);
             const tarea = a.inset(d.scale * (_9s.w / 3));
