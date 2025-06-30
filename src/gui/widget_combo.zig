@@ -24,6 +24,10 @@ pub const Combo = struct {
     }
 };
 
+fn searchMatch(string: []const u8, query: []const u8) bool {
+    return std.ascii.indexOfIgnoreCase(string, query) != null;
+}
+
 pub fn ComboUser(user_data: type) type {
     return struct {
         pub const ComboVt = struct {
@@ -97,7 +101,8 @@ pub fn ComboUser(user_data: type) type {
                 const do_search = self.search_string.len > 0;
                 for (index..count) |i| {
                     const name = p.opts.name_cb(p.opts.user_vt, i, gui, p.user);
-                    if (do_search and !std.mem.containsAtLeast(u8, name, 1, self.search_string)) continue;
+                    //if (do_search and !std.mem.containsAtLeast(u8, name, 1, self.search_string)) continue;
+                    if (do_search and !searchMatch(name, self.search_string)) continue;
                     area.addChild(gui, win, Widget.Button.build(
                         gui,
                         ly.getArea(),
