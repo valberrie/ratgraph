@@ -74,7 +74,6 @@ pub const VScroll = struct {
         const child = self.vt.children.items[0];
         child.clearChildren(gui, win);
 
-        std.debug.print("BUILT WITH {d}\n", .{self.index_ptr.*});
         self.opts.build_cb(self.opts.build_vt, child, self.index_ptr.*, gui, win);
     }
 
@@ -223,7 +222,7 @@ pub const Button = struct {
         const self = gui.create(@This());
         self.* = .{
             .vt = iArea.init(gui, area),
-            .text = name,
+            .text = gui.alloc.dupe(u8, name) catch return null,
             .opts = opts,
         };
         self.vt.draw_fn = &draw;
@@ -235,6 +234,7 @@ pub const Button = struct {
     }
     pub fn deinit(vt: *iArea, gui: *Gui, _: *iWindow) void {
         const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
+        gui.alloc.free(self.text);
         gui.alloc.destroy(self);
     }
 

@@ -17,6 +17,7 @@ pub const Widget = struct {
     pub usingnamespace @import("widget_slider.zig");
     pub usingnamespace @import("widget_tabs.zig");
     pub usingnamespace @import("widget_textviewer.zig");
+    pub usingnamespace @import("widget_dynamic_table.zig");
 };
 
 pub fn getVt(comptime T: type, vt: anytype) *T {
