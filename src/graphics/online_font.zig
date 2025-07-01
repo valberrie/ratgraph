@@ -7,6 +7,12 @@ const PROFILE = true;
 
 //TODO issues with ofont, corruption of the gl texture.
 //with the rgui, having the bitmap at the next flush() is essential
+//Ok, build a FontManager thing that integrates with ImmediateDrawingContext.
+//It manages a ofont per size
+//How hard is it to query linux/windows for a font that supports a glyph.
+//It might do that too.
+//How fat is pango, harfbuzz etc.
+
 pub const OnlineFont = struct {
     const Self = @This();
 
@@ -150,7 +156,7 @@ pub const OnlineFont = struct {
         );
         if (PROFILE) {
             self.time += self.timer.read();
-            std.debug.print("Built in {d} us\n", .{self.time / std.time.ns_per_us});
+            std.debug.print("rebuilt ofont in {d} us\n", .{self.time / std.time.ns_per_us});
             self.time = 0;
         }
     }
@@ -201,36 +207,6 @@ pub const OnlineFont = struct {
             };
             self.bitmap_dirty = true;
             {
-                //    c.glBindTexture(c.GL_TEXTURE_2D, font_i.texture.id);
-                //    c.glTexImage2D(
-                //        c.GL_TEXTURE_2D,
-                //        0,
-                //        c.GL_RED,
-                //        @intCast(self.bitmap.w),
-                //        @intCast(self.bitmap.h),
-                //        0,
-                //        c.GL_RED,
-                //        c.GL_UNSIGNED_BYTE,
-                //        &self.bitmap.data.items[0],
-                //    );
-                //}
-                //Update the entire row, we have know idea when sync occurs so we must update every time.
-                //c.glTextureSubImage2D(
-                //    font_i.texture.id,
-                //    0, //Level
-                //    //x,y,w,h,
-                //    0, //@intCast(atlas_cx * self.cell_width),
-                //    @intCast(atlas_cy * self.cell_height),
-                //    @intCast(self.bitmap.w),
-                //    @intFromFloat(h),
-                //    //format,
-                //    c.GL_RED,
-                //    //type,
-                //    c.GL_UNSIGNED_BYTE,
-                //    //pixel_data
-                //    &self.bitmap.data.items[@as(usize, @intCast(atlas_cy * self.cell_height)) * self.bitmap.w],
-                //);
-
                 glyph.tr.x = @floatFromInt(atlas_cx * self.cell_width);
                 glyph.tr.y = @floatFromInt(atlas_cy * self.cell_height);
                 self.cindex = @mod(self.cindex + 1, ww * ww);

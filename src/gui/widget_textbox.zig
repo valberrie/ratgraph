@@ -433,7 +433,7 @@ pub const Textbox = struct {
         //    gui.drawRectFilled(tr, self.style.config.colors.textbox_invalid);
         var selection_pos_min: f32 = 0;
         var selection_pos_max: f32 = 0;
-        if (s.draw_start >= s.codepoints.items.len or s.head < s.draw_start)
+        if (s.draw_start > s.codepoints.items.len or s.head < s.draw_start)
             return;
         const head = s.head - s.draw_start;
         const sl = s.codepoints.items[s.draw_start..];
@@ -449,7 +449,6 @@ pub const Textbox = struct {
             selection_pos_max - selection_pos_min,
             tr.h,
         ), d.style.config.colors.text_highlight);
-        //TODO "scroll" the text when it exceeds text bounds
         if (is_focused) {
             d.ctx.rect(
                 Rect.new(caret_x + tr.x, tr.y + 2, d.style.config.textbox_caret_width, tr.h - 4),
