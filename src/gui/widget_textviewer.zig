@@ -42,12 +42,12 @@ pub const TextView = struct {
 
         //First, walk through string with xWalker and stick in a buffer of lines
         const extra_margin = gui.style.config.text_h / 3;
-        const tw = Widget.VScroll.getAreaW(inset.w - extra_margin);
+        const tw = VScroll.getAreaW(inset.w - extra_margin);
         switch (opts.mode) {
             .split_on_space => self.buildLinesSpaceSplit(gui.font, tw, gui.style.config.text_h) catch return null,
             .simple => self.buildLines(gui.font, tw, gui.style.config.text_h) catch return null,
         }
-        const vscr = Widget.VScroll.build(gui, inset, .{
+        const vscr = VScroll.build(gui, inset, .{
             .build_vt = &self.vt,
             .build_cb = &buildScroll,
             .win = win,

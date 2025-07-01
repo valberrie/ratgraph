@@ -66,14 +66,14 @@ pub fn GenRegistryStructs(comptime fields: FieldList) struct {
         big_ent_type[lt_i] = .{
             .name = f.name,
             .type = ?f.ftype,
-            .default_value = &anynull,
+            .default_value_ptr = &anynull,
             .is_comptime = false,
             .alignment = 0,
         };
         reg_fields[lt_i] = .{
             .name = f.name,
             .type = SparseSet(f.ftype, ID_TYPE),
-            .default_value = null,
+            .default_value_ptr = null,
             .is_comptime = false,
             .alignment = 0,
         };
@@ -86,7 +86,7 @@ pub fn GenRegistryStructs(comptime fields: FieldList) struct {
                 };
                 entries: []Entry,
             },
-            .default_value = null,
+            .default_value_ptr = null,
             .is_comptime = false,
             .alignment = 0,
         };
@@ -113,28 +113,28 @@ pub fn GenRegistryStructs(comptime fields: FieldList) struct {
             .type = cb_type,
             .alignment = @alignOf(cb_type),
             .is_comptime = false,
-            .default_value = null,
+            .default_value_ptr = null,
         };
         callback_fields[(lt_i * num_cbs) + 1] = .{
             .name = f.name ++ "data",
             .type = if (f.callback) |cb| cb.user_data else void,
             .alignment = @alignOf(if (f.callback) |cb| cb.user_data else void),
             .is_comptime = false,
-            .default_value = null,
+            .default_value_ptr = null,
         };
         callback_fields[(lt_i * num_cbs) + 2] = .{
             .name = f.name ++ "destroy",
             .type = if (f.callback) |cb| cb.destroy_pointer else void,
             .alignment = @alignOf(if (f.callback) |cb| cb.destroy_pointer else void),
             .is_comptime = false,
-            .default_value = null,
+            .default_value_ptr = null,
         };
         callback_fields[(lt_i * num_cbs) + 3] = .{
             .name = f.name ++ "reset",
             .type = if (f.callback) |cb| cb.reset_pointer else void,
             .alignment = @alignOf(if (f.callback) |cb| cb.reset_pointer else void),
             .is_comptime = false,
-            .default_value = null,
+            .default_value_ptr = null,
         };
         enum_fields[lt_i] = .{
             .name = f.name,
@@ -144,12 +144,12 @@ pub fn GenRegistryStructs(comptime fields: FieldList) struct {
         queued_fields[lt_i] = .{
             .name = f.name,
             .type = std.ArrayList(f.ftype),
-            .default_value = null,
+            .default_value_ptr = null,
             .is_comptime = false,
             .alignment = 0,
         };
     }
-    const EnumType = @Type(TypeInfo{ .Enum = .{
+    const EnumType = @Type(TypeInfo{ .@"enum" = .{
         .tag_type = u32,
         .fields = enum_fields[0..],
         .decls = &.{},
@@ -158,38 +158,38 @@ pub fn GenRegistryStructs(comptime fields: FieldList) struct {
     const lt = .auto;
 
     return .{
-        .aggregate_type = @Type(TypeInfo{ .Struct = .{
+        .aggregate_type = @Type(TypeInfo{ .@"struct" = .{
             .layout = lt,
             .fields = big_ent_type[0..],
             .decls = &.{},
             .is_tuple = false,
         } }),
-        .callbacks = @Type(TypeInfo{ .Struct = .{
+        .callbacks = @Type(TypeInfo{ .@"struct" = .{
             .layout = lt,
             .fields = callback_fields[0..],
             .decls = &.{},
             .is_tuple = false,
         } }),
-        .file_proto_type = @Type(TypeInfo{ .Union = .{
+        .file_proto_type = @Type(TypeInfo{ .@"union" = .{
             .layout = lt,
             .fields = file_proto_types[0..],
             .decls = &.{},
             .tag_type = null,
         } }),
-        .union_type = @Type(TypeInfo{ .Union = .{
+        .union_type = @Type(TypeInfo{ .@"union" = .{
             .layout = lt,
             .fields = union_fields[0..],
             .decls = &.{},
             .tag_type = EnumType,
         } }),
         .tombstone_bit = fields.len,
-        .reg = @Type(TypeInfo{ .Struct = .{
+        .reg = @Type(TypeInfo{ .@"struct" = .{
             .layout = lt,
             .fields = reg_fields[0..],
             .decls = &.{},
             .is_tuple = false,
         } }),
-        .json = @Type(TypeInfo{ .Struct = .{
+        .json = @Type(TypeInfo{ .@"struct" = .{
             .layout = lt,
             .fields = json_fields[0..],
             .decls = &.{},
@@ -202,7 +202,7 @@ pub fn GenRegistryStructs(comptime fields: FieldList) struct {
         //    .decls = &.{},
         //    .is_exhaustive = true,
         //} }),
-        .queued = @Type(TypeInfo{ .Struct = .{
+        .queued = @Type(TypeInfo{ .@"struct" = .{
             .layout = lt,
             .fields = queued_fields[0..],
             .decls = &.{},
@@ -430,7 +430,7 @@ pub fn Registry(comptime field_names_l: FieldList) type {
             return ent;
         }
 
-        pub fn attach(self: *Self, index: ID_TYPE, comptime component_type: Components, component: anytype) !void {
+        pub fn attach(self: *Self, index: ID_TYPE, comptime component_type: Components, component: typeFromEnum(component_type)) !void {
             try self.attachComponent(index, component_type, component);
         }
 
@@ -469,7 +469,11 @@ pub fn Registry(comptime field_names_l: FieldList) type {
             try self.attachComponent(index, component_type, component);
         }
 
-        pub fn attachComponent(self: *Self, index: ID_TYPE, comptime component_type: Components, component: anytype) !void {
+        fn typeFromEnum(comptime comp: Components) type {
+            return Self.Fields[@intFromEnum(comp)].ftype;
+        }
+
+        pub fn attachComponent(self: *Self, index: ID_TYPE, comptime component_type: Components, component: typeFromEnum(component_type)) !void {
             const comp: usize = @intFromEnum(component_type);
             const ent = try self.getEntity(index);
             if (ent.isSet(comp)) return error.componentAlreadyAttached;
@@ -631,7 +635,7 @@ pub fn Registry(comptime field_names_l: FieldList) type {
                 fields[f_i] = .{
                     .name = field_names_l[@intFromEnum(comp)].name,
                     .type = *field_names_l[@intFromEnum(comp)].ftype,
-                    .default_value = null,
+                    .default_value_ptr = null,
                     .is_comptime = false,
                     .alignment = 0,
                 };
