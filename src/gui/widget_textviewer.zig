@@ -123,10 +123,12 @@ pub const TextView = struct {
                 const end = xwalker.index();
                 if (past and last_space != null) {
                     const ls = last_space.?;
+                    if (start_index > ls) return;
                     try self.lines.append(self.cat_string[start_index..ls]);
                     current_line_w = current_line_w - width_at_last_space;
                     start_index = ls;
                 } else {
+                    if (start_index > end) return;
                     try self.lines.append(self.cat_string[start_index..end]);
                     start_index = end;
                     current_line_w = 0;

@@ -43,20 +43,26 @@ pub const VScroll = struct {
             .index_ptr = opts.index_ptr orelse &self.__index,
         };
         self.vt.draw_fn = &draw;
-        self.vt.onscroll = &onScroll;
         self.vt.deinit_fn = &deinit;
 
-        const split = self.vt.area.split(.vertical, getAreaW(self.vt.area.w));
+        const needs_scroll = opts.item_h * @as(f32, @floatFromInt(opts.count)) > area.h;
+
+        const split = self.vt.area.split(.vertical, if (needs_scroll) getAreaW(self.vt.area.w) else self.vt.area.w);
         _ = self.vt.addEmpty(gui, opts.win, split[0]);
-        self.vt.addChildOpt(gui, opts.win, ScrollBar.build(
-            gui,
-            split[1],
-            self.index_ptr,
-            opts.count,
-            opts.item_h,
-            &self.vt,
-            &notifyChange,
-        ));
+        if (needs_scroll) {
+            self.vt.onscroll = &onScroll;
+            self.vt.addChildOpt(gui, opts.win, ScrollBar.build(
+                gui,
+                split[1],
+                self.index_ptr,
+                opts.count,
+                opts.item_h,
+                &self.vt,
+                &notifyChange,
+            ));
+        } else {
+            _ = self.vt.addEmpty(gui, opts.win, split[1]);
+        }
 
         self.rebuild(gui, opts.win);
         return &self.vt;
@@ -267,6 +273,17 @@ pub const Button = struct {
         if (self.opts.cb_fn) |cbfn| {
             cbfn(self.opts.cb_vt orelse return, self.opts.id, cb.gui, win);
         }
+    }
+
+    pub fn customButtonDraw_listitem(vt: *iArea, d: DrawState) void {
+        const self: *Button = @alignCast(@fieldParentPtr("vt", vt));
+        d.ctx.rect(vt.area, 0xffff_ffff);
+        if (self.opts.user_1 == 1) {
+            const SELECTED_FIELD_COLOR = 0x6097dbff;
+            d.ctx.rect(vt.area, SELECTED_FIELD_COLOR);
+        }
+        const ta = vt.area.inset(3 * d.scale);
+        d.ctx.textClipped(ta, "{s}", .{self.text}, d.textP(0xff), .center);
     }
 };
 
