@@ -607,12 +607,12 @@ pub inline fn dhash(state: anytype) u64 {
 pub fn hashW(hasher: anytype, key: anytype, comptime strat: std.hash.Strategy) void {
     const Key = @TypeOf(key);
     switch (@typeInfo(Key)) {
-        .Struct => |info| {
+        .@"struct" => |info| {
             inline for (info.fields) |field| {
                 hashW(hasher, @field(key, field.name), strat);
             }
         },
-        .Union => |info| {
+        .@"union" => |info| {
             if (info.tag_type == null) @compileError("Cannot hash untagged union");
             inline for (info.fields, 0..) |field, i| {
                 if (i == @intFromEnum(key)) {
@@ -621,9 +621,9 @@ pub fn hashW(hasher: anytype, key: anytype, comptime strat: std.hash.Strategy) v
                 }
             }
         },
-        .Pointer => |info| {
+        .pointer => |info| {
             switch (info.size) {
-                .Slice => {
+                .slice => {
                     for (key) |element| {
                         hashW(hasher, element, strat);
                     }
@@ -631,18 +631,18 @@ pub fn hashW(hasher: anytype, key: anytype, comptime strat: std.hash.Strategy) v
                 else => {},
             }
         },
-        .Array => {
+        .array => {
             for (key) |element|
                 hashW(hasher, element, strat);
         },
-        .Opaque => {},
-        .Optional => if (key) |k| hashW(hasher, k, strat),
-        .Float => {
+        .@"opaque" => {},
+        .optional => if (key) |k| hashW(hasher, k, strat),
+        .float => {
             const f = if (std.math.isFinite(key)) key else 0 * 10;
             const ff: i32 = if (@abs(f) >= std.math.maxInt(i32)) std.math.maxInt(i32) else @intFromFloat(f);
             std.hash.autoHashStrat(hasher, ff, strat);
         },
-        .Int, .Bool => std.hash.autoHashStrat(hasher, key, strat),
+        .int, .bool => std.hash.autoHashStrat(hasher, key, strat),
         else => @compileError("can't hash " ++ @typeName(Key)),
     }
 }
@@ -1808,11 +1808,11 @@ pub const Context = struct {
         const lmax = std.math.lossyCast(f32, max);
         const invalid_type_error = @typeName(@This()) ++ ".sliderGeneric: " ++ "Argument \'number_ptr\' expects a mutable pointer to an int or float. Recieved: " ++ @typeName(@TypeOf(number_ptr));
         const pinfo = @typeInfo(@TypeOf(number_ptr));
-        if (pinfo != .Pointer or pinfo.Pointer.is_const) @compileError(invalid_type_error);
-        const number_type = pinfo.Pointer.child;
+        if (pinfo != .pointer or pinfo.pointer.is_const) @compileError(invalid_type_error);
+        const number_type = pinfo.pointer.child;
         const number_t: GenericWidget.NumType = switch (@typeInfo(number_type)) {
-            .Float => .float,
-            .Int => |int| switch (int.signedness) {
+            .float => .float,
+            .int => |int| switch (int.signedness) {
                 .signed => .int,
                 .unsigned => .uint,
             },
@@ -2068,11 +2068,11 @@ pub const Context = struct {
         const tarea = area.inset(params.text_inset);
 
         const pinfo = @typeInfo(@TypeOf(number_ptr));
-        if (pinfo != .Pointer or pinfo.Pointer.is_const) @compileError(invalid_type_error);
-        const number_type = pinfo.Pointer.child;
+        if (pinfo != .pointer or pinfo.pointer.is_const) @compileError(invalid_type_error);
+        const number_type = pinfo.pointer.child;
         const number_t: NumType = switch (@typeInfo(number_type)) {
-            .Float => .float,
-            .Int => |int| switch (int.signedness) {
+            .float => .float,
+            .int => |int| switch (int.signedness) {
                 .signed => .int,
                 .unsigned => .uint,
             },

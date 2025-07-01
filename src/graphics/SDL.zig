@@ -607,7 +607,7 @@ pub fn GenerateBindingEnum(comptime map: BindList) type {
     inline for (map, 0..) |bind, b_i| {
         fields[b_i] = .{ .name = bind.name, .value = b_i };
     }
-    return @Type(TypeInfo{ .Enum = .{
+    return @Type(TypeInfo{ .@"enum" = .{
         .fields = fields[0..],
         .tag_type = std.math.IntFittingRange(0, map.len),
         .decls = &.{},

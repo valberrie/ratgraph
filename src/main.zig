@@ -1529,7 +1529,7 @@ pub fn game_main() !void {
             .keys = win.keys.slice(),
             .mod_state = win.mod,
         };
-        try os9gui.beginFrame(is, &win);
+        try os9gui.resetFrame(is, &win);
 
         if (win.keyHigh(.H))
             camera.pos = V3f.new(1, 3, 1);
@@ -2358,7 +2358,8 @@ pub fn game_main() !void {
         try draw.flush(null, camera);
         if (gcfg.draw_wireframe)
             graph.c.glPolygonMode(graph.c.GL_FRONT_AND_BACK, graph.c.GL_FILL);
-        draw.textFmt(.{ .x = 0, .y = 0 }, "pos [{d:.2}, {d:.2}, {d:.2}]\nyaw: {d}\npitch: {d}\ngrounded {any}\ntool: {s}\nsnap: {d}\nPress {s} to show menu\n", .{
+        const fmt = "pos [{d:.2}, {d:.2}, {d:.2}]\nyaw: {d}\npitch: {d}\ngrounded {any}\ntool: {s}\nsnap: {d}\nPress {s} to show menu\n";
+        draw.textFmt(.{ .x = 0, .y = 0 }, fmt, .{
             cam_bb.pos.x(),
             cam_bb.pos.y(),
             cam_bb.pos.z(),
@@ -2368,7 +2369,7 @@ pub fn game_main() !void {
             @tagName(tool),
             sel_snap / 2.54 * 100,
             @tagName(keys.show_menu),
-        }, font, 12, 0xffffffff);
+        }, .{ .font = font, .px_size = 12, .color = 0xffffffff });
 
         if (show_gui) {
             const gw = 1000; //Gui units
@@ -2472,7 +2473,7 @@ pub fn game_main() !void {
                             _ = try os9gui.beginV();
                             defer os9gui.endL();
                             const info = @typeInfo(@TypeOf(keys));
-                            inline for (info.Struct.fields) |field| {
+                            inline for (info.@"struct".fields) |field| {
                                 //os9gui.label("{s}: {s}", .{ field.name, @tagName(@field(keys, field.name)) });
                                 try os9gui.enumCombo("{s} : {s}", .{ field.name, @tagName(@field(keys, field.name)) }, &@field(keys, field.name));
                             }
@@ -2488,7 +2489,7 @@ pub fn game_main() !void {
                 }
             }
 
-            try os9gui.endFrame(&draw);
+            try os9gui.drawGui(&draw);
         }
         if (gcfg.draw_wireframe)
             graph.c.glPolygonMode(graph.c.GL_FRONT_AND_BACK, graph.c.GL_LINE);

@@ -570,21 +570,21 @@ pub const GuiConfig = struct {
             fn createWrapperType() type {
                 const ch: @This() = .{};
                 const info = @typeInfo(@This());
-                var fields: [info.Struct.fields.len]std.builtin.Type.StructField = undefined;
-                inline for (info.Struct.fields, 0..) |field, i| {
+                var fields: [info.@"struct".fields.len]std.builtin.Type.StructField = undefined;
+                inline for (info.@"struct".fields, 0..) |field, i| {
                     if (field.type != u32)
                         @compileError("color not an int");
                     const default = ColorWrap{ .child = @field(ch, field.name) };
                     fields[i] = .{
                         .name = field.name,
                         .type = ColorWrap,
-                        .default_value = &default,
+                        .default_value_ptr = &default,
                         .is_comptime = false,
                         .alignment = @alignOf(ColorWrap),
                     };
                 }
 
-                return @Type(std.builtin.Type{ .Struct = .{
+                return @Type(std.builtin.Type{ .@"struct" = .{
                     .layout = .auto,
                     .fields = &fields,
                     .decls = &.{},
@@ -596,7 +596,7 @@ pub const GuiConfig = struct {
             pub fn jsonParse(alloc: std.mem.Allocator, source: anytype, options: std.json.ParseOptions) !@This() {
                 const wrap = try std.json.innerParse(JT, alloc, source, options);
                 var ret: @This() = .{};
-                inline for (@typeInfo(@This()).Struct.fields) |f| {
+                inline for (@typeInfo(@This()).@"struct".fields) |f| {
                     @field(ret, f.name) = @field(wrap, f.name).child;
                 }
                 return ret;
@@ -654,7 +654,7 @@ pub const GuiConfig = struct {
             .texture = try graph.AssetBake.AssetMap.initTextureFromManifest(alloc, output_path, BAKE_NAME),
         };
         errdefer ret.deinit();
-        try ret.nineSliceLut.resize(@typeInfo(Style9Slices).Enum.fields.len);
+        try ret.nineSliceLut.resize(@typeInfo(Style9Slices).@"enum".fields.len);
         var found = std.ArrayList(bool).init(alloc);
         defer found.deinit();
         try found.appendNTimes(false, ret.nineSliceLut.items.len);
@@ -786,7 +786,7 @@ pub const Os9Gui = struct {
             try fbs.writer().writeByte(0);
             fields[i] = .{ .name = @ptrCast(fbs.getWritten()[start..]), .value = num };
         }
-        return @Type(std.builtin.Type{ .Enum = .{ .tag_type = i32, .fields = &fields, .decls = &.{}, .is_exhaustive = true } });
+        return @Type(std.builtin.Type{ .@"enum" = .{ .tag_type = i32, .fields = &fields, .decls = &.{}, .is_exhaustive = true } });
     }
 
     const SampleEnum = enum {
@@ -1114,9 +1114,10 @@ pub const Os9Gui = struct {
 
     pub fn tabsBorderCalc(comptime list_type: type, selected: list_type, w: f32) struct { f32, f32 } {
         const info = @typeInfo(list_type);
-        const item_w = w / @as(f32, @floatFromInt(info.Enum.fields.len));
-        inline for (info.Enum.fields, 0..) |field, i| {
-            const active = @as(info.Enum.tag_type, @intFromEnum(selected)) == field.value;
+        const enf = info.@"enum";
+        const item_w = w / @as(f32, @floatFromInt(enf.fields.len));
+        inline for (enf.fields, 0..) |field, i| {
+            const active = @as(enf.tag_type, @intFromEnum(selected)) == field.value;
             const fi: f32 = @floatFromInt(i);
             if (active) {
                 return .{ fi * item_w, (fi + 1) * item_w };
@@ -1125,11 +1126,11 @@ pub const Os9Gui = struct {
         unreachable;
     }
 
-    pub fn beginTabs(self: *Self, selected: anytype) !@typeInfo(@TypeOf(selected)).Pointer.child {
+    pub fn beginTabs(self: *Self, selected: anytype) !@typeInfo(@TypeOf(selected)).pointer.child {
         const ptrinfo = @typeInfo(@TypeOf(selected));
-        const childT = ptrinfo.Pointer.child;
+        const childT = ptrinfo.pointer.child;
         const info = @typeInfo(childT);
-        const fields = info.Enum.fields;
+        const fields = info.@"enum".fields;
         var v = try self.beginL(Gui.VerticalLayout{ .item_height = 20 * self.scale });
 
         _ = try self.beginH(fields.len);
@@ -1351,11 +1352,11 @@ pub const Os9Gui = struct {
         const err_prefix = @typeName(@This()) ++ ".propertyTable: ";
         const invalid = err_prefix ++ "Argument \'to_edit\' expects a mutable pointer to a struct. Recieved: " ++ @typeName(@TypeOf(to_edit));
         const e_info = @typeInfo(@TypeOf(to_edit));
-        if (e_info != .Pointer or e_info.Pointer.is_const) @compileError(invalid);
-        const ptype = e_info.Pointer.child;
+        if (e_info != .pointer or e_info.pointer.is_const) @compileError(invalid);
+        const ptype = e_info.pointer.child;
         const info = @typeInfo(ptype);
-        if (info != .Struct) @compileError(invalid);
-        const num_lines = info.Struct.fields.len;
+        if (info != .@"struct") @compileError(invalid);
+        const num_lines = info.@"struct".fields.len;
         const item_height = self.scale * self.style.config.property_table_item_h;
         return num_lines * item_height + (2 * 3 * self.scale) + 100;
     }
@@ -1364,11 +1365,11 @@ pub const Os9Gui = struct {
         const err_prefix = @typeName(@This()) ++ ".propertyTable: ";
         const invalid = err_prefix ++ "Argument \'to_edit\' expects a mutable pointer to a struct. Recieved: " ++ @typeName(@TypeOf(to_edit));
         const e_info = @typeInfo(@TypeOf(to_edit));
-        if (e_info != .Pointer or e_info.Pointer.is_const) @compileError(invalid);
-        const ptype = e_info.Pointer.child;
+        if (e_info != .pointer or e_info.pointer.is_const) @compileError(invalid);
+        const ptype = e_info.pointer.child;
         const info = @typeInfo(ptype);
-        if (info != .Struct) @compileError(invalid);
-        const num_lines = info.Struct.fields.len;
+        if (info != .@"struct") @compileError(invalid);
+        const num_lines = info.@"struct".fields.len;
         const item_height = self.scale * self.style.config.property_table_item_h;
         const ar = self.gui.getArea() orelse return;
         self.gui.draw9Slice(ar, self.style.getRect(.basic_inset), self.style.texture, self.scale);
@@ -1426,7 +1427,7 @@ pub const Os9Gui = struct {
 
     pub fn editProperty(self: *Self, comptime T: type, prop: *T, comptime field_name: []const u8, index: usize) !void {
         switch (@typeInfo(T)) {
-            .Struct => {
+            .@"struct" => {
                 switch (T) {
                     Vec2f => {
                         _ = try self.gui.beginLayout(Gui.HorizLayout, .{ .count = 2 }, .{});
@@ -1457,7 +1458,7 @@ pub const Os9Gui = struct {
                     },
                 }
             },
-            .Pointer => |p| {
+            .pointer => |p| {
                 if (p.is_const) {
                     self.label("const_ptr", .{});
                     return;
@@ -1501,16 +1502,16 @@ pub const Os9Gui = struct {
                 }
                 self.gui.skipArea();
             },
-            .Optional => |o| {
+            .optional => |o| {
                 if (prop.* != null) {
                     try self.editProperty(o.child, &(prop.*.?), field_name, 0);
                     return;
                 }
                 self.label("null", .{});
             },
-            .Bool => _ = self.checkbox("", prop),
-            .Enum => try self.enumCombo("{s}", .{@tagName(prop.*)}, prop),
-            .Int, .Float => try self.textboxNumber(prop),
+            .bool => _ = self.checkbox("", prop),
+            .@"enum" => try self.enumCombo("{s}", .{@tagName(prop.*)}, prop),
+            .int, .float => try self.textboxNumber(prop),
             else => self.gui.skipArea(),
         }
     }
@@ -1619,7 +1620,7 @@ pub const Os9Gui = struct {
             gui.draw9Slice(d.area, box, self.style.texture, self.scale);
             const textb = d.area.inset(self.scale * box.h / 3);
             const diff: usize = @intFromFloat(max - min);
-            if (diff <= 10 and @typeInfo(@typeInfo(@TypeOf(value)).Pointer.child) == .Int) {
+            if (diff <= 10 and @typeInfo(@typeInfo(@TypeOf(value)).pointer.child) == .int) {
                 const h = d.area.h - os9slider.h / 3 * 2;
                 const dist: usize = @divTrunc(@as(usize, @intFromFloat(d.area.w - os9shuttle.w * self.scale)), diff);
                 for (1..diff) |i| {
@@ -1657,13 +1658,14 @@ pub const Os9Gui = struct {
         const err_prefix = @typeName(@This()) ++ ".radio: ";
         const invalid = err_prefix ++ "Argument \'enum_value\' expects a mutable pointer to an enum. Recieved: " ++ @typeName(@TypeOf(enum_value));
         const e_info = @typeInfo(@TypeOf(enum_value));
-        if (e_info != .Pointer or e_info.Pointer.is_const) @compileError(invalid);
-        const enum_type = e_info.Pointer.child;
+        if (e_info != .pointer or e_info.pointer.is_const) @compileError(invalid);
+        const enum_type = e_info.pointer.child;
         const enum_info = @typeInfo(enum_type);
-        if (enum_info != .Enum) @compileError(invalid);
+        if (enum_info != .@"enum") @compileError(invalid);
 
-        _ = try self.beginH(enum_info.Enum.fields.len);
-        inline for (enum_info.Enum.fields) |f| {
+        const enum_field = enum_info.@"enum".fields;
+        _ = try self.beginH(enum_field.len);
+        inline for (enum_field) |f| {
             const d = self.gui.buttonGeneric();
             if (d.state == .click)
                 enum_value.* = @enumFromInt(f.value);
@@ -1793,10 +1795,10 @@ pub const Os9Gui = struct {
         const err_prefix = @typeName(@This()) ++ ".enumCombo: ";
         const invalid = err_prefix ++ "Argument \'enum_value\' expects a mutable pointer to an enum. Recieved: " ++ @typeName(@TypeOf(enum_value));
         const e_info = @typeInfo(@TypeOf(enum_value));
-        if (e_info != .Pointer or e_info.Pointer.is_const) @compileError(invalid);
-        const enum_type = e_info.Pointer.child;
+        if (e_info != .pointer or e_info.pointer.is_const) @compileError(invalid);
+        const enum_type = e_info.pointer.child;
         const enum_info = @typeInfo(enum_type);
-        if (enum_info != .Enum) @compileError(invalid);
+        if (enum_info != .@"enum") @compileError(invalid);
         const id = self.gui.getId();
 
         {
@@ -1823,11 +1825,11 @@ pub const Os9Gui = struct {
         if (self.drop_down) |dd| {
             if (dd.eql(id)) {
                 const scrth = self.style.config.enum_combo_item_count_scroll_threshold;
-                const do_scroll = enum_info.Enum.fields.len > scrth;
+                const do_scroll = enum_info.@"enum".fields.len > scrth;
                 const pa = self.gui.layout.last_requested_bounds.?;
                 const dd_area = self.gui.clampRectToWindow(graph.Rect.newV(pa.pos(), .{
                     .x = pa.w,
-                    .y = if (do_scroll) pa.h * @as(f32, @floatFromInt(scrth)) else (enum_info.Enum.fields.len + 2) * pa.h,
+                    .y = if (do_scroll) pa.h * @as(f32, @floatFromInt(scrth)) else (enum_info.@"enum".fields.len + 2) * pa.h,
                 }));
                 if (self.gui.input_state.mouse.left == .rising and !self.gui.isCursorInRect(dd_area)) {
                     self.drop_down = null;
@@ -1852,7 +1854,7 @@ pub const Os9Gui = struct {
                     vl.pushRemaining();
                     if (try self.beginScroll(&self.drop_down_scroll, .{ .sw = ar.w }, Gui.VerticalLayout{ .item_height = self.style.config.default_item_h })) |file_scroll| {
                         defer self.endScroll(file_scroll, file_scroll.child.current_h);
-                        inline for (enum_info.Enum.fields) |f| {
+                        inline for (enum_info.@"enum".fields) |f| {
                             if (std.mem.startsWith(u8, f.name, sb.getSlice())) {
                                 if (self.buttonEx("{s}", .{f.name}, .{})) {
                                     enum_value.* = @enumFromInt(f.value);

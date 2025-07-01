@@ -42,10 +42,10 @@ fn generateArgStruct(comptime arg_list: []const ArgItem) type {
             .flag => bool,
             .vec2 => Vec2f,
         };
-        fields[i] = .{ .name = arg.name, .type = T, .default_value = null, .is_comptime = false, .alignment = @alignOf(T) };
+        fields[i] = .{ .name = arg.name, .type = T, .default_value_ptr = null, .is_comptime = false, .alignment = @alignOf(T) };
     }
 
-    return @Type(Type{ .Struct = .{ .layout = .auto, .fields = &fields, .decls = &.{}, .is_tuple = false } });
+    return @Type(Type{ .@"struct" = .{ .layout = .auto, .fields = &fields, .decls = &.{}, .is_tuple = false } });
 }
 
 pub fn parseArgs(comptime arg_list: []const ArgItem, arg_it: anytype) !generateArgStruct(arg_list) {

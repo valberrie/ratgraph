@@ -85,7 +85,7 @@ pub fn build(b: *std.Build) void {
         .optimize = mode,
     });
     b.installArtifact(bake);
-    linkLibrary(b, &bake.root_module);
+    linkLibrary(b, bake.root_module);
 
     const exe = b.addExecutable(.{
         .name = "the_engine",
@@ -95,7 +95,7 @@ pub fn build(b: *std.Build) void {
     });
     b.installArtifact(exe);
 
-    linkLibrary(b, &exe.root_module);
+    linkLibrary(b, exe.root_module);
     const m = b.addModule("ratgraph", .{ .root_source_file = b.path("src/graphics.zig"), .target = target });
     linkLibrary(b, m);
 
@@ -115,7 +115,7 @@ pub fn build(b: *std.Build) void {
         .link_libc = true,
     });
     unit_tests.setExecCmd(&[_]?[]const u8{ "kcov", "kcov-output", null });
-    linkLibrary(b, &unit_tests.root_module);
+    linkLibrary(b, unit_tests.root_module);
 
     const run_unit_tests = b.addRunArtifact(unit_tests);
 

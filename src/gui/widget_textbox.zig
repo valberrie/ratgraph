@@ -10,8 +10,8 @@ const Color = graph.Colori;
 fn charsetForNum(comptime T: type) []const u8 {
     const info = @typeInfo(T);
     switch (info) {
-        .Float => return "ainf.-0123456789",
-        .Int => |int| switch (int.signedness) {
+        .float => return "ainf.-0123456789",
+        .int => |int| switch (int.signedness) {
             .signed => return "-0123456789xabcdefABCDEF",
             .unsigned => return "0123456789xabcdefABCDEF",
         },
@@ -20,8 +20,8 @@ fn charsetForNum(comptime T: type) []const u8 {
 }
 fn getNumtype(comptime T: type) enum { float, int, uint } {
     return switch (@typeInfo(T)) {
-        .Float => .float,
-        .Int => |int| switch (int.signedness) {
+        .float => .float,
+        .int => |int| switch (int.signedness) {
             .signed => .int,
             .unsigned => .uint,
         },
@@ -74,8 +74,8 @@ pub const TextboxNumber = struct {
         const area = area_o orelse return null;
         //const invalid_type_error = "wrong type for textbox number!";
         const pinfo = @typeInfo(@TypeOf(number));
-        const is_pointer = (pinfo == .Pointer);
-        const number_type = if (is_pointer) pinfo.Pointer.child else @TypeOf(number);
+        const is_pointer = (pinfo == .pointer);
+        const number_type = if (is_pointer) pinfo.pointer.child else @TypeOf(number);
         const ND = NumberDummy(number_type);
 
         const dummy = ND.build(gui, area, if (is_pointer) number else null, if (is_pointer) 0 else number);

@@ -1,5 +1,6 @@
 .{
-    .name = "ratgraph",
+    .fingerprint = 0xf942b3c37b17cf6a,
+    .name = .ratgraph,
     .version = "0.0.1",
     .dependencies = .{
         .zalgebra = .{

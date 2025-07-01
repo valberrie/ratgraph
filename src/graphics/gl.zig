@@ -130,8 +130,8 @@ pub fn generateVertexAttributes(vao: c_uint, vbo: c_uint, comptime T: anytype) v
 pub fn generateVertexAttributesEx(vao: c_uint, vbo: c_uint, comptime T: anytype, field_offset: u32) void {
     const info = @typeInfo(T);
     switch (info) {
-        .Struct => {
-            const st = info.Struct;
+        .@"struct" => {
+            const st = info.@"struct";
             if (st.layout != .@"packed") @compileError("generateVertexAttributes only supports packed structs");
             inline for (st.fields, 0..) |field, f_ii| {
                 const f_i = @as(u32, @intCast(f_ii)) + field_offset;
@@ -477,7 +477,7 @@ pub const Shader = struct {
 
     pub fn advancedShader(stages: []const Stage) glID {
         const shader = c.glCreateProgram();
-        var stage_del: [@typeInfo(Type).Enum.fields.len]c_uint = undefined;
+        var stage_del: [@typeInfo(Type).@"enum".fields.len]c_uint = undefined;
         var i: usize = 0;
         for (stages) |stage| {
             const st = compShader(&stage.src, @as(c_uint, @intCast(@intFromEnum(stage.t))));

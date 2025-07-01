@@ -189,7 +189,7 @@ pub fn main() !void {
     gui.style.config.default_item_h = @trunc(25 * 1.6);
     gui.style.config.text_h = TEXT_H;
 
-    const window_area = .{ .x = 0, .y = 0, .w = 1000, .h = 1000 };
+    const window_area = Rect{ .x = 0, .y = 0, .w = 1000, .h = 1000 };
 
     const dstate = guis.DrawState{ .ctx = &draw, .font = &font.font, .style = &gui.style, .gui = &gui };
     try gui.addWindow(MyInspector.create(&gui), window_area);

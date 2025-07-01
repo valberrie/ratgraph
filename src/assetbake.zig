@@ -35,6 +35,9 @@ pub const AssetIdT = u32;
 const IDT = AssetIdT;
 pub const BakedManifestJson = struct {
     pub const IdRect = struct {
+        pub const SearchCtx = struct {
+            key: IDT,
+        };
         id: IDT,
         x: u32,
         y: u32,
@@ -45,8 +48,8 @@ pub const BakedManifestJson = struct {
             return lhs.id < rhs.id;
         }
 
-        pub fn compare(_: void, index: u32, item: IdRect) std.math.Order {
-            return std.math.order(index, item.id);
+        pub fn compare(ctx: SearchCtx, item: IdRect) std.math.Order {
+            return std.math.order(ctx.key, item.id);
         }
     };
     pub const IdInfo = struct {
@@ -631,7 +634,8 @@ pub fn assetBake(
             try new_name.append('/');
             try new_name.appendSlice(item.key_ptr.*);
             //We might need to append the dir prefix to fileimage path?
-            if (std.sort.binarySearch(IdRect, item.value_ptr.id, id_rects.items, {}, IdRect.compare)) |ri| {
+            const binctx = IdRect.SearchCtx{ .key = item.value_ptr.id };
+            if (std.sort.binarySearch(IdRect, id_rects.items, binctx, IdRect.compare)) |ri| {
                 const r = id_rects.items[ri];
                 const h = (r.h);
                 const w = (r.w);

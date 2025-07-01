@@ -13,12 +13,12 @@ const Widget = g.Widget;
 pub const Combo = struct {
     pub fn build(gui: *Gui, area_o: ?Rect, enum_ptr: anytype) ?*iArea {
         const info = @typeInfo(@TypeOf(enum_ptr));
-        if (info != .Pointer) @compileError("expected a pointer to enum");
-        if (info.Pointer.is_const or info.Pointer.size != .One) @compileError("invalid pointer");
-        const child_info = @typeInfo(info.Pointer.child);
-        if (child_info != .Enum) @compileError("Expected an enum");
+        if (info != .pointer) @compileError("expected a pointer to enum");
+        if (info.pointer.is_const or info.pointer.size != .one) @compileError("invalid pointer");
+        const child_info = @typeInfo(info.pointer.child);
+        if (child_info != .@"enum") @compileError("Expected an enum");
 
-        const Gen = ComboGeneric(info.Pointer.child);
+        const Gen = ComboGeneric(info.pointer.child);
         const area = area_o orelse return null;
         return Gen.build(gui, area, enum_ptr);
     }
@@ -224,7 +224,7 @@ pub fn ComboGeneric(comptime enumT: type) type {
                     .build_cb = &build_cb,
                     .build_vt = &self.area,
                     .win = vt,
-                    .count = info.Enum.fields.len,
+                    .count = info.@"enum".fields.len,
                     .item_h = gui.style.config.default_item_h,
                 }));
             }
@@ -233,7 +233,7 @@ pub fn ComboGeneric(comptime enumT: type) type {
                 const self: *@This() = @alignCast(@fieldParentPtr("area", vt));
                 var ly = g.VerticalLayout{ .item_height = gui.style.config.default_item_h, .bounds = area.area };
                 const info = @typeInfo(enumT);
-                inline for (info.Enum.fields, 0..) |field, i| {
+                inline for (info.@"enum".fields, 0..) |field, i| {
                     if (i >= index) {
                         area.addChild(gui, win, Widget.Button.build(
                             gui,

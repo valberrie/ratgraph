@@ -76,10 +76,10 @@ test "basic graph usage" {
 
         //The following are all drawn in 2d using the default orthographic camera.
         //The bounds of the camera are the window dimensions
-        draw.text(.{ .x = 50, .y = 300 }, "Hello", &font.font, 20, 0xffffffff, .{});
+        draw.text(.{ .x = 50, .y = 300 }, "Hello", .{ .font = &font.font, .px_size = 20, .color = 0xffffffff });
         draw.rect(r, 0xff00ffff);
         draw.rectVertexColors(r, &.{ 0xff, 0xff, 0xff, 0xff });
-        draw.nineSlice(r, r, font.font.texture, 1);
+        draw.nineSlice(r, r, font.font.texture, 1, Colori.White);
         draw.rectTex(r, r, font.font.texture);
         draw.line(v1, v2, 0xff);
         draw.triangle(v1, v2, v3, 0xfffffff0);
@@ -224,7 +224,7 @@ pub const ImmediateDrawingContext = struct {
 
     const MapT = std.AutoArrayHashMap(MapKey, Batches);
     const MapKey = struct {
-        batch_kind: @typeInfo(Batches).Union.tag_type.?,
+        batch_kind: @typeInfo(Batches).@"union".tag_type.?,
         params: DrawParams,
     };
     const MapKeySortCtx = struct {
@@ -282,7 +282,7 @@ pub const ImmediateDrawingContext = struct {
 
     pub fn deinit(self: *Self) void {
         for (self.batches.values()) |*b| {
-            inline for (@typeInfo(Batches).Union.fields, 0..) |ufield, i| {
+            inline for (@typeInfo(Batches).@"union".fields, 0..) |ufield, i| {
                 if (i == @intFromEnum(b.*)) {
                     @field(b, ufield.name).deinit();
                 }
@@ -305,7 +305,7 @@ pub const ImmediateDrawingContext = struct {
     pub fn getBatch(self: *Self, key: MapKey) !*Batches {
         const res = try self.batches.getOrPut(key);
         if (!res.found_existing) {
-            inline for (@typeInfo(Batches).Union.fields, 0..) |ufield, i| {
+            inline for (@typeInfo(Batches).@"union".fields, 0..) |ufield, i| {
                 if (i == @intFromEnum(key.batch_kind)) {
                     res.value_ptr.* = @unionInit(Batches, ufield.name, ufield.type.init(self.alloc));
                     res.key_ptr.* = key;
@@ -318,7 +318,7 @@ pub const ImmediateDrawingContext = struct {
 
     pub fn clearBuffers(self: *Self) !void {
         for (self.batches.values()) |*b| {
-            inline for (@typeInfo(Batches).Union.fields, 0..) |ufield, i| {
+            inline for (@typeInfo(Batches).@"union".fields, 0..) |ufield, i| {
                 if (i == @intFromEnum(b.*)) {
                     try @field(b, ufield.name).clear();
                 }
@@ -929,7 +929,7 @@ pub const ImmediateDrawingContext = struct {
         var b_it = self.batches.iterator();
         //c.glEnable(c.GL_BLEND);
         while (b_it.next()) |b| {
-            inline for (@typeInfo(Batches).Union.fields, 0..) |ufield, i| {
+            inline for (@typeInfo(Batches).@"union".fields, 0..) |ufield, i| {
                 if (i == @intFromEnum(b.value_ptr.*)) {
                     @field(b.value_ptr.*, ufield.name).pushVertexData();
                     @field(b.value_ptr.*, ufield.name).draw(b.key_ptr.params, switch (b.key_ptr.params.camera) {

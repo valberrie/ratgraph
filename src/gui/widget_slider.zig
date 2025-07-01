@@ -18,11 +18,11 @@ fn numberTypeFromPtr(comptime T: type) type {
     const invalid_type_error = "Slider: " ++ "Argument \'ptr\' expects a mutable pointer to an int or float. Recieved: " ++ @typeName(@TypeOf(T));
     const info = @typeInfo(T);
     switch (info) {
-        .Pointer => |p| {
-            if (p.is_const or p.size != .One) @compileError(invalid_type_error);
+        .pointer => |p| {
+            if (p.is_const or p.size != .one) @compileError(invalid_type_error);
             const cinfo = @typeInfo(p.child);
             switch (cinfo) {
-                .Int, .Float => return p.child,
+                .int, .float => return p.child,
                 else => @compileError(invalid_type_error),
             }
         },
@@ -40,7 +40,7 @@ pub const Slider = struct {
 pub fn SliderGeneric(comptime number_T: type) type {
     const info = @typeInfo(number_T);
     switch (info) {
-        .Int, .Float => {},
+        .int, .float => {},
         else => @compileError("invalid type for slider widget: " ++ @typeName(number_T)),
     }
 
@@ -180,7 +180,7 @@ pub fn SliderGeneric(comptime number_T: type) type {
             const shuttle = d.style.getRect(.slider_shuttle);
 
             const MAX_DIV = 50;
-            if (info == .Int and self.max - self.min < MAX_DIV) {
+            if (info == .int and self.max - self.min < MAX_DIV) {
                 const count = self.max - self.min;
                 if (count > 0) {
                     const icount: usize = @intCast(count);
