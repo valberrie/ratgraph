@@ -4,10 +4,8 @@ const sdl = @import("SDL.zig");
 const c = @import("c.zig");
 const Glyph = font.Glyph;
 
-//TODO how should font interface work?
-//We can use comptime duck typing
-//Or we can use a "Font" type with a function ptr to parent fonts getGlyph function
-
+//TODO issues with ofont, corruption of the gl texture.
+//with the rgui, having the bitmap at the next flush() is essential
 pub const OnlineFont = struct {
     const Self = @This();
 
@@ -24,6 +22,8 @@ pub const OnlineFont = struct {
     cindex: i32 = 0,
     scratch_bmp: font.Bitmap,
     bitmap: font.Bitmap,
+
+    bitmap_dirty: bool = true,
 
     finfo: c.stbtt_fontinfo,
     SF: f32 = 0,
@@ -118,6 +118,23 @@ pub const OnlineFont = struct {
         return result;
     }
 
+    pub fn syncBitmapToGL(self: *Self) void {
+        if (!self.bitmap_dirty) return;
+        self.bitmap_dirty = false;
+        c.glBindTexture(c.GL_TEXTURE_2D, self.font.texture.id);
+        c.glTexImage2D(
+            c.GL_TEXTURE_2D,
+            0,
+            c.GL_RED,
+            @intCast(self.bitmap.w),
+            @intCast(self.bitmap.h),
+            0,
+            c.GL_RED,
+            c.GL_UNSIGNED_BYTE,
+            &self.bitmap.data.items[0],
+        );
+    }
+
     pub fn getGlyph(font_i: *font.PublicFontInterface, codepoint: u21) font.Glyph {
         const self: *@This() = @fieldParentPtr("font", font_i);
         const glyph = self.glyphs.get(codepoint) orelse {
@@ -160,6 +177,7 @@ pub const OnlineFont = struct {
                 .width = w,
                 .height = h,
             };
+            self.bitmap_dirty = true;
             {
                 //    c.glBindTexture(c.GL_TEXTURE_2D, font_i.texture.id);
                 //    c.glTexImage2D(
@@ -175,21 +193,21 @@ pub const OnlineFont = struct {
                 //    );
                 //}
                 //Update the entire row, we have know idea when sync occurs so we must update every time.
-                c.glTextureSubImage2D(
-                    font_i.texture.id,
-                    0, //Level
-                    //x,y,w,h,
-                    0, //@intCast(atlas_cx * self.cell_width),
-                    @intCast(atlas_cy * self.cell_height),
-                    @intCast(self.bitmap.w),
-                    @intFromFloat(h),
-                    //format,
-                    c.GL_RED,
-                    //type,
-                    c.GL_UNSIGNED_BYTE,
-                    //pixel_data
-                    &self.bitmap.data.items[@as(usize, @intCast(atlas_cy * self.cell_height)) * self.bitmap.w],
-                );
+                //c.glTextureSubImage2D(
+                //    font_i.texture.id,
+                //    0, //Level
+                //    //x,y,w,h,
+                //    0, //@intCast(atlas_cx * self.cell_width),
+                //    @intCast(atlas_cy * self.cell_height),
+                //    @intCast(self.bitmap.w),
+                //    @intFromFloat(h),
+                //    //format,
+                //    c.GL_RED,
+                //    //type,
+                //    c.GL_UNSIGNED_BYTE,
+                //    //pixel_data
+                //    &self.bitmap.data.items[@as(usize, @intCast(atlas_cy * self.cell_height)) * self.bitmap.w],
+                //);
 
                 glyph.tr.x = @floatFromInt(atlas_cx * self.cell_width);
                 glyph.tr.y = @floatFromInt(atlas_cy * self.cell_height);

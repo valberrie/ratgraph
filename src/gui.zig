@@ -1392,39 +1392,39 @@ pub const Context = struct {
 
             fn getVal(comptime info: Type, val: anytype) f32 {
                 return switch (info) {
-                    .Int => @floatFromInt(val.*),
-                    .Float => @as(f32, @floatCast(val.*)),
-                    .Void => 0,
+                    .int => @floatFromInt(val.*),
+                    .float => @as(f32, @floatCast(val.*)),
+                    .void => 0,
                     else => @compileError("invalid type"),
                 };
             }
 
             fn addDelta(comptime info: Type, val: *f32, delta: f32, trunc_state: *f32) void {
-                if (info == .Int or info == .Float)
+                if (info == .int or info == .float)
                     val.* += delta + trunc_state.*;
-                if (info == .Int)
+                if (info == .int)
                     trunc_state.* = val.* - @trunc(val.*);
             }
 
             fn setVal(comptime info: Type, valptr: anytype, val: f32, min: ?f32, max: ?f32) void {
                 const math = std.math;
                 switch (info) {
-                    .Float => {
+                    .float => {
                         valptr.* = math.clamp(val, if (min) |m| m else math.floatMin(f32), if (max) |mx| mx else math.floatMax(f32));
                     },
-                    .Int => {
+                    .int => {
                         const cval = math.clamp(val, if (min) |m| m else math.minInt(@Type(info)), if (max) |mx| mx else math.maxInt(@Type(info)));
-                        valptr.* = @as(@typeInfo(@TypeOf(valptr)).Pointer.child, @intFromFloat(@trunc(cval)));
+                        valptr.* = @as(@typeInfo(@TypeOf(valptr)).pointer.child, @intFromFloat(@trunc(cval)));
                     },
-                    .Void => {},
+                    .void => {},
                     else => @compileError("invalid type"),
                 }
             }
         };
         const xptrinfo = @typeInfo(@TypeOf(x_val));
-        const xinfo = @typeInfo(xptrinfo.Pointer.child);
+        const xinfo = @typeInfo(xptrinfo.pointer.child);
         const yptrinfo = @typeInfo(@TypeOf(y_val));
-        const yinfo = @typeInfo(yptrinfo.Pointer.child);
+        const yinfo = @typeInfo(yptrinfo.pointer.child);
 
         var val: Vec2f = .{ .x = Helper.getVal(xinfo, x_val), .y = Helper.getVal(yinfo, y_val) };
         const click = self.clickWidgetEx(area, .{ .override_depth_test = opts.override_depth_test }).click;

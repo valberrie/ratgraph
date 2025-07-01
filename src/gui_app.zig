@@ -119,7 +119,7 @@ pub const SplitPlan = struct {
                     insertNames(r.*, index, fields);
             },
             .area => |a| {
-                fields[index.*] = .{ .name = a.name, .type = Rect, .default_value = null, .is_comptime = false, .alignment = @alignOf(Rect) };
+                fields[index.*] = .{ .name = a.name, .type = Rect, .default_value_ptr = null, .is_comptime = false, .alignment = @alignOf(Rect) };
                 index.* += 1;
             },
         }
@@ -132,7 +132,7 @@ pub const SplitPlan = struct {
         var index: usize = 0;
         insertNames(plan, &index, &fields);
 
-        return @Type(.{ .Struct = .{ .layout = .auto, .fields = &fields, .decls = &.{}, .is_tuple = false } });
+        return @Type(.{ .@"struct" = .{ .layout = .auto, .fields = &fields, .decls = &.{}, .is_tuple = false } });
     }
 
     fn calcRecur(comptime node: Node, ret: anytype, area: Rect) void {
@@ -1397,7 +1397,7 @@ pub const Os9Gui = struct {
             if (self.gui.layout.last_requested_bounds) |lrq| {
                 const lx = lrq.w / 2 + lrq.x;
                 self.gui.drawLine(.{ .x = lx, .y = lrq.y }, .{ .x = lx, .y = lrq.y + lrq.h }, (0xff));
-                inline for (info.Struct.fields) |f| {
+                inline for (info.@"struct".fields) |f| {
                     self.label("{s}, {s}", .{ f.name, @typeName(f.type) });
                     try self.editProperty(f.type, &@field(to_edit, f.name), f.name, 0);
                 }
@@ -2612,7 +2612,7 @@ pub fn main() anyerror!void {
         Gui.hash_time = 0;
         const is: Gui.InputState = .{ .mouse = win.mouse, .key_state = &win.key_state, .keys = win.keys.slice(), .mod_state = win.mod };
         const def_is: Gui.InputState = .{};
-        try os9gui.beginFrame(if (graph.c.SDL_GetMouseFocus() == win.win) is else def_is, &win);
+        try os9gui.resetFrame(if (graph.c.SDL_GetMouseFocus() == win.win) is else def_is, &win);
 
         gui_time = gui_timer.read();
 
@@ -2736,7 +2736,7 @@ pub fn main() anyerror!void {
         //    }
         //}
 
-        try os9gui.endFrame(&draw);
+        try os9gui.drawGui(&draw);
         graph.c.glDisable(graph.c.GL_STENCIL_TEST);
 
         //draw.rectTex(graph.Rec(0, 0, 400, 400), graph.Rec(0, 0, 4000, 4000), os9gui.ofont.font.texture);

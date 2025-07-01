@@ -87,7 +87,7 @@ pub fn parseArgs(comptime arg_list: []const ArgItem, arg_it: anytype) !generateA
                     .override => blk: {
                         const info = @typeInfo(field.type_override.?);
                         switch (info) {
-                            .Enum => |e| {
+                            .@"enum" => |e| {
                                 const str_name = arg_it.next() orelse {
                                     std.debug.print("Expected enum value for argument --{s}, {s}\n", .{ field.name, field.doc });
                                     std.debug.print("Possible values: \n", .{});
@@ -121,7 +121,7 @@ pub fn parseArgs(comptime arg_list: []const ArgItem, arg_it: anytype) !generateA
                 std.debug.print("{s}:{s}\t{s}\n", .{ field.name, @tagName(field.arg_type), field.doc });
                 if (field.type_override) |to| {
                     switch (@typeInfo(to)) {
-                        .Enum => |e| {
+                        .@"enum" => |e| {
                             inline for (e.fields) |f|
                                 std.debug.print("\t{s}\n", .{f.name});
                         },

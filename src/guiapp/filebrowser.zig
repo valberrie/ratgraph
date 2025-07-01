@@ -315,7 +315,7 @@ pub const FileBrowser = struct {
         if (std.mem.lastIndexOfScalar(u8, name, '.')) |index| {
             const ext = name[index + 1 .. name.len];
             const info = @typeInfo(Extensions);
-            inline for (info.Enum.fields, 0..) |field, i| {
+            inline for (info.@"enum".fields, 0..) |field, i| {
                 if (std.mem.eql(u8, field.name, ext))
                     return @enumFromInt(i);
             }
@@ -361,7 +361,7 @@ pub const FileBrowser = struct {
                         else => .file,
                     }), .{ .x = ico.x, .y = ico.y + ico.h / 3 }, ico.h * 0.7, Color.Black, wrap.icon_font);
                     const ir = graph.Rec(r.x + ico.w, r.y, r.w - ico.w, r.h);
-                    if (wrap.font.nearestGlyphX(entry.name, rec.h, .{ .x = col.width - ico.w, .y = rec.h / 2 })) |glyph_index| {
+                    if (wrap.font.nearestGlyphX(entry.name, rec.h, .{ .x = col.width - ico.w, .y = rec.h / 2 }, true)) |glyph_index| {
                         if (glyph_index > 2)
                             gui.drawTextFmt("{s}…", .{entry.name[0..glyph_index]}, ir, rec.h, Color.Black, .{}, wrap.font);
                     } else {
