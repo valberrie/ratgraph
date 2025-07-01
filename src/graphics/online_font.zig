@@ -3,6 +3,7 @@ const font = @import("font.zig");
 const sdl = @import("SDL.zig");
 const c = @import("c.zig");
 const Glyph = font.Glyph;
+const PROFILE = true;
 
 //TODO issues with ofont, corruption of the gl texture.
 //with the rgui, having the bitmap at the next flush() is essential
@@ -12,6 +13,9 @@ pub const OnlineFont = struct {
     pub const InitParams = struct {
         cell_count_w: i32 = 30,
     };
+
+    timer: if (PROFILE) std.time.Timer else void = undefined,
+    time: if (PROFILE) u64 else void = undefined,
 
     font: font.PublicFontInterface,
     glyphs: std.AutoHashMap(u21, Glyph),
@@ -51,6 +55,10 @@ pub const OnlineFont = struct {
         return ret;
     }
 
+    pub fn dumpToPng(self: *Self, dir: std.fs.Dir, name: []const u8) !void {
+        try self.bitmap.writeToPngFile(dir, name);
+    }
+
     pub fn initFromBuffer(
         alloc: std.mem.Allocator,
         /// Buf must live as long as the returned object
@@ -82,6 +90,10 @@ pub const OnlineFont = struct {
             .scratch_bmp = try font.Bitmap.initBlank(alloc, 10, 10, .g_8),
             .bitmap = undefined,
         };
+        if (PROFILE) {
+            result.timer = try std.time.Timer.start();
+            result.time = 0;
+        }
 
         {
             var x0: c_int = 0;
@@ -120,7 +132,10 @@ pub const OnlineFont = struct {
 
     pub fn syncBitmapToGL(self: *Self) void {
         if (!self.bitmap_dirty) return;
+        if (PROFILE)
+            self.timer.reset();
         self.bitmap_dirty = false;
+        c.glPixelStorei(c.GL_UNPACK_ALIGNMENT, 1);
         c.glBindTexture(c.GL_TEXTURE_2D, self.font.texture.id);
         c.glTexImage2D(
             c.GL_TEXTURE_2D,
@@ -133,11 +148,18 @@ pub const OnlineFont = struct {
             c.GL_UNSIGNED_BYTE,
             &self.bitmap.data.items[0],
         );
+        if (PROFILE) {
+            self.time += self.timer.read();
+            std.debug.print("Built in {d} us\n", .{self.time / std.time.ns_per_us});
+            self.time = 0;
+        }
     }
 
     pub fn getGlyph(font_i: *font.PublicFontInterface, codepoint: u21) font.Glyph {
         const self: *@This() = @fieldParentPtr("font", font_i);
-        const glyph = self.glyphs.get(codepoint) orelse {
+        return self.glyphs.get(codepoint) orelse {
+            if (PROFILE)
+                self.timer.reset();
             const ww = self.param.cell_count_w;
             const cpo = codepoint;
             const SF = self.SF;
@@ -212,11 +234,13 @@ pub const OnlineFont = struct {
                 glyph.tr.x = @floatFromInt(atlas_cx * self.cell_width);
                 glyph.tr.y = @floatFromInt(atlas_cy * self.cell_height);
                 self.cindex = @mod(self.cindex + 1, ww * ww);
+                if (PROFILE) {
+                    self.time += self.timer.read();
+                }
             }
             self.glyphs.put(cpo, glyph) catch unreachable;
             return glyph;
             //bake the glyph
         };
-        return glyph;
     }
 };

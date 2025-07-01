@@ -836,8 +836,8 @@ pub const Os9Gui = struct {
     scale: f32,
     gui: Gui.Context,
     gui_draw_ctx: Gui.GuiDrawContext,
-    //ofont: *OFont,
-    ofont: *graph.Font,
+    ofont: *OFont,
+    //ofont: *graph.Font,
     font: *graph.FontUtil.PublicFontInterface,
     //icon_ofont: *OFont,
     icon_font: *graph.FontUtil.PublicFontInterface,
@@ -856,17 +856,19 @@ pub const Os9Gui = struct {
     }) !Self {
         var style = try GuiConfig.init(alloc, asset_dir, "asset/os9gui", param.cache_dir);
         errdefer style.deinit();
-        const ofont_ptr = try alloc.create(graph.Font);
+        const Ftype = OFont;
+        const ofont_ptr = try alloc.create(Ftype);
         if (param.font_size_px) |fs|
             style.config.text_h = fs;
         if (param.item_height) |ih|
             style.config.default_item_h = ih;
-        ofont_ptr.* = try graph.Font.initFromBuffer(
-            alloc,
-            @embedFile("font/roboto.ttf"),
-            style.config.text_h,
-            .{},
-        );
+        ofont_ptr.* = try Ftype.init(alloc, asset_dir, "asset/fonts/noto.ttc", style.config.text_h, .{});
+        //ofont_ptr.* = try Ftype.initFromBuffer(
+        //    alloc,
+        //    @embedFile("font/roboto.ttf"),
+        //    style.config.text_h,
+        //    .{},
+        //);
         return .{
             .gui = try Gui.Context.init(alloc),
             .style = style,
@@ -2492,6 +2494,11 @@ pub const TestConfig = struct {
 //
 //  ogui.endFrame()
 
+var font_ptr: *OFont = undefined;
+fn flush_cb() void {
+    font_ptr.syncBitmapToGL();
+}
+
 pub fn main() anyerror!void {
     var gpa = std.heap.GeneralPurposeAllocator(.{ .retain_metadata = true, .never_unmap = false, .verbose_log = false, .stack_trace_frames = 8 }){};
     defer _ = gpa.detectLeaks();
@@ -2575,6 +2582,8 @@ pub fn main() anyerror!void {
 
     var os9gui = try Os9Gui.init(alloc, std.fs.cwd(), scale, .{ .cache_dir = std.fs.cwd() });
     defer os9gui.deinit();
+    font_ptr = os9gui.ofont;
+    draw.preflush_cb = &flush_cb;
 
     //var os9gui2 = try Os9Gui.init(alloc, std.fs.cwd(), scale);
     //defer os9gui2.deinit();
@@ -2615,6 +2624,10 @@ pub fn main() anyerror!void {
         try os9gui.resetFrame(if (graph.c.SDL_GetMouseFocus() == win.win) is else def_is, &win);
 
         gui_time = gui_timer.read();
+        if (win.keyRising(.A)) {
+            //std.debug.print("WRITING PNG\n", .{});
+            //try font_ptr.dumpToPng(std.fs.cwd(), "bmp.png");
+        }
 
         //if (win.keydown(.LSHIFT) and win_rect.containsPoint(win.mouse.pos)) {
         //    win_rect.x += win.mouse.delta.x;

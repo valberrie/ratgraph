@@ -258,6 +258,7 @@ pub const ImmediateDrawingContext = struct {
     } = .no,
 
     screen_dimensions: Vec2f = .{ .x = 0, .y = 0 },
+    preflush_cb: ?*const fn () void = null,
 
     pub fn init(alloc: Alloc) Self {
         const SD = "graphics/shader/";
@@ -909,6 +910,8 @@ pub const ImmediateDrawingContext = struct {
     }
 
     pub fn flush(self: *Self, custom_camera: ?Rect, camera_3d: ?Camera3D) !void {
+        if (self.preflush_cb) |cb|
+            cb();
         c.glEnable(c.GL_BLEND);
         c.glBlendFunc(c.GL_SRC_ALPHA, c.GL_ONE_MINUS_SRC_ALPHA);
         c.glBlendEquation(c.GL_FUNC_ADD);
