@@ -1950,7 +1950,7 @@ pub const Os9Gui = struct {
         fn partialLine(tt: *@This(), slice: []const u8) void {
             const area = graph.Rec(tt.area.x, tt.area.y + tt.fh * tt.line, tt.area.w, tt.fh);
             const last_char_index = blk: {
-                if (tt.os9gui.font.nearestGlyphX(slice, tt.fh, .{ .x = area.w, .y = 0 })) |lci| {
+                if (tt.os9gui.font.nearestGlyphX(slice, tt.fh, .{ .x = area.w, .y = 0 }, true)) |lci| {
                     if (lci > 0)
                         break :blk lci - 1;
                     break :blk lci;

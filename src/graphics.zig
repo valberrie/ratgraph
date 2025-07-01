@@ -626,7 +626,7 @@ pub const ImmediateDrawingContext = struct {
         //const slice = fbs.getWritten();
         const bounds = param.font.textBounds(slice, param.px_size);
         const last_char_index = blk: {
-            if (param.font.nearestGlyphX(slice, param.px_size, .{ .x = area.w, .y = 0 })) |lci| {
+            if (param.font.nearestGlyphX(slice, param.px_size, .{ .x = area.w, .y = 0 }, true)) |lci| {
                 if (lci > 0)
                     break :blk lci - 1;
                 break :blk lci;

@@ -88,10 +88,11 @@ pub const PublicFontInterface = struct {
         return bounds;
     }
 
-    pub fn nearestGlyphX(self: *Self, string: []const u8, size_px: f32, rel_coord: Vec2f) ?usize {
+    pub fn nearestGlyphX(self: *Self, string: []const u8, size_px: f32, rel_coord: Vec2f, reject_extreme: bool) ?usize {
         //const scale = (size_px / self.dpi * 72) / self.font_size;
         const scale = size_px / self.font_size;
         //const scale = size_px / @as(f32, @floatFromInt(self.height));
+        if (string.len == 0) return null;
 
         var x_bound: f32 = 0;
         var bounds = Vec2f{ .x = 0, .y = 0 };
@@ -122,11 +123,13 @@ pub const PublicFontInterface = struct {
 
             x_bound += xw;
         }
+        if (reject_extreme)
+            return null;
 
-        if (x_bound > bounds.x)
-            bounds.x = x_bound;
+        if (rel_coord.x > x_bound)
+            return string.len;
 
-        return null;
+        return 0;
     }
 };
 

@@ -397,8 +397,9 @@ pub const Textbox = struct {
         d.ctx.rect(vt.area, if (is_focused) 0xff00ffff else 0x222222ff);
 
         const text_h = d.style.config.text_h;
-        const inset = d.style.config.textbox_inset * d.scale;
-        const tr = vt.area.inset(inset);
+        //const inset = d.style.config.textbox_inset * d.scale;
+        const tr = textArea(vt.area, d.gui);
+        //const tr = vt.area.inset(inset);
         d.ctx.nineSlice(vt.area, d.style.getRect(.basic_inset), d.style.texture, d.scale, d.tint);
         //if (params.invalid)
         //    gui.drawRectFilled(tr, self.style.config.colors.textbox_invalid);
@@ -427,11 +428,34 @@ pub const Textbox = struct {
         d.ctx.textClipped(tr, "{s}", .{s.codepoints.items}, d.textP(null), .left);
     }
 
+    fn textArea(widget_area: Rect, d: *const Gui) Rect {
+        const inset = d.style.config.textbox_inset * d.scale;
+        return widget_area.inset(inset);
+    }
+
     pub fn onclick(vt: *iArea, cb: g.MouseCbState, win: *iWindow) void {
         const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
-        _ = self;
         cb.gui.grabFocus(vt, win);
         vt.dirty(cb.gui);
+
+        const sz = cb.gui.style.config.text_h;
+        const ar = textArea(vt.area, cb.gui);
+        const rel = cb.pos.sub(ar.pos()).sub(.{ .x = sz / 2, .y = 0 });
+        if (cb.gui.font.nearestGlyphX(self.codepoints.items, sz, rel, false)) |u_i| {
+            self.setHead(u_i, 0, true);
+            cb.gui.grabMouse(&mouseGrabbed, vt, win);
+        }
+    }
+
+    pub fn mouseGrabbed(vt: *iArea, cb: g.MouseCbState, _: *iWindow) void {
+        const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
+        const sz = cb.gui.style.config.text_h;
+        const ar = textArea(vt.area, cb.gui);
+        const rel = cb.pos.sub(ar.pos()).sub(.{ .x = sz / 2, .y = 0 });
+        if (cb.gui.font.nearestGlyphX(self.codepoints.items, sz, rel, false)) |u_i| {
+            self.setHead(u_i, 0, false);
+            vt.dirty(cb.gui);
+        }
     }
 
     pub fn getSlice(self: *Self) []const u8 {

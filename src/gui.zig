@@ -1684,7 +1684,7 @@ pub const Context = struct {
         //const slice = fbs.getWritten();
         const bounds = font.textBounds(slice, size);
         const last_char_index = blk: {
-            if (font.nearestGlyphX(slice, size, .{ .x = area.w, .y = 0 })) |lci| {
+            if (font.nearestGlyphX(slice, size, .{ .x = area.w, .y = 0 }, true)) |lci| {
                 if (lci > 0)
                     break :blk lci - 1;
                 break :blk lci;
@@ -1973,12 +1973,12 @@ pub const Context = struct {
                 self.text_input_state.active_id = id;
                 try self.textbox_state.resetFmt("{s}", .{contents.items});
             }
-            const cin = font.nearestGlyphX(self.textbox_state.getSlice(), params.text_h, self.input_state.mouse.pos.sub(trect.pos()));
+            const cin = font.nearestGlyphX(self.textbox_state.getSlice(), params.text_h, self.input_state.mouse.pos.sub(trect.pos()), true);
             if (cin) |cc| {
                 self.textbox_state.setHead(cc, 0, true);
             }
         } else if (click == .held and self.held_timer > 4) {
-            const cin = font.nearestGlyphX(self.textbox_state.getSlice(), params.text_h, self.input_state.mouse.pos.sub(trect.pos()));
+            const cin = font.nearestGlyphX(self.textbox_state.getSlice(), params.text_h, self.input_state.mouse.pos.sub(trect.pos()), true);
             if (cin) |cc|
                 self.textbox_state.setHead(cc, 0, false);
         }
@@ -2043,12 +2043,12 @@ pub const Context = struct {
                 self.text_input_state.active_id = id;
                 try self.textbox_state.resetFmt("{s}", .{contents.getSlice()});
             }
-            const cin = font.nearestGlyphX(self.textbox_state.getSlice(), params.text_h, self.input_state.mouse.pos.sub(trect.pos()));
+            const cin = font.nearestGlyphX(self.textbox_state.getSlice(), params.text_h, self.input_state.mouse.pos.sub(trect.pos()), true);
             if (cin) |cc| {
                 self.textbox_state.setHead(cc, 0, true);
             }
         } else if (click == .held and self.held_timer > 4) {
-            const cin = font.nearestGlyphX(self.textbox_state.getSlice(), params.text_h, self.input_state.mouse.pos.sub(trect.pos()));
+            const cin = font.nearestGlyphX(self.textbox_state.getSlice(), params.text_h, self.input_state.mouse.pos.sub(trect.pos()), true);
             if (cin) |cc|
                 self.textbox_state.setHead(cc, 0, false);
         }
@@ -2134,7 +2134,7 @@ pub const Context = struct {
                 try self.textbox_state.resetFmt("{d:.2}", .{number_ptr.*});
             }
 
-            const cin = font.nearestGlyphX(self.textbox_state.getSlice(), tarea.h, self.input_state.mouse.pos.sub(tarea.pos()));
+            const cin = font.nearestGlyphX(self.textbox_state.getSlice(), tarea.h, self.input_state.mouse.pos.sub(tarea.pos()), true);
             if (cin) |cc| {
                 self.textbox_state.setHead(cc, 0, true);
             }
