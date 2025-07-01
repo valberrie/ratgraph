@@ -514,7 +514,7 @@ pub const Gui = struct {
 
     font: *graph.FontInterface,
 
-    pub fn init(alloc: AL, win: *graph.SDL.Window, style_dir: std.fs.Dir, font: *graph.FontInterface) !Self {
+    pub fn init(alloc: AL, win: *graph.SDL.Window, cache_dir: std.fs.Dir, style_dir: std.fs.Dir, font: *graph.FontInterface) !Self {
         return Gui{
             .alloc = alloc,
             .font = font,
@@ -524,7 +524,7 @@ pub const Gui = struct {
             .transient_fbo = try graph.RenderTexture.init(100, 100),
             .fbos = std.AutoHashMap(*iWindow, graph.RenderTexture).init(alloc),
             .sdl_win = win,
-            .style = try GuiConfig.init(alloc, style_dir, "asset/os9gui", style_dir),
+            .style = try GuiConfig.init(alloc, style_dir, "asset/os9gui", cache_dir),
         };
     }
 
