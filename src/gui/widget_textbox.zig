@@ -167,6 +167,8 @@ pub const Textbox = struct {
 
     head: usize,
     tail: usize,
+    /// start drawing at this codepoint, for text that overflows the box
+    draw_start: usize = 0,
 
     fn select_to(self: *Self, movement: SingleLineMovement) void {
         const indexOfScalar = std.mem.indexOfScalar;
@@ -271,6 +273,31 @@ pub const Textbox = struct {
 
     pub fn fevent(vt: *iArea, ev: g.FocusedEvent) void {
         fevent_err(vt, ev) catch return;
+    }
+
+    fn calculateDrawStart(self: *@This(), text_area: Rect, text_h: f32, gui: *Gui) void {
+        const old_draw_start = self.draw_start;
+        defer {
+            if (old_draw_start != self.draw_start)
+                self.vt.dirty(gui);
+        }
+        if (self.head < self.draw_start) {
+            self.draw_start = self.head;
+        } else {
+            const ar = textArea(text_area, gui);
+            if (gui.font.nearestGlyphX(self.getVisibleSlice(), text_h, .{ .x = ar.w, .y = 0 }, false)) |u_i| {
+                const final_glyph = u_i;
+                if (self.head > final_glyph) { // the head is occluded
+
+                    self.draw_start = self.head - final_glyph;
+                }
+            }
+        }
+
+        //The head always must be visible!
+        //if the head is less than the draw_start, set draw_start to head
+        //else
+        //measure text with current, if it lays outside,
     }
 
     fn setNumber(self: *@This()) void {
@@ -389,6 +416,7 @@ pub const Textbox = struct {
                 }
             },
         }
+        self.calculateDrawStart(textArea(vt.area, ev.gui), ev.gui.style.config.text_h, ev.gui);
     }
 
     pub fn draw(vt: *iArea, d: g.DrawState) void {
@@ -405,12 +433,15 @@ pub const Textbox = struct {
         //    gui.drawRectFilled(tr, self.style.config.colors.textbox_invalid);
         var selection_pos_min: f32 = 0;
         var selection_pos_max: f32 = 0;
-        const sl = s.codepoints.items;
-        const caret_x = d.font.textBounds(sl[0..@as(usize, @intCast(s.head))], text_h).x;
+        if (s.draw_start >= s.codepoints.items.len or s.head < s.draw_start)
+            return;
+        const head = s.head - s.draw_start;
+        const sl = s.codepoints.items[s.draw_start..];
+        const caret_x = d.font.textBounds(sl[0..head], text_h).x;
         if (s.head != s.tail and is_focused) {
-            const tail_x = d.font.textBounds(sl[0..@intCast(s.tail)], text_h).x;
-            selection_pos_max = @max(caret_x, tail_x);
-            selection_pos_min = @min(caret_x, tail_x);
+            const tail_x = if (s.tail < s.draw_start) 0 else d.font.textBounds(sl[0..(s.tail - s.draw_start)], text_h).x;
+            selection_pos_max = @min(@max(caret_x, tail_x), tr.w);
+            selection_pos_min = @max(@min(caret_x, tail_x), 0);
         }
         d.ctx.rect(Rect.new(
             selection_pos_min + tr.x,
@@ -425,12 +456,18 @@ pub const Textbox = struct {
                 d.style.config.colors.textbox_caret,
             );
         }
-        d.ctx.textClipped(tr, "{s}", .{s.codepoints.items}, d.textP(null), .left);
+        d.ctx.textClipped(tr, "{s}", .{sl}, d.textP(null), .left);
     }
 
     fn textArea(widget_area: Rect, d: *const Gui) Rect {
         const inset = d.style.config.textbox_inset * d.scale;
         return widget_area.inset(inset);
+    }
+
+    fn getVisibleSlice(self: *const @This()) []const u8 {
+        if (self.draw_start >= self.codepoints.items.len) return self.codepoints.items;
+
+        return self.codepoints.items[self.draw_start..];
     }
 
     pub fn onclick(vt: *iArea, cb: g.MouseCbState, win: *iWindow) void {
@@ -441,10 +478,11 @@ pub const Textbox = struct {
         const sz = cb.gui.style.config.text_h;
         const ar = textArea(vt.area, cb.gui);
         const rel = cb.pos.sub(ar.pos()).sub(.{ .x = sz / 2, .y = 0 });
-        if (cb.gui.font.nearestGlyphX(self.codepoints.items, sz, rel, false)) |u_i| {
+        if (cb.gui.font.nearestGlyphX(self.getVisibleSlice(), sz, rel, false)) |u_i| {
             self.setHead(u_i, 0, true);
             cb.gui.grabMouse(&mouseGrabbed, vt, win);
         }
+        self.calculateDrawStart(textArea(vt.area, cb.gui), cb.gui.style.config.text_h, cb.gui);
     }
 
     pub fn mouseGrabbed(vt: *iArea, cb: g.MouseCbState, _: *iWindow) void {
@@ -452,10 +490,11 @@ pub const Textbox = struct {
         const sz = cb.gui.style.config.text_h;
         const ar = textArea(vt.area, cb.gui);
         const rel = cb.pos.sub(ar.pos()).sub(.{ .x = sz / 2, .y = 0 });
-        if (cb.gui.font.nearestGlyphX(self.codepoints.items, sz, rel, false)) |u_i| {
+        if (cb.gui.font.nearestGlyphX(self.getVisibleSlice(), sz, rel, false)) |u_i| {
             self.setHead(u_i, 0, false);
             vt.dirty(cb.gui);
         }
+        self.calculateDrawStart(textArea(vt.area, cb.gui), cb.gui.style.config.text_h, cb.gui);
     }
 
     pub fn getSlice(self: *Self) []const u8 {
