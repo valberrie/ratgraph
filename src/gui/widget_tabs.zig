@@ -116,6 +116,9 @@ const TabHeader = struct {
     pub fn draw(vt: *iArea, d: g.DrawState) void {
         const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
         d.ctx.rect(vt.area, d.style.config.colors.background);
+
+        const bg = d.style.getRect(.tab_header_bg);
+        d.ctx.nineSlice(vt.area, bg, d.style.texture, d.scale, d.tint);
         const tabs = self.parent.tabs.items;
         if (tabs.len == 0)
             return;
