@@ -740,7 +740,7 @@ pub const Font = struct {
             .pixel_store_alignment = 1,
             .internal_format = c.GL_RED,
             .pixel_format = c.GL_RED,
-            .min_filter = c.GL_NEAREST,
+            .min_filter = c.GL_LINEAR,
             .mag_filter = c.GL_NEAREST,
         });
 
