@@ -8,7 +8,13 @@ const srcdir = getSrcDir();
 //const LUA_SRC: ?[]const u8 = "lua5.4.7/src/";
 const LUA_SRC = null;
 
-pub fn linkLibrary(b: *std.Build, mod: *std.Build.Module) void {
+pub const ToLink = enum {
+    freetype,
+    sdl,
+    lua,
+    openal,
+};
+pub fn linkLibrary(b: *std.Build, mod: *std.Build.Module, tolink: []const ToLink) void {
     const cdir = "c_libs";
 
     const include_paths = [_][]const u8{
@@ -61,13 +67,20 @@ pub fn linkLibrary(b: *std.Build, mod: *std.Build.Module) void {
         } else {
             mod.addSystemIncludePath(.{ .cwd_relative = "/usr/include" });
             mod.addSystemIncludePath(.{ .cwd_relative = "/usr/include/freetype2" });
-            mod.linkSystemLibrary("SDL3", .{});
-            mod.linkSystemLibrary("openal", .{});
+            for (tolink) |tl| {
+                const str = switch (tl) {
+                    .lua => "lua",
+                    .sdl => "SDL3",
+                    .freetype => "freetype",
+                    .openal => "openal",
+                };
+                mod.linkSystemLibrary(str, .{});
+            }
+            //mod.linkSystemLibrary("SDL3", .{});
+            //mod.linkSystemLibrary("openal", .{});
             mod.linkSystemLibrary("epoxy", .{});
-            mod.linkSystemLibrary("freetype", .{});
+            //mod.linkSystemLibrary("freetype", .{});
             mod.linkSystemLibrary("z", .{});
-            if (LUA_SRC == null)
-                mod.linkSystemLibrary("lua", .{});
         }
     }
 }
@@ -85,7 +98,8 @@ pub fn build(b: *std.Build) void {
         .optimize = mode,
     });
     b.installArtifact(bake);
-    linkLibrary(b, bake.root_module);
+    const to_link = [_]ToLink{ .freetype, .sdl, .openal, .lua };
+    linkLibrary(b, bake.root_module, &to_link);
 
     const exe = b.addExecutable(.{
         .name = "the_engine",
@@ -95,9 +109,9 @@ pub fn build(b: *std.Build) void {
     });
     b.installArtifact(exe);
 
-    linkLibrary(b, exe.root_module);
+    linkLibrary(b, exe.root_module, &to_link);
     const m = b.addModule("ratgraph", .{ .root_source_file = b.path("src/graphics.zig"), .target = target });
-    linkLibrary(b, m);
+    linkLibrary(b, m, &.{ .freetype, .sdl });
 
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());
@@ -115,7 +129,7 @@ pub fn build(b: *std.Build) void {
         .link_libc = true,
     });
     unit_tests.setExecCmd(&[_]?[]const u8{ "kcov", "kcov-output", null });
-    linkLibrary(b, unit_tests.root_module);
+    linkLibrary(b, unit_tests.root_module, &to_link);
 
     const run_unit_tests = b.addRunArtifact(unit_tests);
 
