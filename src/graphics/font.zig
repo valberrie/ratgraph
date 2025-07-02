@@ -251,7 +251,8 @@ pub const Font = struct {
     max_advance: f32, //Unused, it seems
 
     const Self = @This();
-    pub const padding: i32 = 2;
+    // This breaks it all!
+    pub const padding: i32 = 0;
 
     fn freetypeLogErr(stream: anytype, error_code: c_int) !void {
         if (error_code == 0)
@@ -443,6 +444,7 @@ pub const Font = struct {
     }
 
     pub fn init(alloc: Alloc, dir: Dir, filename: []const u8, point_size: f32, options: InitOptions) !Self {
+        std.debug.print("A FREETYPE WAS DONE {s}\n", .{filename});
         const codepoints_i: []u21 = blk: {
             var glyph_indices = std.ArrayList(u21).init(alloc);
             try CharMapEntry.flattenList(options.codepoints_to_load, &glyph_indices);
@@ -494,15 +496,34 @@ pub const Font = struct {
         try freetypeLogErr(stderr, c.FT_Init_FreeType(&ftlib));
 
         var face: c.FT_Face = undefined;
+
+        const infile = try dir.openFile(filename, .{});
+        defer infile.close();
+        const file_slice = try infile.reader().readAllAlloc(alloc, std.math.maxInt(usize));
+        defer alloc.free(file_slice);
+
         {
-            var path = std.ArrayList(u8).fromOwnedSlice(alloc, try dir.realpathAlloc(alloc, filename));
-            defer path.deinit();
-            try path.append(0);
+            const open_args = c.FT_Open_Args{
+                .flags = c.FT_OPEN_MEMORY,
+                .memory_base = &file_slice[0],
+                .memory_size = @intCast(file_slice.len),
+                .pathname = null,
+                .stream = null,
+                .driver = null,
+                .num_params = 0,
+                .params = null,
+            };
+
+            const err_code = c.FT_Open_Face(ftlib, &open_args, 0, &face);
+
+            //var path = std.ArrayList(u8).fromOwnedSlice(alloc, try dir.realpathAlloc(alloc, filename));
+            //defer path.deinit();
+            //try path.append(0);
 
             //FT_New_Face loads font file from filepathname
             //the face pointer should be destroyed with FT_Done_Face()
             {
-                const err_code = c.FT_New_Face(ftlib, @as([*:0]const u8, @ptrCast(path.items)), 0, &face);
+                //const err_code = c.FT_New_Face(ftlib, @as([*:0]const u8, @ptrCast(path.items)), 0, &face);
                 switch (err_code) {
                     c.FT_Err_Cannot_Open_Resource => return error.fucked,
                     else => try freetypeLogErr(stderr, err_code),
@@ -570,6 +591,14 @@ pub const Font = struct {
             //    @intFromFloat(dpi),
             //),
         );
+        var Req = c.FT_Size_RequestRec{
+            .type = c.FT_SIZE_REQUEST_TYPE_NOMINAL,
+            .width = 0,
+            .height = @as(i32, @intFromFloat(point_size * 64)),
+            .horiResolution = 0,
+            .vertResolution = 0,
+        };
+        _ = c.FT_Request_Size(face, &Req);
 
         { //Logs all the glyphs in this font file
             var agindex: c.FT_UInt = 0;
@@ -657,19 +686,24 @@ pub const Font = struct {
                 //try log.print("\twidth: {d}\n", .{metrics.width});
             }
 
-            const fpad = @as(f32, @floatFromInt(padding));
+            //const fpad = @as(f32, @floatFromInt(padding));
+            const fpad = 0;
             const glyph = Glyph{
                 .tr = .{ .x = -1, .y = -1, .w = @as(f32, @floatFromInt(bitmap.width)) + fpad, .h = @as(f32, @floatFromInt(bitmap.rows)) + fpad },
-                .offset_x = @as(f32, @floatFromInt(metrics.horiBearingX)) / 64,
-                .offset_y = @as(f32, @floatFromInt(metrics.horiBearingY)) / 64,
-                .advance_x = @as(f32, @floatFromInt(metrics.horiAdvance)) / 64,
-                .width = @as(f32, @floatFromInt(metrics.width)) / 64,
-                .height = @as(f32, @floatFromInt(metrics.height)) / 64,
+                .offset_x = @as(f32, @floatFromInt(@divFloor(metrics.horiBearingX, 64))),
+                .offset_y = @as(f32, @floatFromInt(@divFloor(metrics.horiBearingY, 64))),
+                .advance_x = @as(f32, @floatFromInt(@divFloor(metrics.horiAdvance, 64))),
+                .width = @as(f32, @floatFromInt(bitmap.width)),
+                .height = @as(f32, @floatFromInt(bitmap.rows)),
+                //.width = @as(f32, @floatFromInt(@divFloor(metrics.width, 64))),
+                //.height = @as(f32, @floatFromInt(@divFloor(metrics.height, 64))),
             };
             try result.putGlyph(code_i, glyph);
         }
 
         const elapsed = timer.read();
+        const ums = elapsed / std.time.ns_per_us;
+        std.debug.print("TOOK THIS MUCH {d} us {d} {d}\n", .{ ums, ums / codepoints_i.len, codepoints_i.len });
         try log.print("Rendered {d} glyphs in {d} ms, {d} ms avg\n", .{ result.glyphs.count(), @as(f32, @floatFromInt(elapsed)) / std.time.ns_per_ms, @as(f32, @floatFromInt(elapsed)) / std.time.ns_per_ms / @as(f32, @floatFromInt(result.glyphs.count())) });
         //Each glyph takes up result.max_advance x result.line_gap + padding
         const w_c: i32 = @intFromFloat(@ceil(@sqrt(@as(f32, @floatFromInt(pack_ctx.rects.items.len)))));
@@ -716,8 +750,8 @@ pub const Font = struct {
     pub fn getGlyph(font_i: *PublicFontInterface, codepoint: u21) Glyph {
         const self: *@This() = @fieldParentPtr("font", font_i);
         if (codepoint < 128)
-            return self.lower_ascii[codepoint] orelse self.glyphs.get(std.unicode.replacement_character).?;
-        return self.glyphs.get(codepoint) orelse self.glyphs.get(std.unicode.replacement_character).?;
+            return self.lower_ascii[codepoint] orelse self.glyphs.get(std.unicode.replacement_character) orelse .{};
+        return self.glyphs.get(codepoint) orelse self.glyphs.get(std.unicode.replacement_character) orelse .{};
     }
 
     pub fn putGlyph(self: *Self, code_i: u21, glyph: Glyph) !void {

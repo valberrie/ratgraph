@@ -544,14 +544,19 @@ pub const ImmediateDrawingContext = struct {
         const font = param.font;
         const SF = (param.px_size / font.font_size);
         const fac = 1;
-        const x = pos.x;
-        const y = pos.y;
+        const x = @trunc(pos.x);
+        const y = @trunc(pos.y);
 
         const col = param.color;
         const b = &(self.getBatch(.{
             .batch_kind = .color_tri_tex,
             //Text should always be drawn last for best transparency
-            .params = .{ .shader = font_shader, .texture = font.texture.id, .draw_priority = 0xff },
+            .params = .{
+                .shader = font_shader,
+                .texture = font.texture.id,
+                .draw_priority = 0xff,
+                .write_depth = false,
+            },
         }) catch unreachable).color_tri_tex;
 
         b.vertices.ensureUnusedCapacity(str.len * 4) catch unreachable;
@@ -628,9 +633,7 @@ pub const ImmediateDrawingContext = struct {
         //const slice = fbs.getWritten();
         const bounds = param.font.textBounds(slice, param.px_size);
         const last_char_index = blk: {
-            if (param.font.nearestGlyphX(slice, param.px_size, .{ .x = area.w, .y = 0 }, true)) |lci| {
-                if (lci > 0)
-                    break :blk lci - 1;
+            if (param.font.nearestGlyphX(slice, param.px_size, .{ .x = area.w - param.px_size, .y = 0 }, true)) |lci| {
                 break :blk lci;
             }
             break :blk slice.len;
@@ -1011,6 +1014,7 @@ pub const DrawParams = struct {
     ///The higher the number, the later the batch gets drawn.
     draw_priority: u8 = 0,
     shader: c_uint,
+    write_depth: bool = true,
 };
 pub const PassedUniform = struct {
     name: [*c]const u8,
@@ -1077,6 +1081,9 @@ pub fn NewBatch(comptime vertex_type: type, comptime batch_options: BatchOptions
         pub fn drawUniform(self: *Self, params: DrawParams, view: za.Mat4, model: za.Mat4, uniform_list: []const PassedUniform) void {
             if (self.vertices.items.len == 0)
                 return;
+            if (!params.write_depth)
+                c.glDepthMask(c.GL_FALSE);
+            defer c.glDepthMask(c.GL_TRUE);
             c.glUseProgram(params.shader);
             c.glBindVertexArray(self.vao);
             if (params.texture) |texture| {
