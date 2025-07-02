@@ -74,7 +74,13 @@ const deg = std.math.radiansToDegrees;
 const gui_app = @import("gui_app.zig");
 const Os9Gui = gui_app.Os9Gui;
 const itm = 0.0254;
-const c = graph.c;
+const c = struct {
+    usingnamespace graph.c;
+    usingnamespace @cImport({
+        @cInclude("AL/al.h");
+        @cInclude("AL/alc.h");
+    });
+};
 const log = std.log.scoped(.game);
 
 //making it work

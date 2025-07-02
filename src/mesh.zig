@@ -186,10 +186,10 @@ pub fn loadObj(alloc: std.mem.Allocator, dir: std.fs.Dir, filename: []const u8, 
                 const red = tok.next();
                 const green = tok.next();
                 const blue = tok.next();
-                const r = @min(1, try std.fmt.parseFloat(f32, red.?));
-                const g = @min(1, try std.fmt.parseFloat(f32, green.?));
-                const b = @min(1, try std.fmt.parseFloat(f32, blue.?));
                 if (blue != null) {
+                    const r = @min(1, try std.fmt.parseFloat(f32, red.?));
+                    const g = @min(1, try std.fmt.parseFloat(f32, green.?));
+                    const b = @min(1, try std.fmt.parseFloat(f32, blue.?));
                     const col = graph.ptypes.charColorToInt(graph.ptypes.CharColor.newFloat(r, g, b, 1));
                     break :blk col;
                 }

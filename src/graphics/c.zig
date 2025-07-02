@@ -6,8 +6,8 @@ pub usingnamespace @cImport({
     @cInclude("freetype_init.h");
     @cInclude("spng.h");
 
-    @cInclude("AL/al.h");
-    @cInclude("AL/alc.h");
+    //@cInclude("AL/al.h");
+    //@cInclude("AL/alc.h");
     //@cInclude("vorbis/codec.h");
     //@cInclude("vorbis/vorbisfile.h");
 
