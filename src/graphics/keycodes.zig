@@ -34,6 +34,7 @@
 // The values in this enumeration are based on the USB usage page standard:
 // https://www.usb.org/sites/default/files/documents/hut1_12v2.pdf
 //
+const std = @import("std");
 pub const Scancode = enum(u32) {
     UNKNOWN = 0,
 
@@ -732,6 +733,18 @@ pub const Keymod = enum(KeymodMask) {
         for (to_mask) |t|
             ret |= @intFromEnum(t);
         return ret;
+    }
+
+    pub fn name(mask_: KeymodMask, buf: []u8) []const u8 {
+        var fbs = std.io.FixedBufferStream([]u8){ .buffer = buf, .pos = 0 };
+        const info = @typeInfo(Keymod);
+        const fi = info.@"enum".fields[12..];
+        inline for (fi) |f| {
+            if (f.value & mask_ > 0) {
+                fbs.writer().print("{s} ", .{@tagName(@as(Keymod, @enumFromInt(f.value)))}) catch {};
+            }
+        }
+        return fbs.getWritten();
     }
 
     pub fn fromScancode(scancode: Scancode) KeymodMask {

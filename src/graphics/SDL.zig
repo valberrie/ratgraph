@@ -581,6 +581,16 @@ pub const NewBind = struct {
         };
     }
 
+    pub fn nameFull(self: @This(), buf: []u8) []const u8 {
+        const mod_name = keycodes.Keymod.name(self.mod, buf);
+        if (mod_name.len >= buf.len) return mod_name;
+        var fbs = std.io.FixedBufferStream([]u8){ .buffer = buf, .pos = mod_name.len };
+
+        fbs.writer().print("{s}", .{self.name()}) catch {};
+
+        return fbs.getWritten();
+    }
+
     pub fn Keycode(key: keycodes.Keycode, mod: keycodes.KeymodMask) @This() {
         return .{ .key = .{ .keycode = key }, .mod = mod };
     }
