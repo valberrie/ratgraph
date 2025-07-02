@@ -47,7 +47,7 @@ pub const VScroll = struct {
 
         const needs_scroll = opts.item_h * @as(f32, @floatFromInt(opts.count)) > area.h;
 
-        const split = self.vt.area.split(.vertical, if (needs_scroll) getAreaW(self.vt.area.w) else self.vt.area.w);
+        const split = self.vt.area.split(.vertical, if (needs_scroll) getAreaW(self.vt.area.w, gui.scale) else self.vt.area.w);
         _ = self.vt.addEmpty(gui, opts.win, split[0]);
         if (needs_scroll) {
             self.vt.onscroll = &onScroll;
@@ -68,8 +68,8 @@ pub const VScroll = struct {
         return &self.vt;
     }
 
-    pub fn getAreaW(parent_w: f32) f32 {
-        const SW = 30;
+    pub fn getAreaW(parent_w: f32, scale: f32) f32 {
+        const SW = 15 * scale;
         return parent_w - SW;
     }
 

@@ -42,7 +42,7 @@ pub const TextView = struct {
 
         //First, walk through string with xWalker and stick in a buffer of lines
         const extra_margin = gui.style.config.text_h / 3;
-        const tw = VScroll.getAreaW(inset.w - extra_margin);
+        const tw = VScroll.getAreaW(inset.w - extra_margin, gui.scale);
         switch (opts.mode) {
             .split_on_space => self.buildLinesSpaceSplit(gui.font, tw, gui.style.config.text_h) catch return null,
             .simple => self.buildLines(gui.font, tw, gui.style.config.text_h) catch return null,
