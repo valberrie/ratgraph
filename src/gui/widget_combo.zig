@@ -10,8 +10,10 @@ const Color = graph.Colori;
 const VScroll = g.Widget.VScroll;
 const Widget = g.Widget;
 
+pub const ComboOpts = struct {};
+
 pub const Combo = struct {
-    pub fn build(gui: *Gui, area_o: ?Rect, enum_ptr: anytype) ?*iArea {
+    pub fn build(gui: *Gui, area_o: ?Rect, enum_ptr: anytype, opts: ComboOpts) ?*iArea {
         const info = @typeInfo(@TypeOf(enum_ptr));
         if (info != .pointer) @compileError("expected a pointer to enum");
         if (info.pointer.is_const or info.pointer.size != .one) @compileError("invalid pointer");
@@ -20,7 +22,7 @@ pub const Combo = struct {
 
         const Gen = ComboGeneric(info.pointer.child);
         const area = area_o orelse return null;
-        return Gen.build(gui, area, enum_ptr);
+        return Gen.build(gui, area, enum_ptr, opts);
     }
 };
 
@@ -28,6 +30,7 @@ fn searchMatch(string: []const u8, query: []const u8) bool {
     return std.ascii.indexOfIgnoreCase(string, query) != null;
 }
 
+//TODO is this used
 pub fn ComboUser(user_data: type) type {
     return struct {
         pub const ComboVt = struct {
@@ -214,7 +217,11 @@ pub fn ComboGeneric(comptime enumT: type) type {
             parent_vt: *iArea,
             name: []const u8,
 
-            pub fn build(vt: *iWindow, gui: *Gui, area: Rect) void {
+            pub fn build(
+                vt: *iWindow,
+                gui: *Gui,
+                area: Rect,
+            ) void {
                 const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
                 self.area.area = area;
                 self.area.clearChildren(gui, vt);
@@ -265,12 +272,14 @@ pub fn ComboGeneric(comptime enumT: type) type {
         vt: iArea,
 
         enum_ptr: *enumT,
+        opts: ComboOpts,
 
-        pub fn build(gui: *Gui, area: Rect, enum_ptr: *enumT) *iArea {
+        pub fn build(gui: *Gui, area: Rect, enum_ptr: *enumT, opts: ComboOpts) *iArea {
             const self = gui.create(@This());
             self.* = .{
                 .vt = iArea.init(gui, area),
                 .enum_ptr = enum_ptr,
+                .opts = opts,
             };
             self.vt.onclick = &onclick;
             self.vt.draw_fn = &draw;
@@ -285,23 +294,25 @@ pub fn ComboGeneric(comptime enumT: type) type {
 
         pub fn draw(vt: *iArea, d: g.DrawState) void {
             const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
-            d.ctx.rect(vt.area, 0x2ffff0ff);
+            //d.ctx.rect(vt.area, 0x2ffff0ff);
 
             const cb = d.style.getRect(.combo_background);
-            d.ctx.nineSlice(vt.area, cb, d.style.texture, d.scale, d.tint);
-            const texta = vt.area.inset(cb.w / 3 * d.scale);
+            const btn_a = vt.area;
+            d.ctx.nineSlice(btn_a, cb, d.style.texture, d.scale, d.tint);
+            const texta = btn_a.inset(cb.w / 3 * d.scale);
             d.ctx.textClipped(texta, "{s}", .{@tagName(self.enum_ptr.*)}, d.textP(null), .center);
             //self.gui.drawTextFmt(fmt, args, texta, self.style.config.text_h, 0xff, .{ .justify = .center }, self.font);
             const cbb = d.style.getRect(.combo_button);
             const da = d.style.getRect(.down_arrow);
-            const cbbr = vt.area.replace(vt.area.x + vt.area.w - cbb.w * d.scale, null, cbb.w * d.scale, null).centerR(da.w * d.scale, da.h * d.scale);
+            const cbbr = btn_a.replace(btn_a.x + btn_a.w - cbb.w * d.scale, null, cbb.w * d.scale, null).centerR(da.w * d.scale, da.h * d.scale);
             d.ctx.rectTex(cbbr, da, d.style.texture);
         }
 
         pub fn onclick(vt: *iArea, cb: g.MouseCbState, win: *iWindow) void {
             const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
+            const btn_a = vt.area;
             _ = win;
-            self.makeTransientWindow(cb.gui, Rec(vt.area.x, vt.area.y, vt.area.w, cb.gui.style.config.default_item_h * 4));
+            self.makeTransientWindow(cb.gui, Rec(btn_a.x, btn_a.y, btn_a.w, cb.gui.style.config.default_item_h * 4));
         }
 
         pub fn buttonCb(vt: *iArea, id: usize, gui: *Gui, _: *iWindow) void {

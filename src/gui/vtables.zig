@@ -129,6 +129,13 @@ pub const iArea = struct {
     }
 };
 
+pub fn label(lay: *iArea, gui: *Gui, win: *iWindow, area_o: ?Rect, comptime fmt: []const u8, args: anytype) ?Rect {
+    const area = area_o orelse return null;
+    const sp = area.split(.vertical, area.w / 2);
+    lay.addChildOpt(gui, win, Widget.Text.build(gui, sp[0], fmt, args));
+    return sp[1];
+}
+
 pub const iWindow = struct {
     const BuildfnT = *const fn (*iWindow, *Gui, Rect) void;
 

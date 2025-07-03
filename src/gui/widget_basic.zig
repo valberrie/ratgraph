@@ -455,7 +455,8 @@ pub const Text = struct {
         const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
         //d.ctx.rect(vt.area, 0x5ffff0ff);
         d.ctx.rect(vt.area, self.bg_col);
-        d.ctx.textClipped(vt.area, "{s}", .{self.text}, d.textP(null), .left);
+        const texta = vt.area.inset(d.style.config.default_item_h / 10);
+        d.ctx.textClipped(texta, "{s}", .{self.text}, d.textP(null), .left);
     }
 };
 
