@@ -77,8 +77,15 @@ pub const DynamicTable = struct {
         gui.alloc.destroy(self);
     }
 
-    pub fn draw(_: *iArea, _: g.DrawState) void {
-        //d.ctx.rect(vt.area, 0xff); //Black rect
+    pub fn draw(vt: *iArea, d: g.DrawState) void {
+        const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
+        d.ctx.rect(vt.area, Color.White);
+        const y = vt.area.y;
+        const y1 = vt.area.y + vt.area.h;
+        for (self.opts.column_positions) |pos| {
+            const x = pos * vt.area.w + vt.area.x;
+            d.ctx.line(.{ .x = x, .y = y }, .{ .x = x, .y = y1 }, 0xff);
+        }
     }
 };
 
@@ -130,8 +137,8 @@ const TableHeader = struct {
         if (min_perc > max_perc) return;
         const new = std.math.clamp(manip + delta_perc, min_perc, max_perc);
         cpos[ind] = new;
-        vt.dirty(cb.gui);
         self.parent.rebuild(cb.gui, win);
+        vt.dirty(cb.gui); //TODO fix the dirty setting stuff
     }
 
     pub fn draw(vt: *iArea, d: g.DrawState) void {

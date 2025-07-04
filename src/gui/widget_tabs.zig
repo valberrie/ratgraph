@@ -74,7 +74,6 @@ pub const Tabs = struct {
     }
 
     pub fn draw(vt: *iArea, d: g.DrawState) void {
-        //d.ctx.rect(vt.area, 0xff); //Black rect
         d.ctx.rect(vt.area, d.style.config.colors.background);
     }
 };
