@@ -12,6 +12,8 @@ const Widget = g.Widget;
 
 pub const SliderOptions = struct {
     nudge: f32 = 1,
+    snap_mod: ?f32 = null,
+    snap_thresh: f32 = 1,
 };
 
 fn numberTypeFromPtr(comptime T: type) type {
@@ -52,6 +54,7 @@ pub fn SliderGeneric(comptime number_T: type) type {
         min: number_T,
         max: number_T,
         nudge_dist: f32,
+        opts: SliderOptions,
 
         pub fn build(gui: *Gui, area_o: ?Rect, ptr: *number_T, min: anytype, max: anytype, opts: SliderOptions) ?*iArea {
             const area = area_o orelse return null;
@@ -65,6 +68,7 @@ pub fn SliderGeneric(comptime number_T: type) type {
                 .min = std.math.lossyCast(number_T, min),
                 .max = std.math.lossyCast(number_T, max),
                 .nudge_dist = opts.nudge,
+                .opts = opts,
             };
             self.vt.can_tab_focus = true;
             self.vt.focusEvent = &fevent;
@@ -165,9 +169,19 @@ pub fn SliderGeneric(comptime number_T: type) type {
                 self.shuttle_rect.x = vt.area.w - self.shuttle_rect.w;
             if (cb.pos.x <= vt.area.x)
                 self.shuttle_rect.x = 0;
+
             if (old != self.shuttle_rect.x) {
                 vt.dirty(cb.gui);
                 self.ptr.* = self.shuttlePosToValue();
+                if (self.opts.snap_mod) |snap| {
+                    if (info == .float) {
+                        const snapped = @round(self.ptr.* / snap) * snap;
+                        const dist = @abs(self.ptr.* - snapped);
+                        if (dist < self.opts.snap_thresh) {
+                            self.ptr.* = std.math.clamp(snapped, self.min, self.max);
+                        }
+                    }
+                }
             }
         }
 

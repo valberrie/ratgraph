@@ -762,7 +762,16 @@ pub const ImmediateDrawingContext = struct {
         }
     }
 
-    pub fn convexPolyIndexed(self: *Self, index: []const u32, vs: []const za.Vec3, color: u32, param: struct { offset: za.Vec3 = za.Vec3.zero() }) void {
+    pub fn convexPolyIndexed(
+        self: *Self,
+        index: []const u32,
+        vs: []const za.Vec3,
+        color: u32,
+        param: struct {
+            offset: za.Vec3 = za.Vec3.zero(),
+            rot: ?za.Mat3 = null, //Rotation is applied before offset
+        },
+    ) void {
         const b = &(self.getBatch(.{ .batch_kind = .color_cube, .params = .{
             .shader = colored_line3d_shader,
             .camera = ._3d,
@@ -770,7 +779,10 @@ pub const ImmediateDrawingContext = struct {
         const of: u32 = @intCast(b.vertices.items.len);
         b.vertices.ensureUnusedCapacity(index.len) catch return;
         for (index) |i| {
-            const v = vs[i].add(param.offset);
+            var v = vs[i];
+            if (param.rot) |r|
+                v = r.mulByVec3(v);
+            v = v.add(param.offset);
             b.vertices.append(VtxFmt.color3D(v.x(), v.y(), v.z(), color)) catch return;
         }
 
