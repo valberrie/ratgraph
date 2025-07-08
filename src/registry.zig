@@ -26,7 +26,7 @@ pub const ComponentCreateCallback = fn (user_ctx: anytype, component: anytype) v
 
 pub const FieldList = []const MapField;
 
-pub const ID_TYPE = u16;
+pub const ID_TYPE = u32;
 pub const NULLMARKER = sparseset.NullMarker(ID_TYPE);
 
 //TODO to preserve iterators:
