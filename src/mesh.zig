@@ -56,16 +56,20 @@ pub const Mesh = struct {
         c.glGenBuffers(1, &ret.vbo);
         c.glGenBuffers(1, &ret.ebo);
 
-        GL.floatVertexAttrib(ret.vao, ret.vbo, 0, 3, MeshVert, "x"); //XYZ
-        GL.floatVertexAttrib(ret.vao, ret.vbo, 1, 2, MeshVert, "u"); //RGBA
-        GL.floatVertexAttrib(ret.vao, ret.vbo, 2, 3, MeshVert, "nx"); //RGBA
-        GL.intVertexAttrib(ret.vao, ret.vbo, 3, 1, MeshVert, "color", c.GL_UNSIGNED_INT);
-        GL.floatVertexAttrib(ret.vao, ret.vbo, 4, 3, MeshVert, "tx");
+        setVertexAttribs(ret.vao, ret.vbo);
 
         c.glBindVertexArray(ret.vao);
         GL.bufferData(c.GL_ARRAY_BUFFER, ret.vbo, MeshVert, ret.vertices.items);
         GL.bufferData(c.GL_ELEMENT_ARRAY_BUFFER, ret.ebo, u32, ret.indicies.items);
         return ret;
+    }
+
+    pub fn setVertexAttribs(vao: c_uint, vbo: c_uint) void {
+        GL.floatVertexAttrib(vao, vbo, 0, 3, MeshVert, "x"); //XYZ
+        GL.floatVertexAttrib(vao, vbo, 1, 2, MeshVert, "u"); //RGBA
+        GL.floatVertexAttrib(vao, vbo, 2, 3, MeshVert, "nx"); //RGBA
+        GL.intVertexAttrib(vao, vbo, 3, 1, MeshVert, "color", c.GL_UNSIGNED_INT);
+        GL.floatVertexAttrib(vao, vbo, 4, 3, MeshVert, "tx");
     }
 
     pub fn drawSimple(b: *Self, view: za.Mat4, model: za.Mat4, shader: c_uint) void {
