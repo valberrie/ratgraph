@@ -925,22 +925,20 @@ pub const ImmediateDrawingContext = struct {
         }
     }
 
-    pub fn flush(self: *Self, custom_camera: ?Rect, camera_3d: ?Camera3D) !void {
+    pub fn flushCustomMat(self: *Self, cam_2d: za.Mat4, cam_3d: za.Mat4) !void {
         if (self.preflush_cb) |cb|
             cb();
         c.glEnable(c.GL_BLEND);
         c.glBlendFunc(c.GL_SRC_ALPHA, c.GL_ONE_MINUS_SRC_ALPHA);
         c.glBlendEquation(c.GL_FUNC_ADD);
         defer c.glDisable(c.GL_BLEND);
-        const cb = if (custom_camera) |cc| cc else Rec(0, 0, self.screen_dimensions.x, self.screen_dimensions.y);
-        const view = za.orthographic(cb.x, cb.x + cb.w, cb.y + cb.h, cb.y, -100000, 1);
-        const view_3d = if (camera_3d) |c3| c3.getMatrix(
-            self.screen_dimensions.x / self.screen_dimensions.y,
-            1,
-            64 * 512,
-            //0.1,
-            //100000,
-        ) else view;
+        //const view_3d = if (camera_3d) |c3| c3.getMatrix(
+        //    self.screen_dimensions.x / self.screen_dimensions.y,
+        //    1,
+        //    64 * 512,
+        //    //0.1,
+        //    //100000,
+        //) else view;
         const model = za.Mat4.identity();
 
         const sortctx = MapKeySortCtx{ .items = self.batches.keys() }; // Sort the batches by params.draw_priority
@@ -952,13 +950,26 @@ pub const ImmediateDrawingContext = struct {
                 if (i == @intFromEnum(b.value_ptr.*)) {
                     @field(b.value_ptr.*, ufield.name).pushVertexData();
                     @field(b.value_ptr.*, ufield.name).draw(b.key_ptr.params, switch (b.key_ptr.params.camera) {
-                        ._2d => view,
-                        ._3d => view_3d,
+                        ._2d => cam_2d,
+                        ._3d => cam_3d,
                     }, model);
                 }
             }
         }
         try self.clearBuffers();
+    }
+
+    pub fn flush(self: *Self, custom_camera: ?Rect, camera_3d: ?ptypes.Camera3D) !void {
+        const cb = if (custom_camera) |cc| cc else Rec(0, 0, self.screen_dimensions.x, self.screen_dimensions.y);
+        const view = za.orthographic(cb.x, cb.x + cb.w, cb.y + cb.h, cb.y, -100000, 1);
+        const view_3d = if (camera_3d) |c3| c3.getMatrix(
+            self.screen_dimensions.x / self.screen_dimensions.y,
+            1,
+            64 * 512,
+            //0.1,
+            //100000,
+        ) else view;
+        try self.flushCustomMat(view, view_3d);
     }
 
     pub fn end(self: *Self, camera_3d: ?Camera3D) !void {
