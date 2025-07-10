@@ -25,6 +25,7 @@ pub const TextView = struct {
 
     cat_string: []const u8, //Alloced by gui
     lines: std.ArrayList([]const u8), //slices into cat_string
+    opts: Opts,
 
     pub fn build(gui: *Gui, area_o: ?Rect, text: []const []const u8, win: *iWindow, opts: Opts) ?*iArea {
         const area = area_o orelse return null;
@@ -34,6 +35,7 @@ pub const TextView = struct {
             .cat_string = catStrings(gui.alloc, text) catch return null,
             .vt = iArea.init(gui, area),
             .lines = std.ArrayList([]const u8).init(gui.alloc),
+            .opts = opts,
         };
         self.vt.draw_fn = &draw;
         self.vt.deinit_fn = &deinit;
@@ -44,8 +46,8 @@ pub const TextView = struct {
         const extra_margin = gui.style.config.text_h / 3;
         const tw = VScroll.getAreaW(inset.w - extra_margin, gui.scale);
         switch (opts.mode) {
-            .split_on_space => self.buildLinesSpaceSplit(gui.font, tw, gui.style.config.text_h) catch return null,
-            .simple => self.buildLines(gui.font, tw, gui.style.config.text_h) catch return null,
+            .split_on_space => self.buildLinesSpaceSplit(gui.font, tw, gui.style.config.text_h, self.cat_string) catch return null,
+            .simple => self.buildLines(gui.font, tw, gui.style.config.text_h, self.cat_string) catch return null,
         }
         const vscr = VScroll.build(gui, inset, .{
             .build_vt = &self.vt,
@@ -58,6 +60,25 @@ pub const TextView = struct {
         self.vt.addChild(gui, win, vscr);
 
         return &self.vt;
+    }
+
+    pub fn addOwnedText(self: *@This(), owned: []const u8, gui: *Gui) !void {
+        if (self.vt.children.items.len != 1) return;
+        const vscr: *VScroll = @alignCast(@fieldParentPtr("vt", self.vt.children.items[0]));
+        const extra_margin = gui.style.config.text_h / 3;
+        const tw = VScroll.getAreaW(vscr.vt.area.w - extra_margin, gui.scale);
+        switch (self.opts.mode) {
+            .split_on_space => self.buildLinesSpaceSplit(gui.font, tw, gui.style.config.text_h, owned) catch return,
+            .simple => self.buildLines(gui.font, tw, gui.style.config.text_h, owned) catch return,
+        }
+        const new_count = self.lines.items.len;
+        vscr.updateCount(new_count);
+    }
+
+    pub fn rebuildScroll(self: *@This(), gui: *Gui, win: *iWindow) void {
+        if (self.vt.children.items.len != 1) return;
+        const vscr: *VScroll = @alignCast(@fieldParentPtr("vt", self.vt.children.items[0]));
+        vscr.rebuild(gui, win);
     }
 
     pub fn buildScroll(user: *iArea, layout: *iArea, index: usize, gui: *Gui, win: *iWindow) void {
@@ -85,9 +106,9 @@ pub const TextView = struct {
     }
 
     // populate self.lines with cat_string
-    fn buildLines(self: *@This(), font: *graph.FontInterface, area_w: f32, font_h: f32) !void {
+    fn buildLines(self: *@This(), font: *graph.FontInterface, area_w: f32, font_h: f32, string: []const u8) !void {
         const max_line_w = area_w;
-        var xwalker = font.xWalker(self.cat_string, font_h);
+        var xwalker = font.xWalker(string, font_h);
         var current_line_w: f32 = 0;
         var start_index: usize = 0;
         while (xwalker.next()) |n| {
@@ -95,17 +116,18 @@ pub const TextView = struct {
             current_line_w += w;
             if (current_line_w > max_line_w or n[1] == '\n') {
                 const end = xwalker.index();
-                try self.lines.append(self.cat_string[start_index..end]);
+                try self.lines.append(string[start_index..end]);
                 start_index = end;
                 current_line_w = 0;
             }
         }
-        try self.lines.append(self.cat_string[start_index..]);
+        try self.lines.append(string[start_index..]);
     }
 
-    fn buildLinesSpaceSplit(self: *@This(), font: *graph.FontInterface, area_w: f32, font_h: f32) !void {
+    /// the passed in string must live for duration of self
+    fn buildLinesSpaceSplit(self: *@This(), font: *graph.FontInterface, area_w: f32, font_h: f32, string: []const u8) !void {
         const max_line_w = area_w;
-        var xwalker = font.xWalker(self.cat_string, font_h);
+        var xwalker = font.xWalker(string, font_h);
         var current_line_w: f32 = 0;
         var start_index: usize = 0;
         var last_space: ?usize = null;
@@ -124,18 +146,18 @@ pub const TextView = struct {
                 if (past and last_space != null) {
                     const ls = last_space.?;
                     if (start_index > ls) return;
-                    try self.lines.append(self.cat_string[start_index..ls]);
+                    try self.lines.append(string[start_index..ls]);
                     current_line_w = current_line_w - width_at_last_space;
                     start_index = ls;
                 } else {
                     if (start_index > end) return;
-                    try self.lines.append(self.cat_string[start_index..end]);
+                    try self.lines.append(string[start_index..end]);
                     start_index = end;
                     current_line_w = 0;
                 }
             }
         }
-        try self.lines.append(self.cat_string[start_index..]);
+        try self.lines.append(string[start_index..]);
     }
 
     fn catStrings(alloc: std.mem.Allocator, text: []const []const u8) ![]const u8 {

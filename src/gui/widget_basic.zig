@@ -73,9 +73,19 @@ pub const VScroll = struct {
         return parent_w - SW;
     }
 
+    pub fn getCount(self: *@This()) usize {
+        return self.opts.count;
+    }
+
+    pub fn updateCount(self: *@This(), new_count: usize) void {
+        self.opts.count = new_count;
+    }
+
     pub fn rebuild(self: *@This(), gui: *Gui, win: *iWindow) void {
         if (self.vt.children.items.len != 2)
             return;
+        //TODO check if it needs the vscroll and add it
+
         self.vt.dirty(gui);
         const child = self.vt.children.items[0];
         child.clearChildren(gui, win);

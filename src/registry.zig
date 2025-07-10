@@ -287,6 +287,10 @@ pub fn Registry(comptime field_names_l: FieldList) type {
             return ret;
         }
 
+        pub fn getEntLength(self: *Self) usize {
+            return self.entities.items.len;
+        }
+
         pub fn deinit(self: *Self) void {
             inline for (field_names_l, 0..) |field, i| {
                 if (std.meta.hasFn(field.ftype, "deinit")) {

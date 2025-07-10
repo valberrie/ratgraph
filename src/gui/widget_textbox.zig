@@ -104,6 +104,8 @@ pub const TextboxOptions = struct {
 
     init_string: []const u8 = "",
     commit_when: enum { on_enter, never, on_change } = .on_enter,
+
+    clear_on_commit: bool = false,
 };
 
 //Can we stick some kind of comptime thing as a child of this that gets set with number?
@@ -315,10 +317,15 @@ pub const Textbox = struct {
 
     fn commitChange(self: *@This(), ev: g.FocusedEvent) void {
         if (self.opts.commit_when == .on_change) {
-            if (self.opts.commit_vt) |cvt| {
-                self.opts.commit_cb.?(cvt, ev.gui, self.codepoints.items, self.opts.user_id);
-            }
+            self.sendCommit(ev.gui);
         }
+    }
+
+    fn sendCommit(self: *@This(), gui: *Gui) void {
+        if (self.opts.commit_vt) |cvt|
+            self.opts.commit_cb.?(cvt, gui, self.codepoints.items, self.opts.user_id);
+        if (self.opts.clear_on_commit)
+            self.reset("") catch return;
     }
 
     pub fn fevent_err(vt: *iArea, ev: g.FocusedEvent) !void {
@@ -356,10 +363,12 @@ pub const Textbox = struct {
                     switch (kb) {
                         .commit => {
                             self.commitNumber();
-                            if (self.opts.commit_vt) |cvt| {
-                                if (self.opts.commit_when != .never)
-                                    self.opts.commit_cb.?(cvt, ev.gui, self.codepoints.items, self.opts.user_id);
-                            }
+                            if (self.opts.commit_when != .never)
+                                self.sendCommit(ev.gui);
+                            //if (self.opts.commit_vt) |cvt| {
+                            //    if (self.opts.commit_when != .never)
+                            //        self.opts.commit_cb.?(cvt, ev.gui, self.codepoints.items, self.opts.user_id);
+                            //}
                         },
                         .move_left => tb.move_to(.left),
                         .move_right => tb.move_to(.right),
