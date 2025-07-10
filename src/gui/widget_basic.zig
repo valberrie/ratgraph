@@ -26,6 +26,7 @@ pub const VScroll = struct {
         item_h: f32,
 
         index_ptr: ?*usize = null,
+        force_scroll: bool = false,
     };
 
     vt: iArea,
@@ -33,6 +34,7 @@ pub const VScroll = struct {
     __index: usize = 0,
     index_ptr: *usize,
     opts: Opts,
+    has_scroll: bool = false,
 
     pub fn build(gui: *Gui, area_o: ?Rect, opts: Opts) ?*iArea {
         const area = area_o orelse return null;
@@ -45,11 +47,12 @@ pub const VScroll = struct {
         self.vt.draw_fn = &draw;
         self.vt.deinit_fn = &deinit;
 
-        const needs_scroll = opts.item_h * @as(f32, @floatFromInt(opts.count)) > area.h;
+        const needs_scroll = opts.force_scroll or opts.item_h * @as(f32, @floatFromInt(opts.count)) > area.h;
 
         const split = self.vt.area.split(.vertical, if (needs_scroll) getAreaW(self.vt.area.w, gui.scale) else self.vt.area.w);
         _ = self.vt.addEmpty(gui, opts.win, split[0]);
         if (needs_scroll) {
+            self.has_scroll = true;
             self.vt.onscroll = &onScroll;
             self.vt.addChildOpt(gui, opts.win, ScrollBar.build(
                 gui,
@@ -78,6 +81,9 @@ pub const VScroll = struct {
     }
 
     pub fn updateCount(self: *@This(), new_count: usize) void {
+        if (self.vt.children.items.len != 2) return;
+        const scr: *ScrollBar = @alignCast(@fieldParentPtr("vt", self.vt.children.items[1]));
+        scr.updateCount(new_count);
         self.opts.count = new_count;
     }
 
@@ -299,6 +305,7 @@ pub const Button = struct {
 
 pub const ScrollBar = struct {
     const NotifyFn = *const fn (*iArea, *Gui, *iWindow) void;
+    const shuttle_min_w = 50;
     vt: iArea,
 
     parent_vt: *iArea,
@@ -308,18 +315,19 @@ pub const ScrollBar = struct {
     index_ptr: *usize,
     shuttle_h: f32 = 0,
     shuttle_pos: f32 = 0,
+    item_h: f32,
 
     pub fn build(gui: *Gui, area_o: ?Rect, index_ptr: *usize, count: usize, item_h: f32, parent_vt: *iArea, notify_fn: NotifyFn) ?*iArea {
         const area = area_o orelse return null;
         const self = gui.create(@This());
 
-        const shuttle_min_w = 50;
         self.* = .{
             .parent_vt = parent_vt,
             .notify_fn = notify_fn,
             .vt = iArea.init(gui, area),
             .index_ptr = index_ptr,
             .count = count,
+            .item_h = item_h,
             .shuttle_h = calculateShuttleW(count, item_h, area.h, shuttle_min_w),
             .shuttle_pos = calculateShuttlePos(index_ptr.*, count, area.h, shuttle_min_w),
         };
@@ -327,6 +335,13 @@ pub const ScrollBar = struct {
         self.vt.deinit_fn = &deinit;
         self.vt.onclick = &onclick;
         return &self.vt;
+    }
+
+    pub fn updateCount(self: *@This(), new_count: usize) void {
+        const area = self.vt.area;
+        self.count = new_count;
+        self.shuttle_h = calculateShuttleW(new_count, self.item_h, area.h, shuttle_min_w);
+        self.shuttle_pos = calculateShuttlePos(self.index_ptr.*, new_count, area.h, shuttle_min_w);
     }
 
     fn calculateShuttleW(count: usize, item_h: f32, area_w: f32, min_w: f32) f32 {

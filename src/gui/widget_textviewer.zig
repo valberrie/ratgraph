@@ -20,6 +20,7 @@ pub const TextView = struct {
 
     pub const Opts = struct {
         mode: enum { simple, split_on_space },
+        force_scroll: bool = false,
     };
     vt: iArea,
 
@@ -56,6 +57,7 @@ pub const TextView = struct {
             .item_h = gui.style.config.default_item_h,
             .count = self.lines.items.len,
             .index_ptr = null,
+            .force_scroll = opts.force_scroll,
         }) orelse return null;
         self.vt.addChild(gui, win, vscr);
 

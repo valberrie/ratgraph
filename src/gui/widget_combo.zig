@@ -100,8 +100,11 @@ pub fn ComboUser(user_data: type) type {
                 var ly = g.VerticalLayout{ .item_height = gui.style.config.default_item_h, .bounds = area.area };
                 const p: *ParentT = @alignCast(@fieldParentPtr("vt", self.parent_vt));
                 const count = p.opts.count;
+                //const vscr: *VScroll = @alignCast(@fieldParentPtr("vt", self.area.children.items[1]));
+                //vscr.updateCount(count);
                 if (index >= count) return;
                 const do_search = self.search_string.len > 0;
+
                 for (index..count) |i| {
                     const name = p.opts.name_cb(p.opts.user_vt, i, gui, p.user);
                     //if (do_search and !std.mem.containsAtLeast(u8, name, 1, self.search_string)) continue;
