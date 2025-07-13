@@ -50,8 +50,12 @@ pub const VScroll = struct {
         self.vt.deinit_fn = &deinit;
 
         const needs_scroll = opts.force_scroll or opts.item_h * @as(f32, @floatFromInt(opts.count)) > area.h;
+        if (self.index_ptr.* >= self.opts.count) {
+            self.index_ptr.* = if (self.opts.count > 0) self.opts.count - 1 else 0;
+        }
 
-        self.sc_count = opts.count - self.getFitted();
+        self.sc_count = self.getScrollableCount();
+        //self.sc_count = opts.count - self.getFitted();
 
         const split = self.vt.area.split(.vertical, if (needs_scroll) getAreaW(self.vt.area.w, gui.scale) else self.vt.area.w);
         _ = self.vt.addEmpty(gui, opts.win, split[0]);
@@ -68,6 +72,7 @@ pub const VScroll = struct {
                 &notifyChange,
             ));
         } else {
+            self.index_ptr.* = 0;
             _ = self.vt.addEmpty(gui, opts.win, split[1]);
         }
 
@@ -84,13 +89,14 @@ pub const VScroll = struct {
         return self.opts.count;
     }
 
-    pub fn getFitted(self: *@This()) usize {
-        const fitted = @trunc(self.vt.area.h / self.opts.item_h);
+    pub fn getScrollableCount(self: *@This()) usize {
+        const fitted = @trunc(self.vt.area.h / self.opts.item_h) - 2; // -1 so user can see scroll has ended
         if (fitted > 1) {
             const fw: usize = @intFromFloat(fitted);
-            return @min(fw - 1, self.opts.count);
+            if (fw < self.opts.count)
+                return self.opts.count - fw;
         }
-        return 0;
+        return self.opts.count;
     }
 
     pub fn gotoBottom(self: *@This()) void {
@@ -101,7 +107,7 @@ pub const VScroll = struct {
         if (self.vt.children.items.len != 2) return;
         const scr: *ScrollBar = @alignCast(@fieldParentPtr("vt", self.vt.children.items[1]));
         self.opts.count = new_count;
-        self.sc_count = self.opts.count - self.getFitted();
+        self.sc_count = self.getScrollableCount();
         scr.updateCount(self.sc_count);
     }
 
@@ -298,7 +304,7 @@ pub const Button = struct {
         const color = d.style.config.colors.button_text;
 
         //const bw = 1;
-        const tint = if (is_focused) d.tint else 0xdddd_ddff;
+        const tint = if (!is_focused) d.tint else 0xdddd_ddff;
         d.ctx.nineSlice(vt.area, sl, d.style.texture, d.scale, tint);
         //if (is_focused)
         //d.ctx.rectBorder(vt.area, bw, d.style.config.colors.selected);
@@ -362,6 +368,7 @@ pub const ScrollBar = struct {
     shuttle_h: f32 = 0,
     shuttle_pos: f32 = 0,
     item_h: f32,
+    usable_h: f32,
 
     pub fn build(gui: *Gui, area_o: ?Rect, index_ptr: *usize, count: usize, item_h: f32, parent_vt: *iArea, notify_fn: NotifyFn) ?*iArea {
         const area = area_o orelse return null;
@@ -373,9 +380,10 @@ pub const ScrollBar = struct {
             .vt = iArea.init(gui, area),
             .index_ptr = index_ptr,
             .count = count,
+            .usable_h = @trunc(area.h / item_h) * item_h,
             .item_h = item_h,
-            .shuttle_h = calculateShuttleW(count, item_h, area.h, shuttle_min_w),
-            .shuttle_pos = calculateShuttlePos(index_ptr.*, count, area.h, shuttle_min_w),
+            .shuttle_h = calculateShuttleW(count, item_h, self.usable_h, shuttle_min_w),
+            .shuttle_pos = calculateShuttlePos(index_ptr.*, count, self.usable_h, self.shuttle_h),
         };
         self.vt.draw_fn = &draw;
         self.vt.deinit_fn = &deinit;
@@ -384,30 +392,26 @@ pub const ScrollBar = struct {
     }
 
     pub fn updateCount(self: *@This(), new_count: usize) void {
-        const area = self.vt.area;
         self.count = new_count;
-        self.shuttle_h = calculateShuttleW(new_count, self.item_h, area.h, shuttle_min_w);
-        self.shuttle_pos = calculateShuttlePos(self.index_ptr.*, new_count, area.h, shuttle_min_w);
+        self.shuttle_h = calculateShuttleW(new_count, self.item_h, self.usable_h, shuttle_min_w);
+        self.shuttle_pos = calculateShuttlePos(self.index_ptr.*, new_count, self.usable_h, self.shuttle_h);
     }
 
     fn calculateShuttleW(count: usize, item_h: f32, area_w: f32, min_w: f32) f32 {
         const area_used = @as(f32, @floatFromInt(count)) * item_h;
-        if (area_used < area_w)
+        const overflow = area_used - area_w;
+        if (overflow <= 0)
             return area_w;
-        return min_w;
-        //const overflow = area_used - area_w;
-        //if (overflow <= 0)
-        //    return area_w;
 
         //if (overflow < area_w - min_w)
         //    return area_w - min_w;
         //return min_w;
 
-        //const useable = area_w - min_w;
-        //if (overflow_amount < useable) // We can have a 1:1 mapping of scrollbar movement
-        //    return overflow_amount;
+        const useable = area_w - min_w;
+        if (overflow < useable) // We can have a 1:1 mapping of scrollbar movement
+            return overflow;
 
-        //return min_w;
+        return min_w;
     }
 
     pub fn deinit(vt: *iArea, gui: *Gui, _: *iWindow) void {
@@ -433,8 +437,8 @@ pub const ScrollBar = struct {
     pub fn onclick(vt: *iArea, cb: MouseCbState, win: *iWindow) void {
         const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
 
-        const actual_pos = calculateShuttlePos(self.index_ptr.*, self.count, vt.area.h, self.shuttle_h);
-        const handle = shuttleRect(vt.area, actual_pos, self.shuttle_h);
+        const actual_pos = calculateShuttlePos(self.index_ptr.*, self.count, self.usable_h, self.shuttle_h);
+        const handle = shuttleRect(vt.area.replace(null, null, null, self.usable_h), actual_pos, self.shuttle_h);
         if (handle.containsPoint(cb.pos)) {
             self.shuttle_pos = actual_pos;
             cb.gui.grabMouse(&mouseGrabbed, vt, win);
@@ -445,7 +449,7 @@ pub const ScrollBar = struct {
         const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
         if (self.count < 2)
             return;
-        const usable_width = vt.area.h - self.shuttle_h;
+        const usable_width = self.usable_h - self.shuttle_h;
         if (usable_width <= 0)
             return;
         const countf: f32 = @floatFromInt(self.count - 1);
@@ -469,11 +473,12 @@ pub const ScrollBar = struct {
 
     pub fn draw(vt: *iArea, d: DrawState) void {
         const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
-        const sp = calculateShuttlePos(self.index_ptr.*, self.count, vt.area.h, self.shuttle_h);
+        const sp = calculateShuttlePos(self.index_ptr.*, self.count, self.usable_h, self.shuttle_h);
         //d.ctx.rect(vt.area, 0x5ffff0ff);
         //d.ctx.nineSlice(vt.area, sl, d.style.texture, d.scale, 0xffffffff);
-        d.ctx.nineSlice(vt.area, d.style.getRect(.slider_box), d.style.texture, d.scale, d.tint);
-        const handle = shuttleRect(vt.area, sp, self.shuttle_h);
+        const ar = vt.area.replace(null, null, null, self.usable_h);
+        d.ctx.nineSlice(ar, d.style.getRect(.slider_box), d.style.texture, d.scale, d.tint);
+        const handle = shuttleRect(ar, sp, self.shuttle_h);
 
         d.ctx.nineSlice(handle, d.style.getRect(.slider_shuttle), d.style.texture, d.scale, d.tint);
     }
