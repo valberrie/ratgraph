@@ -34,6 +34,7 @@ pub const VScroll = struct {
     __index: usize = 0,
     index_ptr: *usize,
     opts: Opts,
+    sc_count: usize = 0,
     has_scroll: bool = false,
 
     pub fn build(gui: *Gui, area_o: ?Rect, opts: Opts) ?*iArea {
@@ -43,11 +44,14 @@ pub const VScroll = struct {
             .vt = iArea.init(gui, area),
             .opts = opts,
             .index_ptr = opts.index_ptr orelse &self.__index,
+            .sc_count = opts.count,
         };
         self.vt.draw_fn = &draw;
         self.vt.deinit_fn = &deinit;
 
         const needs_scroll = opts.force_scroll or opts.item_h * @as(f32, @floatFromInt(opts.count)) > area.h;
+
+        self.sc_count = opts.count - self.getFitted();
 
         const split = self.vt.area.split(.vertical, if (needs_scroll) getAreaW(self.vt.area.w, gui.scale) else self.vt.area.w);
         _ = self.vt.addEmpty(gui, opts.win, split[0]);
@@ -58,7 +62,7 @@ pub const VScroll = struct {
                 gui,
                 split[1],
                 self.index_ptr,
-                opts.count,
+                self.sc_count,
                 opts.item_h,
                 &self.vt,
                 &notifyChange,
@@ -80,11 +84,25 @@ pub const VScroll = struct {
         return self.opts.count;
     }
 
+    pub fn getFitted(self: *@This()) usize {
+        const fitted = @trunc(self.vt.area.h / self.opts.item_h);
+        if (fitted > 1) {
+            const fw: usize = @intFromFloat(fitted);
+            return @min(fw - 1, self.opts.count);
+        }
+        return 0;
+    }
+
+    pub fn gotoBottom(self: *@This()) void {
+        self.index_ptr.* = self.sc_count;
+    }
+
     pub fn updateCount(self: *@This(), new_count: usize) void {
         if (self.vt.children.items.len != 2) return;
         const scr: *ScrollBar = @alignCast(@fieldParentPtr("vt", self.vt.children.items[1]));
-        scr.updateCount(new_count);
         self.opts.count = new_count;
+        self.sc_count = self.opts.count - self.getFitted();
+        scr.updateCount(self.sc_count);
     }
 
     pub fn rebuild(self: *@This(), gui: *Gui, win: *iWindow) void {
@@ -118,14 +136,14 @@ pub const VScroll = struct {
 
     pub fn onScroll(vt: *iArea, gui: *Gui, win: *iWindow, dist: f32) void {
         const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
-        if (self.opts.count == 0) {
+        if (self.sc_count == 0) {
             self.index_ptr.* = 0;
             return;
         }
 
         var fi: f32 = @floatFromInt(self.index_ptr.*);
         fi += dist * 4;
-        fi = std.math.clamp(fi, 0, @as(f32, @floatFromInt(self.opts.count - 1)));
+        fi = std.math.clamp(fi, 0, @as(f32, @floatFromInt(self.sc_count - 1)));
         self.index_ptr.* = @intFromFloat(fi);
         self.rebuild(gui, win);
     }
@@ -346,15 +364,22 @@ pub const ScrollBar = struct {
 
     fn calculateShuttleW(count: usize, item_h: f32, area_w: f32, min_w: f32) f32 {
         const area_used = @as(f32, @floatFromInt(count)) * item_h;
-        const overflow_amount = area_used - area_w;
-        if (overflow_amount <= 0) // all items fit in area, no scrolling required
+        if (area_used < area_w)
             return area_w;
-
-        const useable = area_w - min_w;
-        if (overflow_amount < useable) // We can have a 1:1 mapping of scrollbar movement
-            return overflow_amount;
-
         return min_w;
+        //const overflow = area_used - area_w;
+        //if (overflow <= 0)
+        //    return area_w;
+
+        //if (overflow < area_w - min_w)
+        //    return area_w - min_w;
+        //return min_w;
+
+        //const useable = area_w - min_w;
+        //if (overflow_amount < useable) // We can have a 1:1 mapping of scrollbar movement
+        //    return overflow_amount;
+
+        //return min_w;
     }
 
     pub fn deinit(vt: *iArea, gui: *Gui, _: *iWindow) void {

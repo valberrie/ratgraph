@@ -72,6 +72,9 @@ pub fn ComboUser(user_data: type) type {
                         .commit_when = .on_change,
                     }),
                 );
+                if (self.area.children.items.len > 0) {
+                    gui.grabFocus(self.area.children.items[0], vt);
+                }
                 ly.pushRemaining();
                 const vscroll = VScroll.build(gui, ly.getArea(), .{
                     .build_cb = &build_scroll_cb,

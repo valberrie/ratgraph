@@ -83,6 +83,12 @@ pub const TextView = struct {
         vscr.rebuild(gui, win);
     }
 
+    pub fn gotoBottom(self: *@This()) void {
+        if (self.vt.children.items.len != 1) return;
+        const vscr: *VScroll = @alignCast(@fieldParentPtr("vt", self.vt.children.items[0]));
+        vscr.gotoBottom();
+    }
+
     pub fn buildScroll(user: *iArea, layout: *iArea, index: usize, gui: *Gui, win: *iWindow) void {
         const self: *@This() = @alignCast(@fieldParentPtr("vt", user));
         var ly = g.VerticalLayout{ .item_height = gui.style.config.default_item_h, .bounds = layout.area };
