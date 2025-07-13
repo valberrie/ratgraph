@@ -171,6 +171,7 @@ pub const Textbox = struct {
     tail: usize,
     /// start drawing at this codepoint, for text that overflows the box
     draw_start: usize = 0,
+    changed: bool = false,
 
     fn select_to(self: *Self, movement: SingleLineMovement) void {
         const indexOfScalar = std.mem.indexOfScalar;
@@ -326,6 +327,7 @@ pub const Textbox = struct {
             self.opts.commit_cb.?(cvt, gui, self.codepoints.items, self.opts.user_id);
         if (self.opts.clear_on_commit)
             self.reset("") catch return;
+        self.changed = false;
     }
 
     pub fn fevent_err(vt: *iArea, ev: g.FocusedEvent) !void {
@@ -339,6 +341,7 @@ pub const Textbox = struct {
             },
             .text_input => |st| {
                 textinput_cb(vt, st, ev.window);
+                self.changed = true;
                 self.commitChange(ev);
             },
             .keydown => |kev| {
@@ -421,6 +424,7 @@ pub const Textbox = struct {
                     }
                 }
                 if (should_commit) {
+                    self.changed = true;
                     self.commitChange(ev);
                 }
             },
@@ -465,6 +469,10 @@ pub const Textbox = struct {
             );
         }
         d.ctx.textClipped(tr, "{s}", .{sl}, d.textP(null), .left);
+        const THICK = 2 * d.scale;
+        if (s.changed) {
+            d.ctx.rect(Rect.new(tr.x, tr.y + tr.h - THICK, tr.w, THICK), d.style.config.colors.uncommited);
+        }
     }
 
     fn textArea(widget_area: Rect, d: *const Gui) Rect {

@@ -566,6 +566,7 @@ pub const GuiConfig = struct {
             textbox_caret: u32 = 0xff,
             background: u32 = 0xd8d8d8ff,
             selected: u32 = 0x6495EDff, //Cornflower blue :)
+            uncommited: u32 = 0xDAA520ff,
 
             fn createWrapperType() type {
                 const ch: @This() = .{};

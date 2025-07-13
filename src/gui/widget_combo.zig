@@ -118,6 +118,7 @@ pub fn ComboUser(user_data: type) type {
                         name,
                         .{ .cb_vt = self.parent_vt, .cb_fn = &ParentT.buttonCb, .id = i },
                     ) orelse return);
+                    area.children.items[area.children.items.len - 1].can_tab_focus = true;
                 }
             }
 

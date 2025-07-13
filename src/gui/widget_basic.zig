@@ -270,6 +270,7 @@ pub const Button = struct {
             self.vt.draw_fn = dr;
         self.vt.onclick = &onclick;
         self.vt.deinit_fn = &deinit;
+        self.vt.focusEvent = &fevent;
         return &self.vt;
     }
     pub fn deinit(vt: *iArea, gui: *Gui, _: *iWindow) void {
@@ -293,8 +294,15 @@ pub const Button = struct {
         const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
         //d.ctx.rect(vt.area, 0x5ffff0ff);
         const sl = if (self.is_down) d.style.getRect(.button_clicked) else d.style.getRect(.button);
+        const is_focused = d.gui.isFocused(vt);
         const color = d.style.config.colors.button_text;
-        d.ctx.nineSlice(vt.area, sl, d.style.texture, d.scale, d.tint);
+
+        //const bw = 1;
+        const tint = if (is_focused) d.tint else 0xdddd_ddff;
+        d.ctx.nineSlice(vt.area, sl, d.style.texture, d.scale, tint);
+        //if (is_focused)
+        //d.ctx.rectBorder(vt.area, bw, d.style.config.colors.selected);
+
         const ta = vt.area.inset(3 * d.scale);
         d.ctx.textClipped(ta, "{s}", .{self.text}, d.textP(color), .center);
     }
@@ -304,8 +312,28 @@ pub const Button = struct {
         vt.dirty(cb.gui);
         self.is_down = true;
         cb.gui.grabMouse(&@This().mouseGrabbed, vt, win);
+        self.sendClickCb(cb.gui, win);
+    }
+
+    fn sendClickCb(self: *@This(), gui: *Gui, win: *iWindow) void {
         if (self.opts.cb_fn) |cbfn| {
-            cbfn(self.opts.cb_vt orelse return, self.opts.id, cb.gui, win);
+            cbfn(self.opts.cb_vt orelse return, self.opts.id, gui, win);
+        }
+    }
+
+    pub fn fevent(vt: *iArea, ev: g.FocusedEvent) void {
+        const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
+        switch (ev.event) {
+            .focusChanged => vt.dirty(ev.gui),
+            .text_input => {},
+            .keydown => |kev| {
+                for (kev.keys) |k| {
+                    switch (@as(graph.SDL.keycodes.Scancode, @enumFromInt(k.key_id))) {
+                        else => {},
+                        .SPACE, .RETURN => self.sendClickCb(ev.gui, ev.window),
+                    }
+                }
+            },
         }
     }
 
