@@ -521,6 +521,7 @@ pub const Gui = struct {
     scale: f32 = 2,
 
     font: *graph.FontInterface,
+    tint: u32 = 0x999999ff,
 
     pub fn init(alloc: AL, win: *graph.SDL.Window, cache_dir: std.fs.Dir, style_dir: std.fs.Dir, font: *graph.FontInterface) !Self {
         return Gui{
@@ -909,11 +910,11 @@ pub const Gui = struct {
     pub fn drawFbos(self: *Self, ctx: *Dctx, windows: []const *iWindow) void {
         for (windows) |w| {
             const fbo = self.fbos.getPtr(w) orelse continue;
-            drawFbo(w.area.area, fbo, ctx);
+            drawFbo(w.area.area, fbo, ctx, self.tint);
         }
 
         if (self.transient_window) |tw| {
-            drawFbo(tw.area.area, &self.transient_fbo, ctx);
+            drawFbo(tw.area.area, &self.transient_fbo, ctx, self.tint);
         }
     }
 
@@ -958,10 +959,11 @@ pub const Gui = struct {
         try dctx.ctx.flush(window.area.area, null);
     }
 
-    pub fn drawFbo(area: Rect, fbo: *graph.RenderTexture, dctx: *Dctx) void {
-        dctx.rectTex(
+    pub fn drawFbo(area: Rect, fbo: *graph.RenderTexture, dctx: *Dctx, tint: u32) void {
+        dctx.rectTexTint(
             area,
             graph.Rec(0, 0, area.w, -area.h),
+            tint,
             fbo.texture,
         );
     }
