@@ -39,6 +39,7 @@ pub const iArea = struct {
     onclick: ?*const fn (*iArea, MouseCbState, *iWindow) void = null,
     onscroll: ?*const fn (*iArea, *Gui, *iWindow, distance: f32) void = null,
     focusEvent: ?*const fn (*iArea, FocusedEvent) void = null,
+    onpoll: ?*const fn (*iArea, *Gui, *iWindow) void = null,
 
     can_tab_focus: bool = false,
 
@@ -97,6 +98,8 @@ pub const iArea = struct {
             gui.registerOnClick(vt, win) catch return;
         if (vt.onscroll != null)
             gui.regOnScroll(vt, win) catch return;
+        if (vt.onpoll != null)
+            win.poll_listeners.append(vt) catch return;
         vt.parent = self;
         vt.index = self.children.items.len;
         self.children.append(vt) catch return;
@@ -146,6 +149,7 @@ pub const iWindow = struct {
 
     click_listeners: std.ArrayList(*iArea),
     scroll_list: std.ArrayList(*iArea),
+    poll_listeners: std.ArrayList(?*iArea),
 
     cache_map: std.AutoHashMap(*iArea, void),
     to_draw: std.ArrayList(*iArea),
@@ -162,6 +166,7 @@ pub const iWindow = struct {
             .deinit_fn = deinit_fn,
             .build_fn = build_fn,
             .click_listeners = std.ArrayList(*iArea).init(gui.alloc),
+            .poll_listeners = std.ArrayList(?*iArea).init(gui.alloc),
             .scroll_list = std.ArrayList(*iArea).init(gui.alloc),
             .cache_map = std.AutoHashMap(*iArea, void).init(gui.alloc),
             .to_draw = std.ArrayList(*iArea).init(gui.alloc),
@@ -179,6 +184,7 @@ pub const iWindow = struct {
         if (self.scroll_list.items.len != 0)
             std.debug.print("BROKEN\n", .{});
         self.click_listeners.deinit();
+        self.poll_listeners.deinit();
         self.scroll_list.deinit();
         self.to_draw.deinit();
         self.cache_map.deinit();
@@ -211,6 +217,28 @@ pub const iWindow = struct {
             return true;
         }
         return false;
+    }
+
+    pub fn dispatchPoll(win: *iWindow, gui: *Gui) void {
+        for (win.poll_listeners.items) |item_o| {
+            const item = item_o orelse continue;
+            if (item.onpoll) |poll_fn|
+                poll_fn(item, gui, win);
+        }
+    }
+
+    pub fn registerPoll(win: *iWindow, vt: *iArea) void {
+        win.poll_listeners.append(vt) catch return;
+    }
+
+    pub fn unregisterPoll(win: *iWindow, vt: *iArea) void {
+        for (win.poll_listeners.items, 0..) |item_o, i| {
+            const item = item_o orelse continue;
+            if (item == vt) {
+                win.poll_listeners.items[i] = null;
+                return;
+            }
+        }
     }
 };
 
@@ -975,6 +1003,8 @@ pub const Gui = struct {
             .delta = us.mouse.delta,
             .state = us.mouse.left,
         };
+        for (windows) |win|
+            win.dispatchPoll(self);
         if (us.tab == .rising)
             self.tabFocus(!(us.shift == .high));
         switch (us.mouse.left) {
