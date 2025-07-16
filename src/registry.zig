@@ -598,6 +598,16 @@ pub fn Registry(comptime field_names_l: FieldList) type {
             }
         }
 
+        /// Remove all of that component
+        pub fn clearComponent(self: *Self, comptime component_type: Components) void {
+            var it = self.iterator(component_type);
+            while (it.next()) |_| {
+                const ent_ptr = self.getEntity(it.i) catch continue;
+                ent_ptr.unset(@intFromEnum(component_type));
+            }
+            @field(self.data, @tagName(component_type)).empty() catch return;
+        }
+
         pub fn sleepEntity(self: *Self, index: ID_TYPE) !void {
             self.slept.insert(index, .{}) catch |err| switch (err) {
                 error.IndexOccupied => {}, //We can sleep a sleeping entity
