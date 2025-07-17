@@ -2344,17 +2344,17 @@ pub const GuiDrawContext = struct {
                 draw.text(p, t.string, .{ .color = t.color, .px_size = t.size, .font = t.font });
             },
             .line => |l| {
-                draw.line(l.a, l.b, (l.color));
+                draw.line(l.a, l.b, (l.color), 2);
             },
             .rect_textured => |t| {
                 draw.rectTexTint(t.r, t.uv, (t.color), t.texture);
             },
             .rect_outline => |rl| {
                 const r = rl.r;
-                draw.line(r.topL(), r.topR(), (rl.color));
-                draw.line(r.topR(), r.botR(), (rl.color));
-                draw.line(r.botR(), r.botL(), (rl.color));
-                draw.line(r.botL(), r.topL(), (rl.color));
+                draw.line(r.topL(), r.topR(), (rl.color), 1);
+                draw.line(r.topR(), r.botR(), (rl.color), 1);
+                draw.line(r.botR(), r.botL(), (rl.color), 1);
+                draw.line(r.botL(), r.topL(), (rl.color), 1);
             },
             .set_camera => |sc| {
                 try draw.flush(self.camera_bounds, null); //Flush old camera

@@ -204,7 +204,7 @@ pub fn SliderGeneric(comptime number_T: type) type {
                         const x = fi * diff + 1;
                         const start = graph.Vec2f.new(vt.area.x + x, vt.area.y);
                         const end = start.add(.{ .x = 0, .y = vt.area.h / 3 });
-                        d.ctx.line(start, end, 0x222222ff);
+                        d.ctx.line(start, end, 0x222222ff, d.scale);
                     }
                 }
             }

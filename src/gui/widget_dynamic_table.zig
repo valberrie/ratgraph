@@ -84,7 +84,7 @@ pub const DynamicTable = struct {
         const y1 = vt.area.y + vt.area.h;
         for (self.opts.column_positions) |pos| {
             const x = pos * vt.area.w + vt.area.x;
-            d.ctx.line(.{ .x = x, .y = y }, .{ .x = x, .y = y1 }, 0xff);
+            d.ctx.line(.{ .x = x, .y = y }, .{ .x = x, .y = y1 }, 0xff, d.scale);
         }
     }
 };
@@ -162,7 +162,7 @@ const TableHeader = struct {
         }
         for (dat.column_positions) |pos| {
             const x = pos * a.w + a.x;
-            d.ctx.line(.{ .x = x, .y = a.y }, .{ .x = x, .y = a.y + a.h }, 0xff);
+            d.ctx.line(.{ .x = x, .y = a.y }, .{ .x = x, .y = a.y + a.h }, 0xff, d.scale);
         }
     }
 

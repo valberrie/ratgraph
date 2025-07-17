@@ -714,9 +714,9 @@ pub const Gui = struct {
             if (win.needs_rebuild) {
                 win.needs_rebuild = false;
                 win.draws_since_cached = 0;
-                var time = try std.time.Timer.start();
+                //var time = try std.time.Timer.start();
                 win.build_fn(win, self, win.area.area);
-                std.debug.print("Built win in: {d:.2} us\n", .{time.read() / std.time.ns_per_us});
+                //std.debug.print("Built win in: {d:.2} us\n", .{time.read() / std.time.ns_per_us});
             }
         }
         if (self.transient_window) |tw| {

@@ -310,6 +310,10 @@ pub const Vec2f = packed struct {
         return .{ .x = a.x - b.x, .y = a.y - b.y };
     }
 
+    pub fn swapAxis(a: @This()) @This() {
+        return .{ .x = a.y, .y = a.x };
+    }
+
     pub fn toI(s: @This(), comptime I: type, comptime V: type) V {
         return V{
             .x = @as(I, @intFromFloat(s.x)),

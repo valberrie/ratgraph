@@ -331,6 +331,7 @@ pub const ImmediateDrawingContext = struct {
     pub fn beginNoClear(self: *Self, screen_dim: Vec2f) !void {
         self.screen_dimensions = screen_dim;
         try self.clearBuffers();
+        c.glClear(c.GL_DEPTH_BUFFER_BIT);
         self.zindex = 1;
     }
 
@@ -652,8 +653,12 @@ pub const ImmediateDrawingContext = struct {
 
     //pub fn textFmtOpts(self: *Self, area: Rect, comptime fmt: []const u8, args: anytype, font)
 
-    pub fn point3D(self: *Self, point: za.Vec3, color: u32) void {
-        const b = &(self.getBatch(.{ .batch_kind = .color_point3D, .params = .{ .shader = colored_point3d_shader, .camera = ._3d } }) catch unreachable).color_point3D;
+    pub fn point3D(self: *Self, point: za.Vec3, color: u32, width: f32) void {
+        const b = &(self.getBatch(.{ .batch_kind = .color_point3D, .params = .{
+            .shader = colored_point3d_shader,
+            .camera = ._3d,
+            .line_point_width = @intFromFloat(@min(255, @abs(width * 4))),
+        } }) catch unreachable).color_point3D;
         b.vertices.append(.{ .pos = .{ .x = point.x(), .y = point.y(), .z = point.z() }, .color = color }) catch return;
     }
 
@@ -682,8 +687,12 @@ pub const ImmediateDrawingContext = struct {
         }) catch return;
     }
 
-    pub fn line3D(self: *Self, start_point: za.Vec3, end_point: za.Vec3, color: u32) void {
-        const b = &(self.getBatch(.{ .batch_kind = .color_line3D, .params = .{ .shader = colored_line3d_shader, .camera = ._3d } }) catch unreachable).color_line3D;
+    pub fn line3D(self: *Self, start_point: za.Vec3, end_point: za.Vec3, color: u32, width: f32) void {
+        const b = &(self.getBatch(.{ .batch_kind = .color_line3D, .params = .{
+            .shader = colored_line3d_shader,
+            .camera = ._3d,
+            .line_point_width = @intFromFloat(@min(255, @abs(width * 4))),
+        } }) catch unreachable).color_line3D;
         const i = b.vertices.items.len;
         b.vertices.append(.{ .pos = .{ .x = start_point.x(), .y = start_point.y(), .z = start_point.z() }, .color = color }) catch return;
         b.vertices.append(.{ .pos = .{ .x = end_point.x(), .y = end_point.y(), .z = end_point.z() }, .color = color }) catch return;
@@ -899,9 +908,10 @@ pub const ImmediateDrawingContext = struct {
         }
     }
 
-    pub fn line(self: *Self, start_p: Vec2f, end_p: Vec2f, color: u32) void {
+    pub fn line(self: *Self, start_p: Vec2f, end_p: Vec2f, color: u32, width: f32) void {
         const b = &(self.getBatch(.{ .batch_kind = .color_line, .params = .{
             .shader = colored_tri_shader,
+            .line_point_width = @intFromFloat(@min(255, @abs(width * 4))),
         } }) catch unreachable).color_line;
         const z = self.zindex;
         self.zindex += 1;
@@ -1038,6 +1048,8 @@ pub const DrawParams = struct {
     draw_priority: u8 = 0,
     shader: c_uint,
     write_depth: bool = true,
+    //Fixed point 6.2 pixels for easy hashing
+    line_point_width: u8 = 1 << 2,
 };
 pub const PassedUniform = struct {
     name: [*c]const u8,
@@ -1119,13 +1131,13 @@ pub fn NewBatch(comptime vertex_type: type, comptime batch_options: BatchOptions
                     .float => |f| GL.passUniform(params.shader, uni.name, f),
                 }
             }
+            c.glLineWidth(@as(f32, @floatFromInt(params.line_point_width)) / 4);
+            c.glPointSize(@as(f32, @floatFromInt(params.line_point_width)) / 4);
 
             const prim: u32 = @intFromEnum(self.primitive_mode);
             if (batch_options.index_buffer) {
                 c.glDrawElements(prim, @as(c_int, @intCast(self.indicies.items.len)), c.GL_UNSIGNED_INT, null);
             } else {
-                c.glLineWidth(3.0);
-                c.glPointSize(16.0);
                 c.glDrawArrays(prim, 0, @as(c_int, @intCast(self.vertices.items.len)));
             }
         }
