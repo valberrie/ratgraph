@@ -886,12 +886,27 @@ pub const Bitmap = struct {
             };
         }
 
+        pub fn toGLFormat(self: ImageFormat) c.GLenum {
+            return switch (self) {
+                .rgba_8 => c.GL_RGBA,
+                .g_8 => c.GL_RED,
+                .rgb_8 => c.GL_RGB,
+                .ga_8 => c.GL_RG,
+            };
+        }
+
         pub fn toChannelCount(self: ImageFormat) u8 {
             return switch (self) {
                 .rgba_8 => 4,
                 .g_8 => 1,
                 .rgb_8 => 3,
                 .ga_8 => 2,
+            };
+        }
+
+        pub fn toGLType(self: ImageFormat) c.GLenum {
+            return switch (self) {
+                else => c.GL_UNSIGNED_BYTE,
             };
         }
     };
