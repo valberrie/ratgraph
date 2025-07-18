@@ -359,6 +359,14 @@ pub const Camera2D = struct {
         return .{ .x = fx, .y = fy };
     }
 
+    pub fn syncAspect(self: *Self) void {
+        const screen_aspect = self.screen_area.w / self.screen_area.h;
+        const cam_aspect = self.cam_area.w / self.cam_area.h;
+        if (@abs(screen_aspect - cam_aspect) > 0.1) {
+            self.cam_area.w = screen_aspect * self.cam_area.h;
+        }
+    }
+
     pub fn toWorld(self: *const Self, local: Rect) Rect {
         const f = self.factor().inv();
         const cam_area = self.cam_area.pos();
