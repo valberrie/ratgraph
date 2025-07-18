@@ -516,7 +516,12 @@ pub const Gui = struct {
     test_builder: TestBuilder = .{},
 
     alloc: std.mem.Allocator,
+    /// All the registered windows
     windows: std.ArrayList(*iWindow),
+
+    /// Windows that are active this frame put themselves in here
+    /// Cleared on pre_update, nothing is done explicitly with this, just helper for user
+    window_collector: std.ArrayList(*iWindow),
 
     transient_should_close: bool = false,
     transient_window: ?*iWindow = null,
@@ -558,6 +563,7 @@ pub const Gui = struct {
             .area_window_map = std.AutoHashMap(*iArea, *iWindow).init(alloc),
             .clamp_window = graph.Rec(0, 0, win.screen_dimensions.x, win.screen_dimensions.y),
             .windows = std.ArrayList(*iWindow).init(alloc),
+            .window_collector = std.ArrayList(*iWindow).init(alloc),
             .transient_fbo = try graph.RenderTexture.init(100, 100),
             .fbos = std.AutoHashMap(*iWindow, graph.RenderTexture).init(alloc),
             .sdl_win = win,
@@ -577,6 +583,7 @@ pub const Gui = struct {
         self.transient_fbo.deinit();
         self.fbos.deinit();
         self.windows.deinit();
+        self.window_collector.deinit();
         self.closeTransientWindow();
         self.area_window_map.deinit();
         self.style.deinit();
@@ -707,6 +714,8 @@ pub const Gui = struct {
             self.tracker.print();
             self.tracker.reset();
         }
+
+        self.window_collector.clearRetainingCapacity();
 
         for (windows) |win| {
             win.to_draw.clearRetainingCapacity();
