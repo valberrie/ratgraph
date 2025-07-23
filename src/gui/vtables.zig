@@ -782,6 +782,13 @@ pub const Gui = struct {
                 break;
             }
         }
+        for (window.poll_listeners.items, 0..) |item, index| {
+            if (item == vt) {
+                window.poll_listeners.items[index] = null;
+                break;
+            }
+        }
+
         if (self.mouse_grab) |g| {
             if (g.vt == vt) {
                 self.mouse_grab = null;

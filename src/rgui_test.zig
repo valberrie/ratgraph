@@ -158,6 +158,12 @@ pub fn main() !void {
     defer _ = gpa.detectLeaks();
     const alloc = gpa.allocator();
 
+    var env_map = try std.process.getEnvMap(alloc);
+    const cache_dir_name = env_map.get("XDG_RUNTIME_DIR") orelse "";
+    const cache_dir = try std.fs.cwd().openDir(cache_dir_name, .{});
+    std.debug.print("{s}\n", .{cache_dir_name});
+    env_map.deinit();
+
     var win = try graph.SDL.Window.createWindow("My window", .{
         // Optional, see Window.createWindow definition for full list of options
         .window_size = .{ .x = 1000, .y = 1000 },
@@ -171,7 +177,9 @@ pub fn main() !void {
     var font = try graph.Font.initFromBuffer(alloc, @embedFile("font/roboto.ttf"), TEXT_H, .{});
     defer font.deinit();
 
-    var gui = try Gui.init(alloc, &win, std.fs.cwd(), &font.font);
+    const sc = 2;
+    var gui = try Gui.init(alloc, &win, cache_dir, std.fs.cwd(), &font.font);
+    gui.scale = sc;
     defer gui.deinit();
     const do_test_builder = true;
     if (do_test_builder)
@@ -191,7 +199,7 @@ pub fn main() !void {
 
     const window_area = Rect{ .x = 0, .y = 0, .w = 1000, .h = 1000 };
 
-    const dstate = guis.DrawState{ .ctx = &draw, .font = &font.font, .style = &gui.style, .gui = &gui };
+    const dstate = guis.DrawState{ .ctx = &draw, .font = &font.font, .style = &gui.style, .gui = &gui, .scale = sc };
     try gui.addWindow(MyInspector.create(&gui), window_area);
 
     while (!win.should_exit) {
