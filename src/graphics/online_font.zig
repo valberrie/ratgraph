@@ -214,7 +214,9 @@ pub const OnlineFont = struct {
                     self.time += self.timer.read();
                 }
             }
-            self.glyphs.put(cpo, glyph) catch unreachable;
+            self.glyphs.put(cpo, glyph) catch {
+                std.debug.print("FAILED TO PUT GLYPH. THIS IS BAD\n", .{});
+            };
             return glyph;
             //bake the glyph
         };

@@ -111,7 +111,7 @@ pub const iArea = struct {
     }
 
     pub fn addEmpty(self: *@This(), gui: *Gui, win: *iWindow, area: Rect) *iArea {
-        const vt = gui.alloc.create(iArea) catch unreachable;
+        const vt = gui.alloc.create(iArea) catch unreachable; //I'll allow this because it only happens on oom and we don't support recovery from that
         vt.* = init(gui, area);
         vt.deinit_fn = &deinitEmpty;
         self.addChild(gui, win, vt);

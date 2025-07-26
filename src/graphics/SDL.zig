@@ -435,19 +435,19 @@ pub const Window = struct {
                     self.keys.append(.{
                         .state = .rising,
                         .key_id = @intCast(scancode),
-                    }) catch unreachable;
+                    }) catch {
+                        log.warn("Too may keys pressed. Ignoring", .{});
+                    };
                 },
                 c.SDL_EVENT_KEY_UP => {
                     const scancode = c.SDL_GetScancodeFromKey(event.key.key, null);
                     self.key_state[scancode] = .falling;
                 },
-                c.SDL_EVENT_TEXT_EDITING_CANDIDATES => {
-                    std.debug.print("CANDIDATES\n", .{});
-                },
+                c.SDL_EVENT_TEXT_EDITING_CANDIDATES => {},
                 c.SDL_EVENT_TEXT_EDITING => {
                     const ed = event.edit;
                     const slice = std.mem.sliceTo(ed.text, 0);
-                    std.debug.print("TEXT EDIT{s}\n", .{slice});
+                    _ = slice;
                 },
                 c.SDL_EVENT_TEXT_INPUT => {
                     const slice = std.mem.sliceTo(event.text.text, 0);

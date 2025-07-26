@@ -10,21 +10,21 @@ pub const BiDirectionalUtf8Iterator = struct {
             return null;
         }
 
-        const cp_len = std.unicode.utf8ByteSequenceLength(bytes[i.*]) catch unreachable;
+        const cp_len = std.unicode.utf8ByteSequenceLength(bytes[i.*]) catch return null;
         i.* += cp_len;
         return bytes[i.* - cp_len .. i.*];
     }
 
     pub fn nextCodepoint(i: *usize, bytes: []const u8) ?u21 {
         const slice = nextCodepointSlice(i, bytes) orelse return null;
-        return std.unicode.utf8Decode(slice) catch unreachable;
+        return std.unicode.utf8Decode(slice) catch return null;
     }
 
     pub fn currentCodepoint(i: usize, bytes: []const u8) ?u21 {
         if (i >= bytes.len) return null;
 
-        const cp_len = std.unicode.utf8ByteSequenceLength(bytes[i]) catch unreachable;
-        return std.unicode.utf8Decode(bytes[i .. i + cp_len]) catch unreachable;
+        const cp_len = std.unicode.utf8ByteSequenceLength(bytes[i]) catch return null;
+        return std.unicode.utf8Decode(bytes[i .. i + cp_len]) catch return null;
     }
 
     pub fn prevCodepointSlice(i: *usize, bytes: []const u8) ?[]const u8 {
@@ -41,7 +41,7 @@ pub const BiDirectionalUtf8Iterator = struct {
     pub fn prevCodepoint(i: *usize, bytes: []const u8) ?u21 {
         if (i.* == 0) return null;
         const slice = prevCodepointSlice(i, bytes) orelse return null;
-        return std.unicode.utf8Decode(slice) catch unreachable;
+        return std.unicode.utf8Decode(slice) catch return null;
     }
 
     pub fn lastCodepointSlice(i: *usize, bytes: []const u8) ?[]const u8 {

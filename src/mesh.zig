@@ -34,6 +34,11 @@ pub const MeshVert = packed struct {
     tz: f32 = 0,
 };
 
+// Textures we are willing to support?
+// Diffuse
+// diffuse2 (blend)
+// normal
+
 pub const Mesh = struct {
     const Self = @This();
     vertices: std.ArrayList(MeshVert),

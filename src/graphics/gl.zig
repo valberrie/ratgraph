@@ -41,7 +41,7 @@ pub fn checkError() void {
             c.GL_OUT_OF_MEMORY => "There is not enough memory left to execute the command. The state of the GL is undefined, except for the state of the error flags, after this error is recorded.",
             c.GL_STACK_UNDERFLOW => "An attempt has been made to perform an operation that would cause an internal stack to underflow.",
             c.GL_STACK_OVERFLOW => "An attempt has been made to perform an operation that would cause an internal stack to overflow.",
-            else => unreachable,
+            else => "Unknown gl error, Something is corrupt",
         };
         log.warn("glGetError: {s}", .{str});
     }

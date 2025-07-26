@@ -768,7 +768,7 @@ pub const Hsva = struct {
             3 => za.Vec3.new(0, X, C),
             4 => za.Vec3.new(X, 0, C),
             5 => za.Vec3.new(C, 0, X),
-            else => unreachable,
+            else => za.Vec3.new(0, 0, 0), //This should be optimized out
         };
         const M = V - C;
 
@@ -800,7 +800,7 @@ pub fn colorToHsva(color: CharColor) Hsva {
         } else if (@abs(max - b) < M) {
             break :blk ((r - g) / C) + 4;
         }
-        unreachable;
+        break :blk 0; //This should be optimized out
     };
 
     const sat: f32 = if (@abs(max) < M) 0 else C / max;
@@ -825,7 +825,7 @@ pub fn hsvaToColor(hsva: Hsva) CharColor {
         3 => za.Vec3.new(0, X, C),
         4 => za.Vec3.new(X, 0, C),
         5 => za.Vec3.new(C, 0, X),
-        else => unreachable,
+        else => za.Vec3.new(0, 0, 0), //This should be optimized out
     };
     const M = V - C;
 

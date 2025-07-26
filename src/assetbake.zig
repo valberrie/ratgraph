@@ -667,8 +667,8 @@ pub fn assetBake(
             .name = output_filename_prefix,
         };
         //We output this to dir so that we don't need to backtrack in the image paths as dir is always above sub_path
-        var outfile = dir.createFile(tiled_filename, .{}) catch unreachable;
-        std.json.stringify(new_tsj, .{}, outfile.writer()) catch unreachable;
+        var outfile = try dir.createFile(tiled_filename, .{});
+        try std.json.stringify(new_tsj, .{}, outfile.writer());
         outfile.close();
     }
 }

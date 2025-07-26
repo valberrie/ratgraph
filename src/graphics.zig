@@ -331,7 +331,7 @@ pub const ImmediateDrawingContext = struct {
     pub fn beginNoClear(self: *Self, screen_dim: Vec2f) !void {
         self.screen_dimensions = screen_dim;
         try self.clearBuffers();
-        c.glClear(c.GL_DEPTH_BUFFER_BIT);
+        //c.glClear(c.GL_DEPTH_BUFFER_BIT);
         self.zindex = 1;
     }
 
@@ -558,10 +558,10 @@ pub const ImmediateDrawingContext = struct {
                 .draw_priority = 0xff,
                 .write_depth = false,
             },
-        }) catch unreachable).color_tri_tex;
+        }) catch return).color_tri_tex;
 
-        b.vertices.ensureUnusedCapacity(str.len * 4) catch unreachable;
-        b.indicies.ensureUnusedCapacity(str.len * 6) catch unreachable;
+        b.vertices.ensureUnusedCapacity(str.len * 4) catch return;
+        b.indicies.ensureUnusedCapacity(str.len * 6) catch return;
 
         const view = std.unicode.Utf8View.init(str) catch {
             std.debug.print("broke :{s}\n", .{str});
@@ -592,7 +592,7 @@ pub const ImmediateDrawingContext = struct {
 
             //self.rect(r, 0xffffffff);
 
-            b.indicies.appendSlice(&genQuadIndices(@as(u32, @intCast(b.vertices.items.len)))) catch unreachable;
+            b.indicies.appendSlice(&genQuadIndices(@as(u32, @intCast(b.vertices.items.len)))) catch return;
             const un = GL.normalizeTexRect(g.tr, font.texture.w, font.texture.h);
             b.vertices.appendSlice(&.{
                 .{ .pos = .{ .x = r.x + r.w, .y = r.y + r.h }, .z = z, .uv = .{ .x = un.x + un.w, .y = un.y + un.h }, .color = col }, //0
@@ -658,12 +658,12 @@ pub const ImmediateDrawingContext = struct {
             .shader = colored_point3d_shader,
             .camera = ._3d,
             .line_point_width = @intFromFloat(@min(255, @abs(width * 4))),
-        } }) catch unreachable).color_point3D;
+        } }) catch return).color_point3D;
         b.vertices.append(.{ .pos = .{ .x = point.x(), .y = point.y(), .z = point.z() }, .color = color }) catch return;
     }
 
     pub fn cubeFrame(self: *Self, pos: za.Vec3, ext: za.Vec3, color: u32) void {
-        const b = &(self.getBatch(.{ .batch_kind = .color_line3D, .params = .{ .shader = colored_line3d_shader, .camera = ._3d } }) catch unreachable).color_line3D;
+        const b = &(self.getBatch(.{ .batch_kind = .color_line3D, .params = .{ .shader = colored_line3d_shader, .camera = ._3d } }) catch return).color_line3D;
         const v = &b.vertices;
         const i: u32 = @intCast(v.items.len);
 
@@ -692,7 +692,7 @@ pub const ImmediateDrawingContext = struct {
             .shader = colored_line3d_shader,
             .camera = ._3d,
             .line_point_width = @intFromFloat(@min(255, @abs(width * 4))),
-        } }) catch unreachable).color_line3D;
+        } }) catch return).color_line3D;
         const i = b.vertices.items.len;
         b.vertices.append(.{ .pos = .{ .x = start_point.x(), .y = start_point.y(), .z = start_point.z() }, .color = color }) catch return;
         b.vertices.append(.{ .pos = .{ .x = end_point.x(), .y = end_point.y(), .z = end_point.z() }, .color = color }) catch return;
@@ -710,7 +710,7 @@ pub const ImmediateDrawingContext = struct {
             .shader = billboard_shader,
             .texture = texture.id,
             .camera = ._3d,
-        } }) catch unreachable).billboard;
+        } }) catch return).billboard;
         const o: u32 = @intCast(b.vertices.items.len);
         const up = cam.getUp();
         const right = cam.front.cross(up).norm();
@@ -737,7 +737,7 @@ pub const ImmediateDrawingContext = struct {
         const b = &(self.getBatch(.{ .batch_kind = .color_cube, .params = .{
             .shader = colored_line3d_shader,
             .camera = ._3d,
-        } }) catch unreachable).color_cube;
+        } }) catch return).color_cube;
         const of: u32 = @intCast(b.vertices.items.len);
         b.indicies.appendSlice(&.{ of, of + 1, of + 2 }) catch return;
         b.vertices.appendSlice(&.{
@@ -752,7 +752,7 @@ pub const ImmediateDrawingContext = struct {
         const b = &(self.getBatch(.{ .batch_kind = .color_cube, .params = .{
             .shader = colored_line3d_shader,
             .camera = ._3d,
-        } }) catch unreachable).color_cube;
+        } }) catch return).color_cube;
         const of: u32 = @intCast(b.vertices.items.len);
         b.vertices.ensureUnusedCapacity(vs.len) catch return;
         for (vs) |v|
@@ -784,7 +784,7 @@ pub const ImmediateDrawingContext = struct {
         const b = &(self.getBatch(.{ .batch_kind = .color_cube, .params = .{
             .shader = colored_line3d_shader,
             .camera = ._3d,
-        } }) catch unreachable).color_cube;
+        } }) catch return).color_cube;
         const of: u32 = @intCast(b.vertices.items.len);
         b.vertices.ensureUnusedCapacity(index.len) catch return;
         for (index) |i| {
@@ -818,7 +818,7 @@ pub const ImmediateDrawingContext = struct {
         const b = &(self.getBatch(.{ .batch_kind = .color_cube, .params = .{
             .shader = colored_line3d_shader,
             .camera = ._3d,
-        } }) catch unreachable).color_cube;
+        } }) catch return).color_cube;
         b.indicies.appendSlice(&GL.genCubeIndicies(@as(u32, @intCast(b.vertices.items.len)))) catch return;
         // zig fmt: off
         b.vertices.appendSlice(&.{
@@ -862,7 +862,7 @@ pub const ImmediateDrawingContext = struct {
 
     // Winding order should be CCW
     pub fn triangle(self: *Self, v1: Vec2f, v2: Vec2f, v3: Vec2f, color: u32) void {
-        const b = &(self.getBatch(.{ .batch_kind = .color_tri, .params = .{ .shader = colored_tri_shader } }) catch unreachable).color_tri;
+        const b = &(self.getBatch(.{ .batch_kind = .color_tri, .params = .{ .shader = colored_tri_shader } }) catch return).color_tri;
         const z = self.zindex;
         const i: u32 = @intCast(b.vertices.items.len);
         b.indicies.appendSlice(&.{ i, i + 1, i + 2 }) catch return;
@@ -879,7 +879,7 @@ pub const ImmediateDrawingContext = struct {
             .batch_kind = .color_tri_tex,
             //Text should always be drawn last for best transparency
             .params = .{ .shader = textured_tri_shader, .texture = font.texture.id, .draw_priority = 0xff },
-        }) catch unreachable).color_tri_tex;
+        }) catch return).color_tri_tex;
         const z = self.zindex;
         self.zindex += 1;
 
@@ -896,7 +896,7 @@ pub const ImmediateDrawingContext = struct {
             const un = GL.normalizeTexRect(tr, font.texture.w, font.texture.h);
             const r = Rec(x + fi * h, y, h, h);
 
-            b.indicies.appendSlice(&genQuadIndices(@as(u32, @intCast(b.vertices.items.len)))) catch unreachable;
+            b.indicies.appendSlice(&genQuadIndices(@as(u32, @intCast(b.vertices.items.len)))) catch return;
             b.vertices.appendSlice(&.{
                 .{ .pos = .{ .x = r.x + r.w, .y = r.y + r.h }, .z = z, .uv = .{ .x = un.x + un.w, .y = un.y + un.h }, .color = col }, //0
                 .{ .pos = .{ .x = r.x + r.w, .y = r.y }, .z = z, .uv = .{ .x = un.x + un.w, .y = un.y }, .color = col }, //1
@@ -912,7 +912,7 @@ pub const ImmediateDrawingContext = struct {
         const b = &(self.getBatch(.{ .batch_kind = .color_line, .params = .{
             .shader = colored_tri_shader,
             .line_point_width = @intFromFloat(@min(255, @abs(width * 4))),
-        } }) catch unreachable).color_line;
+        } }) catch return).color_line;
         const z = self.zindex;
         self.zindex += 1;
         b.vertices.appendSlice(&.{
