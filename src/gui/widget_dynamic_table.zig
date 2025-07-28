@@ -117,7 +117,7 @@ const TableHeader = struct {
             const click_area = graph.Rec(x, vt.area.y, click_pad * 2, vt.area.h);
             if (click_area.containsPoint(cb.pos)) {
                 self.grab_index = i;
-                cb.gui.grabMouse(&grabbed, vt, win);
+                cb.gui.grabMouse(&grabbed, vt, win, cb.btn);
             }
         }
     }
