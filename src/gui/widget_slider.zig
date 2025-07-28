@@ -155,7 +155,7 @@ pub fn SliderGeneric(comptime number_T: type) type {
             if (self.shuttleSS().containsPoint(cb.pos)) {
                 vt.dirty(cb.gui);
                 cb.gui.grabFocus(vt, win);
-                cb.gui.grabMouse(&mouseGrabbed, vt, win);
+                cb.gui.grabMouse(&mouseGrabbed, vt, win, cb.btn);
             }
         }
 

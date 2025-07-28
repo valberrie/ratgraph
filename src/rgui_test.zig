@@ -92,8 +92,8 @@ pub const MyInspector = struct {
         }, null));
         a.addChildOpt(gui, vt, Wg.Checkbox.build(gui, ly.getArea(), "secnd button", .{ .bool_ptr = &self.bool2 }, null));
         a.addChildOpt(gui, vt, Wg.StaticSlider.build(gui, ly.getArea(), 4, 0, 10));
-        a.addChildOpt(gui, vt, Wg.Combo.build(gui, ly.getArea() orelse return, &self.my_enum));
-        a.addChildOpt(gui, vt, Wg.Combo.build(gui, ly.getArea() orelse return, &self.fenum));
+        a.addChildOpt(gui, vt, Wg.Combo.build(gui, ly.getArea() orelse return, &self.my_enum, .{}));
+        a.addChildOpt(gui, vt, Wg.Combo.build(gui, ly.getArea() orelse return, &self.fenum, .{}));
 
         a.addChildOpt(gui, vt, Wg.Button.build(gui, ly.getArea(), "My button", .{ .cb_vt = &self.area, .cb_fn = @This().btnCb, .id = 48 }));
         a.addChildOpt(gui, vt, Wg.Button.build(gui, ly.getArea(), "My button 2", .{}));

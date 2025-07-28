@@ -317,7 +317,7 @@ pub const Button = struct {
         const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
         vt.dirty(cb.gui);
         self.is_down = true;
-        cb.gui.grabMouse(&@This().mouseGrabbed, vt, win);
+        cb.gui.grabMouse(&@This().mouseGrabbed, vt, win, cb.btn);
         self.sendClickCb(cb.gui, win);
     }
 
@@ -441,7 +441,7 @@ pub const ScrollBar = struct {
         const handle = shuttleRect(vt.area.replace(null, null, null, self.usable_h), actual_pos, self.shuttle_h);
         if (handle.containsPoint(cb.pos)) {
             self.shuttle_pos = actual_pos;
-            cb.gui.grabMouse(&mouseGrabbed, vt, win);
+            cb.gui.grabMouse(&mouseGrabbed, vt, win, cb.btn);
         }
     }
 
@@ -585,7 +585,7 @@ pub const StaticSlider = struct {
         const factor = dist / width;
 
         const old_num = self.num;
-        self.num += cb.delta.x * factor;
+        self.num += cb.delta.x * factor + cb.delta.y * factor;
         self.num = std.math.clamp(self.num, self.min, self.max);
         if (old_num != self.num)
             vt.dirty(cb.gui);
@@ -602,7 +602,7 @@ pub const StaticSlider = struct {
 
     pub fn onclick(vt: *iArea, cb: MouseCbState, win: *iWindow) void {
         const self = getVt(@This(), vt);
-        cb.gui.grabMouse(&@This().mouseGrabbed, vt, win);
+        cb.gui.grabMouse(&@This().mouseGrabbed, vt, win, cb.btn);
         _ = self;
         //Need some way to grab the mouse until it lets go
     }

@@ -262,10 +262,12 @@ pub const DrawState = struct {
 };
 
 pub const MouseCbState = struct {
+    pub const Btn = enum { left, middle, right };
     pos: Vec2f,
     delta: Vec2f,
     gui: *Gui,
     state: graph.SDL.ButtonState,
+    btn: Btn,
 };
 
 pub const KeydownState = struct {
@@ -289,7 +291,7 @@ const ButtonState = graph.SDL.ButtonState;
 pub const UpdateState = struct {
     tab: ButtonState,
     shift: ButtonState,
-    mouse: struct { pos: Vec2f, delta: Vec2f, left: ButtonState, scroll: Vec2f },
+    mouse: struct { pos: Vec2f, delta: Vec2f, left: ButtonState, right: ButtonState, middle: ButtonState, scroll: Vec2f },
     text: []const u8,
     mod: graph.SDL.keycodes.KeymodMask,
     keys: []const graph.SDL.KeyState,
@@ -530,6 +532,7 @@ pub const Gui = struct {
         cb: MouseGrabFn,
         vt: *iArea,
         win: *iWindow,
+        btn: MouseCbState.Btn,
     } = null,
 
     focused: ?struct {
@@ -925,11 +928,12 @@ pub const Gui = struct {
     ///how to solve?
     ///name vtables with ids
     ///on vt destroy, check and unset
-    pub fn grabMouse(self: *Self, cb: MouseGrabFn, vt: *iArea, win: *iWindow) void {
+    pub fn grabMouse(self: *Self, cb: MouseGrabFn, vt: *iArea, win: *iWindow, btn: MouseCbState.Btn) void {
         self.mouse_grab = .{
             .cb = cb,
             .vt = vt,
             .win = win,
+            .btn = btn,
         };
     }
 
@@ -1013,34 +1017,50 @@ pub const Gui = struct {
     }
 
     pub fn handleEvent(self: *Self, us: *const UpdateState, windows: []const *iWindow) !void {
-        const mstate = MouseCbState{
-            .gui = self,
-            .pos = us.mouse.pos,
-            .delta = us.mouse.delta,
-            .state = us.mouse.left,
-        };
         for (windows) |win|
             win.dispatchPoll(self);
         if (us.tab == .rising)
             self.tabFocus(!(us.shift == .high));
-        switch (us.mouse.left) {
-            .rising => self.dispatchClick(mstate, windows),
-            .low => {
-                self.mouse_grab = null;
-            },
-            .falling => {
-                if (self.mouse_grab) |g|
-                    g.cb(
-                        g.vt,
-                        mstate,
-                        g.win,
-                    );
-            },
-            .high => {
-                if (self.mouse_grab) |g| {
-                    g.cb(g.vt, mstate, g.win);
-                }
-            },
+
+        const states = [_]ButtonState{ us.mouse.left, us.mouse.middle, us.mouse.right };
+        const kinds = [states.len]MouseCbState.Btn{ .left, .middle, .right };
+
+        for (states, 0..) |state, si| {
+            if (self.mouse_grab) |g| {
+                if (g.btn != kinds[si]) //When a mouse is grabbed, only evaluate that state
+                    continue;
+            }
+
+            const mstate = MouseCbState{
+                .gui = self,
+                .pos = us.mouse.pos,
+                .delta = us.mouse.delta,
+                .state = state,
+                .btn = kinds[si],
+            };
+            switch (mstate.state) {
+                .rising => {
+                    self.dispatchClick(mstate, windows);
+                    break; //Only emit a single click event per update
+                },
+                .low => {
+                    self.mouse_grab = null;
+                },
+                .falling => {
+                    if (self.mouse_grab) |g|
+                        g.cb(
+                            g.vt,
+                            mstate,
+                            g.win,
+                        );
+                },
+                .high => {
+                    if (self.mouse_grab) |g| {
+                        g.cb(g.vt, mstate, g.win);
+                    }
+                    break;
+                },
+            }
         }
         {
             const keys = us.keys;
@@ -1065,7 +1085,14 @@ pub const Gui = struct {
         const us = UpdateState{
             .tab = win.keystate(.TAB),
             .shift = win.keystate(.LSHIFT),
-            .mouse = .{ .pos = win.mouse.pos, .delta = win.mouse.delta, .left = win.mouse.left, .scroll = win.mouse.wheel_delta },
+            .mouse = .{
+                .pos = win.mouse.pos,
+                .delta = win.mouse.delta,
+                .left = win.mouse.left,
+                .right = win.mouse.right,
+                .middle = win.mouse.middle,
+                .scroll = win.mouse.wheel_delta,
+            },
             .text = win.text_input,
             .mod = win.mod,
             .keys = win.keys.slice(),

@@ -288,7 +288,7 @@ const WarpArea = struct {
         if (self.yptr) |y|
             y.* = cb.pos.y - vt.area.y;
 
-        cb.gui.grabMouse(&@This().mouseGrabbed, vt, win);
+        cb.gui.grabMouse(&@This().mouseGrabbed, vt, win, cb.btn);
         //IMPORTANT
         //with the current drawing algo, swapping the order will prevent warp from showing!
         self.notify_fn(self.notify_vt, cb.gui);

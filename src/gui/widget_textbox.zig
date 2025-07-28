@@ -496,7 +496,7 @@ pub const Textbox = struct {
         const rel = cb.pos.sub(ar.pos()).sub(.{ .x = sz / 2, .y = 0 });
         if (cb.gui.font.nearestGlyphX(self.getVisibleSlice(), sz, rel, false)) |u_i| {
             self.setHead(u_i, 0, true);
-            cb.gui.grabMouse(&mouseGrabbed, vt, win);
+            cb.gui.grabMouse(&mouseGrabbed, vt, win, cb.btn);
         }
         self.calculateDrawStart(textArea(vt.area, cb.gui), cb.gui.style.config.text_h, cb.gui);
     }
