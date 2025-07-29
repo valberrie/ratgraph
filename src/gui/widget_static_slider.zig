@@ -17,6 +17,7 @@ pub const StaticSliderOpts = struct {
     ///Not allocated
     unit: []const u8 = "",
 
+    display_kind: enum { raw, percent, integer } = .raw,
     display_bounds_while_editing: bool = true,
     clamp_edits: bool = false,
     slide: Slide = .{},
@@ -67,7 +68,6 @@ pub const StaticSlider = struct {
     num: *f32,
 
     state: enum { editing, display },
-    display_kind: enum { raw, percent, integer } = .raw,
     //2**64 in base 10 is 20 digits, this should be more than enough
     buf: [32]u8 = undefined,
     fbs: std.io.FixedBufferStream([]u8),
@@ -104,27 +104,43 @@ pub const StaticSlider = struct {
 
     pub fn draw(vt: *iArea, d: g.DrawState) void {
         const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
-        d.ctx.rect(vt.area, 0x00ffffff);
+        const GRAY = 0xddddddff;
+        d.ctx.rect(vt.area, GRAY);
+        const inset = vt.area.inset(d.scale);
+        const ta = inset.inset(d.style.config.textbox_inset * d.scale);
         if (self.opts.max == self.opts.min) return;
-
+        const FILL_COLOR = 0xf7a41dff;
         switch (self.state) {
             .display => {
                 const perc = std.math.clamp((self.num.* - self.opts.min) / @abs(self.opts.max - self.opts.min), 0, 1);
-                d.ctx.rect(vt.area.replace(null, null, vt.area.w * perc, null), 0xff0000ff);
-                switch (self.display_kind) {
-                    .raw => d.ctx.textClipped(vt.area, "{d:.2} {s}", .{ self.num.*, self.opts.unit }, d.textP(null), .center),
-                    .percent => d.ctx.textClipped(vt.area, "{d:.2} % {s}", .{ perc * 100, self.opts.unit }, d.textP(null), .center),
-                    .integer => d.ctx.textClipped(vt.area, "{d:.0} {s}", .{ self.num.*, self.opts.unit }, d.textP(null), .center),
+                d.ctx.rect(inset.replace(null, null, inset.w * perc, null), FILL_COLOR);
+                switch (self.opts.display_kind) {
+                    .raw => d.ctx.textClipped(ta, "{d:.2} {s}", .{ self.num.*, self.opts.unit }, d.textP(null), .center),
+                    .percent => d.ctx.textClipped(ta, "{d:.2} % {s}", .{ perc * 100, self.opts.unit }, d.textP(null), .center),
+                    .integer => d.ctx.textClipped(ta, "{d:.0} {s}", .{ self.num.*, self.opts.unit }, d.textP(null), .center),
                 }
             },
             .editing => {
                 if (self.opts.display_bounds_while_editing) {
-                    d.ctx.textClipped(vt.area, "{d:.2}", .{self.opts.min}, d.textP(null), .left);
-                    d.ctx.textClipped(vt.area, "{d:.2}", .{self.opts.max}, d.textP(null), .right);
+                    d.ctx.textClipped(ta, "{d:.2}", .{self.opts.min}, d.textP(null), .left);
+                    d.ctx.textClipped(ta, "{d:.2}", .{self.opts.max}, d.textP(null), .right);
                 }
-                d.ctx.textClipped(vt.area, "edit: {s}", .{self.fbs.getWritten()}, d.textP(null), .center);
+                d.ctx.textClipped(ta, "edit: {s}", .{self.fbs.getWritten()}, d.textP(null), .center);
             },
         }
+        {
+            const a = inset;
+            d.ctx.line(a.topL(), a.topR(), 0xff, d.scale);
+            d.ctx.line(a.topL(), a.botL(), 0xff, d.scale);
+            d.ctx.line(a.botL(), a.botR(), 0xff, d.scale);
+            d.ctx.line(a.botR(), a.topR(), 0xff, d.scale);
+        }
+    }
+
+    fn cancelEdit(self: *@This(), gui: *Gui) void {
+        self.state = .display;
+        gui.stopTextInput();
+        self.vt.dirty(gui);
     }
 
     fn startEdit(self: *@This(), gui: *Gui) void {
@@ -170,7 +186,10 @@ pub const StaticSlider = struct {
     pub fn onclick(vt: *iArea, cb: g.MouseCbState, win: *iWindow) void {
         const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
         switch (cb.btn) {
-            .left => cb.gui.grabMouse(&@This().mouseGrabbed, vt, win, cb.btn),
+            .left => {
+                self.cancelEdit(cb.gui);
+                cb.gui.grabMouse(&@This().mouseGrabbed, vt, win, cb.btn);
+            },
             .middle => self.num.* = self.opts.default,
             .right => {
                 cb.gui.grabFocus(vt, win);

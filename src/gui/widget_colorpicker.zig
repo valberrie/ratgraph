@@ -144,20 +144,29 @@ const ColorpickerTransient = struct {
         const Help = struct {
             fn valueGroup(a1: anytype, gui1: *Gui, win1: *iWindow, layout: anytype, ptr: *f32, name: []const u8, min: f32, max: f32, nudge: f32) void {
                 const hue_s = layout.getArea() orelse return;
-                var vy2 = g.HorizLayout{ .count = 3, .bounds = hue_s };
+                var vy2 = g.HorizLayout{ .count = 2, .bounds = hue_s };
                 a1.addChildOpt(gui1, win1, Widget.Text.build(gui1, vy2.getArea(), "{s}", .{name}));
                 (a1.getLastChild() orelse return).dirty_parents = 1;
-                a1.addChildOpt(gui1, win1, Widget.Slider.build(gui1, vy2.getArea(), ptr, min, max, .{ .nudge = nudge }));
-                (a1.getLastChild() orelse return).dirty_parents = 1;
-                a1.addChildOpt(gui1, win1, Widget.TextboxNumber.build(gui1, vy2.getArea(), ptr, win1, .{}));
+
+                a1.addChildOpt(gui1, win1, Widget.StaticSlider.build(gui1, vy2.getArea(), ptr, .{
+                    .display_bounds_while_editing = false,
+                    .clamp_edits = true,
+                    .default = max,
+                    .min = min,
+                    .max = max,
+                    .slide = .{ .snap = nudge },
+                }));
+                //a1.addChildOpt(gui1, win1, Widget.Slider.build(gui1, vy2.getArea(), ptr, min, max, .{ .nudge = nudge }));
+                //(a1.getLastChild() orelse return).dirty_parents = 1;
+                //a1.addChildOpt(gui1, win1, Widget.TextboxNumber.build(gui1, vy2.getArea(), ptr, win1, .{}));
                 (a1.getLastChild() orelse return).dirty_parents = 1;
             }
         };
 
         Help.valueGroup(a, gui, win, &vy, &self.parent_ptr.color_hsv.h, "Hue", 0, 360, 5);
-        Help.valueGroup(a, gui, win, &vy, &self.parent_ptr.color_hsv.s, "Saturation", 0, 1, 0.1);
-        Help.valueGroup(a, gui, win, &vy, &self.parent_ptr.color_hsv.v, "Value", 0, 1, 0.1);
-        Help.valueGroup(a, gui, win, &vy, &self.parent_ptr.color_hsv.a, "Alpha", 0, 1, 0.1);
+        Help.valueGroup(a, gui, win, &vy, &self.parent_ptr.color_hsv.s, "Saturation", 0, 1, 0.02);
+        Help.valueGroup(a, gui, win, &vy, &self.parent_ptr.color_hsv.v, "Value", 0, 1, 0.02);
+        Help.valueGroup(a, gui, win, &vy, &self.parent_ptr.color_hsv.a, "Alpha", 0, 1, 0.02);
 
         a.addChildOpt(gui, win, Widget.Textbox.buildOpts(gui, vy.getArea(), .{
             .commit_cb = &pastedTextboxCb,
