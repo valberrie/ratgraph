@@ -491,6 +491,13 @@ pub const ImmediateDrawingContext = struct {
         self.rect(.{ .x = r.x, .y = r.y, .w = bw, .h = r.h }, color);
     }
 
+    pub fn rectLine(self: *Self, r: Rect, bw: f32, color: u32) void {
+        self.line(r.topL(), r.topR(), color, bw);
+        self.line(r.topL().add(.{ .x = 0, .y = -bw / 2 }), r.botL().add(.{ .x = 0, .y = bw / 2 }), color, bw);
+        self.line(r.botL(), r.botR(), color, bw);
+        self.line(r.topR().add(.{ .x = 0, .y = -bw / 2 }), r.botR().add(.{ .x = 0, .y = bw / 2 }), color, bw);
+    }
+
     pub fn rectTexTintShader(self: *Self, r: Rect, tr: Rect, col: u32, texture: Texture, shader: glID) void {
         const b = &(self.getBatch(.{ .batch_kind = .color_tri_tex, .params = .{ .shader = shader, .texture = texture.id } }) catch return).color_tri_tex;
         const z = self.zindex;

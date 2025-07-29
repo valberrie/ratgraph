@@ -219,22 +219,44 @@ pub const Checkbox = struct {
 
     pub fn draw(vt: *iArea, d: DrawState) void {
         const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
-        const cr = d.style.getRect(if (self.bool_ptr.*) .checkbox_checked else .checkbox_empty);
+
+        const GRAY = 0xddddddff;
+        d.ctx.rect(vt.area, GRAY);
+        const ins = @ceil(d.scale);
+        const inset = vt.area.inset(ins);
+        const ta = inset.inset(@ceil(d.style.config.textbox_inset * d.scale));
+        const FILL_COLOR = 0xADD8E6ff;
+        if (self.bool_ptr.*)
+            d.ctx.rect(inset, FILL_COLOR);
+        d.ctx.textClipped(ta, "{s}", .{self.name}, d.textP(null), .center);
+        d.ctx.rectLine(inset, ins, 0xff);
+    }
+
+    pub fn drawOld(vt: *iArea, d: DrawState) void {
+        const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
         const is_focused = d.gui.isFocused(vt);
 
         const bw = 1;
         const area = vt.area;
-        const h = @min(cr.h * d.scale, area.h);
+        const h = area.h;
         const pad = (area.h - h) / 2;
-        const br = Rect.newV(.{ .x = area.x + bw, .y = area.y + pad }, .{ .x = @min(cr.w * d.scale, area.w), .y = h });
+        const br = Rect.newV(.{ .x = area.x + bw, .y = area.y + pad }, .{ .x = h, .y = h }).inset(h / 4);
         d.ctx.rect(vt.area, d.style.config.colors.background);
-        if (is_focused)
-            d.ctx.rectBorder(vt.area, bw, d.style.config.colors.selected);
-        d.ctx.rectTex(
-            br,
-            cr,
-            d.style.texture,
-        );
+
+        const ins = @ceil(d.scale);
+        d.ctx.rectLine(br, ins, if (is_focused) d.style.config.colors.selected else 0xff);
+        const inset = br.inset(ins);
+        d.ctx.rect(inset, 0xffff_ffff);
+        if (self.bool_ptr.*) {
+            const inn = inset.inset(ins * 2);
+            d.ctx.line(inn.topL(), inn.botR(), 0xff, ins * 2);
+            d.ctx.line(inn.topR(), inn.botL(), 0xff, ins * 2);
+        }
+        //d.ctx.rectTex(
+        //    br,
+        //    cr,
+        //    d.style.texture,
+        //);
         const tarea = Rec(br.farX() + pad, area.y + pad, area.w - br.farX(), area.h);
         d.ctx.textClipped(tarea, "{s}{s}", .{ self.name, if (is_focused) " [space to toggle]" else "" }, d.textP(null), .left);
 

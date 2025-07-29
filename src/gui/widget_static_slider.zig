@@ -9,8 +9,9 @@ const iWindow = g.iWindow;
 const Color = graph.Colori;
 const VScroll = g.Widget.VScroll;
 const Widget = g.Widget;
-pub const ALLOWED_CHAR = "0123456789.-infax"; //'infax': inf, nan, 0x
+pub const ALLOWED_CHAR = "0123456789abcdef.-inx";
 pub const StaticSliderOpts = struct {
+    pub const State = graph.SDL.ButtonState;
     min: f32,
     max: f32,
     default: f32,
@@ -23,6 +24,7 @@ pub const StaticSliderOpts = struct {
     slide: Slide = .{},
 
     commit_cb: ?*const fn (*iArea, *Gui, f32, user_id: usize) void = null,
+    slide_cb: ?*const fn (*iArea, *Gui, f32, user_id: usize, State) void = null, // Called while holding the slider
     commit_vt: ?*iArea = null,
     user_id: usize = 0,
 };
@@ -106,8 +108,9 @@ pub const StaticSlider = struct {
         const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
         const GRAY = 0xddddddff;
         d.ctx.rect(vt.area, GRAY);
-        const inset = vt.area.inset(d.scale);
-        const ta = inset.inset(d.style.config.textbox_inset * d.scale);
+        const ins = @ceil(d.scale);
+        const inset = vt.area.inset(ins);
+        const ta = inset.inset(@ceil(d.style.config.textbox_inset * d.scale));
         if (self.opts.max == self.opts.min) return;
         const FILL_COLOR = 0xf7a41dff;
         switch (self.state) {
@@ -128,13 +131,7 @@ pub const StaticSlider = struct {
                 d.ctx.textClipped(ta, "edit: {s}", .{self.fbs.getWritten()}, d.textP(null), .center);
             },
         }
-        {
-            const a = inset;
-            d.ctx.line(a.topL(), a.topR(), 0xff, d.scale);
-            d.ctx.line(a.topL(), a.botL(), 0xff, d.scale);
-            d.ctx.line(a.botL(), a.botR(), 0xff, d.scale);
-            d.ctx.line(a.botR(), a.topR(), 0xff, d.scale);
-        }
+        d.ctx.rectLine(inset, ins, 0xff);
     }
 
     fn cancelEdit(self: *@This(), gui: *Gui) void {
@@ -158,8 +155,10 @@ pub const StaticSlider = struct {
         self.num.* = self.opts.slide.map(vt.area.dim(), cb.delta, self.num.*, dist);
 
         self.clamp();
-        if (old_num != self.num.*) {
-            self.commitCb(cb.gui);
+        if (old_num != self.num.* or cb.state == .falling) {
+            self.slideCb(cb.gui, cb.state);
+            if (cb.state == .falling)
+                self.commitCb(cb.gui);
             vt.dirty(cb.gui);
         }
     }
@@ -183,17 +182,32 @@ pub const StaticSlider = struct {
         }
     }
 
+    pub fn slideCb(self: *@This(), gui: *Gui, st: StaticSliderOpts.State) void {
+        if (self.opts.slide_cb) |cb| {
+            cb(self.opts.commit_vt orelse return, gui, self.num.*, self.opts.user_id, st);
+        }
+    }
+
     pub fn onclick(vt: *iArea, cb: g.MouseCbState, win: *iWindow) void {
         const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
+        vt.dirty(cb.gui);
         switch (cb.btn) {
             .left => {
                 self.cancelEdit(cb.gui);
                 cb.gui.grabMouse(&@This().mouseGrabbed, vt, win, cb.btn);
+                self.slideCb(cb.gui, .rising);
             },
             .middle => self.num.* = self.opts.default,
             .right => {
-                cb.gui.grabFocus(vt, win);
-                self.startEdit(cb.gui);
+                switch (self.state) {
+                    .editing => {
+                        self.commitEdit(cb.gui);
+                    },
+                    .display => {
+                        cb.gui.grabFocus(vt, win);
+                        self.startEdit(cb.gui);
+                    },
+                }
             },
         }
     }

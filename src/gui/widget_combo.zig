@@ -62,7 +62,7 @@ pub fn ComboUser(user_data: type) type {
                 self.vscroll_vt = null;
                 vt.area.dirty(gui);
                 const p: *ParentT = @alignCast(@fieldParentPtr("vt", self.parent_vt));
-                var ly = g.VerticalLayout{ .item_height = gui.style.config.default_item_h, .bounds = area };
+                var ly = g.VerticalLayout{ .item_height = gui.style.config.default_item_h, .bounds = area.inset(gui.scale) };
                 self.area.addChildOpt(
                     gui,
                     vt,
@@ -130,8 +130,8 @@ pub fn ComboUser(user_data: type) type {
 
             pub fn draw(vt: *iArea, d: g.DrawState) void {
                 const self: *@This() = @alignCast(@fieldParentPtr("area", vt));
-                _ = d;
                 _ = self;
+                d.ctx.rectLine(vt.area, @ceil(d.scale), 0xff);
             }
 
             pub fn deinit_area(vt: *iArea, _: *Gui, _: *iWindow) void {
