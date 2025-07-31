@@ -1204,6 +1204,52 @@ pub const Texture = struct {
         return Texture{ .w = w, .h = h, .id = tex_id };
     }
 
+    pub fn initMipped(w: i32, h: i32, o: Options) Texture {
+        var tex_id: glID = 0;
+        c.glPixelStorei(c.GL_UNPACK_ALIGNMENT, o.pixel_store_alignment);
+        c.glGenTextures(1, &tex_id);
+        c.glBindTexture(o.target, tex_id);
+        c.glTexParameteri(o.target, c.GL_TEXTURE_WRAP_S, o.wrap_u);
+        c.glTexParameteri(o.target, c.GL_TEXTURE_WRAP_T, o.wrap_v);
+
+        //c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_MAG_FILTER, c.GL_NEAREST_MIPMAP_NEAREST);
+        c.glTexParameteri(o.target, c.GL_TEXTURE_MIN_FILTER, o.min_filter);
+        c.glTexParameteri(o.target, c.GL_TEXTURE_MAG_FILTER, o.mag_filter);
+
+        c.glTexParameterfv(o.target, c.GL_TEXTURE_BORDER_COLOR, &o.border_color);
+        c.glBindTexture(c.GL_TEXTURE_2D, 0);
+        return Texture{ .w = w, .h = h, .id = tex_id };
+    }
+
+    pub fn setMipLevel(self: *const Texture, w: i32, h: i32, buffer: ?[]const u8, o: Options, level: c.GLint) void {
+        c.glBindTexture(o.target, self.id);
+        if (o.is_compressed) {
+            c.glCompressedTexImage2D(
+                o.target,
+                level,
+                o.pixel_format,
+                w,
+                h,
+                0,
+                @intCast(if (buffer) |bmp| bmp.len else 0),
+                if (buffer) |bmp| &bmp[0] else null,
+            );
+        } else {
+            c.glTexImage2D(
+                o.target,
+                level, //Level of detail number
+                o.internal_format,
+                w,
+                h,
+                0, //khronos.org: this value must be 0
+                o.pixel_format,
+                o.pixel_type,
+                if (buffer) |bmp| &bmp[0] else null,
+            );
+        }
+        c.glBindTexture(c.GL_TEXTURE_2D, 0);
+    }
+
     pub fn initFromBitmap(bitmap: Bitmap, o: Options) Texture {
         return initFromBuffer(bitmap.data.items, @intCast(bitmap.w), @intCast(bitmap.h), o);
     }
