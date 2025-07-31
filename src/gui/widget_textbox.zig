@@ -78,6 +78,8 @@ pub const TextboxNumber = struct {
         const number_type = if (is_pointer) pinfo.pointer.child else @TypeOf(number);
         const ND = NumberDummy(number_type);
 
+        var opt = opts;
+        opt.restricted_charset = charsetForNum(number_type);
         const dummy = ND.build(gui, area, if (is_pointer) number else null, if (is_pointer) 0 else number);
         dummy.addChild(gui, win, Textbox.buildNumber(
             gui,
@@ -86,8 +88,7 @@ pub const TextboxNumber = struct {
             &ND.printTo,
             &ND.parseFrom,
 
-            charsetForNum(number_type),
-            opts,
+            opt,
         ) orelse return dummy);
 
         return dummy;
@@ -106,6 +107,9 @@ pub const TextboxOptions = struct {
     commit_when: enum { on_enter, never, on_change } = .on_enter,
 
     clear_on_commit: bool = false,
+
+    restricted_charset: ?[]const u8 = null,
+    invert_restriction: bool = false,
 };
 
 //Can we stick some kind of comptime thing as a child of this that gets set with number?
@@ -155,7 +159,6 @@ pub const Textbox = struct {
     codepoints: std.ArrayList(u8),
 
     options: struct {
-        restricted_charset: ?[]const u8 = null,
         max_len: ?usize = null,
     } = .{},
 
@@ -249,7 +252,7 @@ pub const Textbox = struct {
         return &self.vt;
     }
 
-    pub fn buildNumber(gui: *Gui, area: Rect, num_vt: *iArea, num_print: NumberPrintFn, num_parse: NumberParseFn, charset: []const u8, opts: TextboxOptions) ?*iArea {
+    pub fn buildNumber(gui: *Gui, area: Rect, num_vt: *iArea, num_print: NumberPrintFn, num_parse: NumberParseFn, opts: TextboxOptions) ?*iArea {
         const vt = buildOpts(gui, area, opts) orelse return null;
         const self: *@This() = @alignCast(@fieldParentPtr("vt", vt));
         vt.dirty(gui);
@@ -260,7 +263,6 @@ pub const Textbox = struct {
             .parse_cb = num_parse,
             .vt = num_vt,
         };
-        self.options.restricted_charset = charset;
         return vt;
     }
 
@@ -579,16 +581,20 @@ pub const Textbox = struct {
         var it = view.iterator();
         vt.dirty(d.gui);
 
-        while (it.nextCodepointSlice()) |new_cp| {
+        outer: while (it.nextCodepointSlice()) |new_cp| {
             var new_len: usize = self.codepoints.items.len;
-            if (self.options.restricted_charset) |cset| {
+            if (self.opts.restricted_charset) |cset| {
                 restricted_blk: {
+                    const cp = try std.unicode.utf8Decode(new_cp);
                     for (cset) |achar| {
-                        const cp = try std.unicode.utf8Decode(new_cp);
-                        if (achar == cp)
+                        if (achar == cp) {
+                            if (self.opts.invert_restriction)
+                                continue :outer;
                             break :restricted_blk;
+                        }
                     }
-                    continue;
+                    if (!self.opts.invert_restriction)
+                        continue;
                 }
             }
             if (self.head != self.tail) {
