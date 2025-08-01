@@ -100,7 +100,12 @@ pub const VScroll = struct {
     }
 
     pub fn gotoBottom(self: *@This()) void {
-        self.index_ptr.* = self.sc_count;
+        const fitted = @trunc(self.vt.area.h / self.opts.item_h);
+        if (@as(f32, @floatFromInt(self.sc_count)) < fitted) {
+            self.index_ptr.* = 0;
+        } else {
+            self.index_ptr.* = self.sc_count;
+        }
     }
 
     pub fn updateCount(self: *@This(), new_count: usize) void {
@@ -429,7 +434,7 @@ pub const ScrollBar = struct {
         //    return area_w - min_w;
         //return min_w;
 
-        const useable = area_w - min_w;
+        const useable = area_w - overflow;
         if (overflow < useable) // We can have a 1:1 mapping of scrollbar movement
             return overflow;
 

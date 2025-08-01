@@ -837,7 +837,7 @@ pub const Os9Gui = struct {
     scale: f32,
     gui: Gui.Context,
     gui_draw_ctx: Gui.GuiDrawContext,
-    ofont: *OFont,
+    ofont: ?*OFont,
     //ofont: *graph.Font,
     font: *graph.FontUtil.PublicFontInterface,
     //icon_ofont: *OFont,
@@ -854,22 +854,31 @@ pub const Os9Gui = struct {
         /// These are unscaled, they map 1:1 to device pixels regardless of "scale"
         font_size_px: ?f32 = null,
         item_height: ?f32 = null,
+
+        font: ?*graph.FontUtil.PublicFontInterface = null,
     }) !Self {
         var style = try GuiConfig.init(alloc, asset_dir, "asset/os9gui", param.cache_dir);
         errdefer style.deinit();
-        const Ftype = OFont;
-        const ofont_ptr = try alloc.create(Ftype);
-        if (param.font_size_px) |fs|
-            style.config.text_h = fs;
-        if (param.item_height) |ih|
-            style.config.default_item_h = ih;
-        ofont_ptr.* = try Ftype.init(alloc, asset_dir, "asset/fonts/noto.ttc", style.config.text_h, .{});
+        var ofont_ptr: ?*OFont = null;
+        var font_ptro: ?*graph.FontUtil.PublicFontInterface = null;
+        if (param.font) |font| {
+            font_ptro = font;
+        } else {
+            const Ftype = OFont;
+            ofont_ptr = try alloc.create(Ftype);
+            if (param.font_size_px) |fs|
+                style.config.text_h = fs;
+            if (param.item_height) |ih|
+                style.config.default_item_h = ih;
+            ofont_ptr.?.* = try Ftype.init(alloc, asset_dir, "asset/fonts/noto.ttc", style.config.text_h, .{});
+        }
         //ofont_ptr.* = try Ftype.initFromBuffer(
         //    alloc,
         //    @embedFile("font/roboto.ttf"),
         //    style.config.text_h,
         //    .{},
         //);
+        const font_ptr_a = if (ofont_ptr) |off| &off.font else font_ptro orelse return error.noFont;
         return .{
             .gui = try Gui.Context.init(alloc),
             .style = style,
@@ -877,8 +886,8 @@ pub const Os9Gui = struct {
             .scale = scale,
             .alloc = alloc,
             .ofont = ofont_ptr,
-            .font = &ofont_ptr.font,
-            .icon_font = &ofont_ptr.font,
+            .font = font_ptr_a,
+            .icon_font = font_ptr_a,
         };
     }
 
@@ -886,8 +895,10 @@ pub const Os9Gui = struct {
         self.style.deinit();
         self.gui.deinit();
         self.gui_draw_ctx.deinit();
-        self.ofont.deinit();
-        self.alloc.destroy(self.ofont);
+        if (self.ofont) |of| {
+            of.deinit();
+            self.alloc.destroy(of);
+        }
     }
 
     pub fn resetFrame(self: *Self, input_state: Gui.InputState, win: *graph.SDL.Window) !void {
@@ -2495,9 +2506,10 @@ pub const TestConfig = struct {
 //
 //  ogui.endFrame()
 
-var font_ptr: *OFont = undefined;
+var font_ptr: ?*OFont = null;
 fn flush_cb() void {
-    font_ptr.syncBitmapToGL();
+    if (font_ptr) |fp|
+        fp.syncBitmapToGL();
 }
 
 pub fn main() anyerror!void {

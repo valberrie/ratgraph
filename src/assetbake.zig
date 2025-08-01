@@ -338,7 +338,7 @@ pub fn assetBake(
     sub_path: []const u8,
     output_dir: std.fs.Dir,
     output_filename_prefix: []const u8, //prefix.json prefix.png etc
-    options: struct { pixel_extrude: u32 = 0, force_rebuild: bool = false },
+    options: struct { pixel_extrude: u32 = 0, force_rebuild: bool = false, do_tiled: bool = false },
 ) !void {
     const TILED_SCRATCH_NAME = ".tiled_img";
     const pixel_extrude = options.pixel_extrude;
@@ -435,14 +435,17 @@ pub fn assetBake(
     var path_scratch = std.ArrayList(u8).init(alloc);
     defer path_scratch.deinit();
 
-    { //Make the tiled scratch directory
+    if (options.do_tiled) { //Make the tiled scratch directory
         dir.makeDir(TILED_SCRATCH_NAME) catch |err| switch (err) {
             error.PathAlreadyExists => {},
             else => return err,
         };
     }
-    var tiled_scratch_dir = try dir.openDir(TILED_SCRATCH_NAME, .{});
-    defer tiled_scratch_dir.close();
+    var tiled_scratch_dir: ?std.fs.Dir = if (options.do_tiled) try dir.openDir(TILED_SCRATCH_NAME, .{}) else null;
+    defer {
+        if (options.do_tiled)
+            tiled_scratch_dir.?.close();
+    }
 
     while (try walker.next()) |w| {
         path_scratch.clearRetainingCapacity();
@@ -488,16 +491,18 @@ pub fn assetBake(
                     try rpack.appendRect(index, bmps.items[index].w + pixel_extrude * 2, bmps.items[index].h + pixel_extrude * 2);
                     try uid_bmp_index_map.put(@intCast(index), @intCast(ind));
                     const dirname = wpath[0 .. wpath.len - w.basename.len];
-                    tiled_scratch_dir.makePath(dirname) catch |err| switch (err) {
-                        error.PathAlreadyExists => {},
-                        else => return err,
-                    };
+                    if (tiled_scratch_dir) |scrdir|
+                        scrdir.makePath(dirname) catch |err| switch (err) {
+                            error.PathAlreadyExists => {},
+                            else => return err,
+                        };
                     var fbs = std.io.FixedBufferStream([]u8){ .buffer = &temp_name_buf, .pos = 0 };
                     const wr = fbs.writer();
                     _ = try wr.write(dirname);
                     _ = try wr.write(w.basename[0 .. w.basename.len - ".ora".len]);
                     _ = try wr.write(".png");
-                    try bmp.writeToPngFile(tiled_scratch_dir, fbs.getWritten());
+                    if (tiled_scratch_dir) |scrdir|
+                        try bmp.writeToPngFile(scrdir, fbs.getWritten());
                     try tiled_substite_path.put(nameid, try talloc.dupe(u8, fbs.getWritten()));
                 } else {
                     const path = try talloc.dupe(u8, wpath);
@@ -620,7 +625,7 @@ pub fn assetBake(
         out.writer(),
     );
 
-    {
+    if (options.do_tiled) {
         const TileImage = Tiled.TileMap.ExternalTileset.TileImage;
         var max_w: u32 = 0;
         var max_h: u32 = 0;
