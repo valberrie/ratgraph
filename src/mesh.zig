@@ -378,7 +378,7 @@ pub fn loadObj(alloc: std.mem.Allocator, dir: std.fs.Dir, filename: []const u8, 
     model.min = za.Vec3.new(minx, miny, minz).scale(scale);
     model.max = za.Vec3.new(maxx, maxy, maxz).scale(scale);
 
-    std.debug.print("Loaded obj {s}, with {d} verticies\n", .{ filename, verts.items.len });
+    //std.debug.print("Loaded obj {s}, with {d} verticies\n", .{ filename, verts.items.len });
 
     return model;
 }

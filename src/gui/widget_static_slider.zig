@@ -19,7 +19,7 @@ pub const StaticSliderOpts = struct {
     unit: []const u8 = "",
 
     display_kind: enum { raw, percent, integer } = .raw,
-    display_bounds_while_editing: bool = true,
+    display_bounds_while_editing: bool = false,
     clamp_edits: bool = false,
     slide: Slide = .{},
 
