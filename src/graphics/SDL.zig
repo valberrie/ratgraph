@@ -224,7 +224,8 @@ pub const Window = struct {
                 log.warn("Failed to set adaptive sync, attempting to set vsync", .{});
                 if (!c.SDL_GL_SetSwapInterval(1)) {
                     sdlLogErr();
-                    return error.SetSwapInterval;
+                    log.warn("Unable to set swap interval !", .{});
+                    //return error.SetSwapInterval;
                 }
             } else {
                 return error.SetSwapInterval;
