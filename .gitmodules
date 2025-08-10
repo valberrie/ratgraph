@@ -14,3 +14,6 @@
 	path = zig_libs/zalgebra
     url = https://github.com/kooparse/zalgebra
     #url = https://github.com/nmalthouse/zalgebra.git
+[submodule "c_libs/qoi"]
+	path = c_libs/qoi
+	url = https://github.com/phoboslab/qoi.git
