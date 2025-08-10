@@ -545,7 +545,7 @@ pub const Font = struct {
 
             //const xw = face.*.max_advance_width
 
-            {
+            if (false) {
                 const mask_item = struct { mask: c_long, str: []const u8 };
 
                 const mask_list = [_]mask_item{
