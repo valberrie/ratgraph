@@ -961,6 +961,24 @@ pub const Bitmap = struct {
         return Bitmap{ .format = fmt, .w = ihdr.width, .h = ihdr.height, .data = std.ArrayList(u8).fromOwnedSlice(alloc, decoded_data) };
     }
 
+    pub fn initFromQoiBuffer(alloc: std.mem.Allocator, qoi_buf: []const u8) !Bitmap {
+        var qd: c.qoi_desc = undefined;
+
+        const decoded = c.qoi_decode(&qoi_buf[0], @intCast(qoi_buf.len), &qd, 0) orelse return error.qoiFailed;
+        defer c.QOI_FREE(decoded);
+
+        const qoi_s: [*c]const u8 = @ptrCast(decoded);
+
+        const qlen: usize = qd.width * qd.height * qd.channels;
+
+        const slice: []const u8 = qoi_s[0..qlen];
+        return initFromBuffer(alloc, slice, qd.width, qd.height, switch (qd.channels) {
+            3 => .rgb_8,
+            4 => .rgba_8,
+            else => return error.qoiInvalidChannelCount,
+        });
+    }
+
     pub fn initFromPngFile(alloc: Alloc, dir: Dir, sub_path: []const u8) !Bitmap {
         const file_slice = try dir.readFileAlloc(alloc, sub_path, std.math.maxInt(usize));
         defer alloc.free(file_slice);
@@ -1251,7 +1269,10 @@ pub const Texture = struct {
     }
 
     pub fn initFromBitmap(bitmap: Bitmap, o: Options) Texture {
-        return initFromBuffer(bitmap.data.items, @intCast(bitmap.w), @intCast(bitmap.h), o);
+        var opt = o;
+        opt.pixel_format = bitmap.format.toGLFormat();
+        opt.pixel_type = bitmap.format.toGLType();
+        return initFromBuffer(bitmap.data.items, @intCast(bitmap.w), @intCast(bitmap.h), opt);
     }
 
     pub fn initEmpty() Texture {
