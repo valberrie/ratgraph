@@ -8,6 +8,8 @@ const srcdir = getSrcDir();
 //const LUA_SRC: ?[]const u8 = "lua5.4.7/src/";
 const LUA_SRC = null;
 
+const USE_SYSTEM_FREETYPE = false;
+
 pub const ToLink = enum {
     freetype,
     sdl,
@@ -18,6 +20,10 @@ pub fn linkLibrary(b: *std.Build, mod: *std.Build.Module, tolink: []const ToLink
     const cdir = "c_libs";
 
     const include_paths = [_][]const u8{
+        cdir ++ "/libepoxy/include",
+        cdir ++ "/miniz/build",
+        cdir ++ "/miniz",
+        cdir ++ "/SDL/include",
         cdir ++ "/freetype",
         cdir ++ "/stb",
         cdir,
@@ -26,6 +32,9 @@ pub fn linkLibrary(b: *std.Build, mod: *std.Build.Module, tolink: []const ToLink
 
     for (include_paths) |path| {
         mod.addIncludePath(b.path(path));
+    }
+    if (!USE_SYSTEM_FREETYPE) {
+        mod.addIncludePath(b.path(cdir ++ "/freetype_build/include"));
     }
 
     const c_source_files = [_][]const u8{
@@ -45,7 +54,7 @@ pub fn linkLibrary(b: *std.Build, mod: *std.Build.Module, tolink: []const ToLink
     }
 
     for (c_source_files) |cfile| {
-        mod.addCSourceFile(.{ .file = b.path(cfile), .flags = &[_][]const u8{"-Wall"} });
+        mod.addCSourceFile(.{ .file = b.path(cfile), .flags = &[_][]const u8{ "-Wall", "-DSPNG_USE_MINIZ=" } });
     }
     mod.link_libc = true;
     if (mod.resolved_target) |rt| {
@@ -53,20 +62,33 @@ pub fn linkLibrary(b: *std.Build, mod: *std.Build.Module, tolink: []const ToLink
             //TODO the Windows build depends heavily on msys.
             //I have no clue how windows applications are supposed to be built.
             //distrubuting the binary requries, a setting lib path to msys/mingw64/bin, or copying the relevant dlls into the working dir.
-            mod.addSystemIncludePath(.{ .cwd_relative = "/msys64//mingw64/include" });
-            mod.addSystemIncludePath(.{ .cwd_relative = "/msys64//mingw64/include/freetype2" });
-            mod.addLibraryPath(.{ .cwd_relative = "/msys64/mingw64/lib" });
+            //mod.addSystemIncludePath(.{ .cwd_relative = "/msys64//mingw64/include" });
+            mod.addSystemIncludePath(.{ .cwd_relative = "/mingw64/include" });
+            //mod.addSystemIncludePath(.{ .cwd_relative = "/msys64//mingw64/include/freetype2" });
+            //mod.addLibraryPath(.{ .cwd_relative = "/msys64/mingw64/lib" });
+            mod.addLibraryPath(.{ .cwd_relative = "/mingw64/lib" });
+            if (USE_SYSTEM_FREETYPE) {
+                mod.addSystemIncludePath(.{ .cwd_relative = "/mingw64/include/freetype2" });
+                mod.linkSystemLibrary("freetype.dll", .{});
+            } else {
+                mod.addIncludePath(b.path(cdir ++ "/freetype_build/build"));
+                mod.addObjectFile(b.path(cdir ++ "/freetype_build/build/libfreetype.a"));
+            }
             mod.linkSystemLibrary("epoxy", .{});
             mod.linkSystemLibrary("mingw32", .{});
             mod.linkSystemLibrary("SDL3.dll", .{});
             mod.linkSystemLibrary("c", .{});
             mod.linkSystemLibrary("opengl32", .{});
             mod.linkSystemLibrary("openal.dll", .{});
-            mod.linkSystemLibrary("freetype.dll", .{});
             mod.linkSystemLibrary("z", .{});
         } else {
             mod.addSystemIncludePath(.{ .cwd_relative = "/usr/include" });
-            mod.addSystemIncludePath(.{ .cwd_relative = "/usr/include/freetype2" });
+
+            if (USE_SYSTEM_FREETYPE) {
+                mod.addSystemIncludePath(.{ .cwd_relative = "/usr/include/freetype2" });
+            } else {
+                mod.addIncludePath(b.path(cdir ++ "/freetype_build/build"));
+            }
             for (tolink) |tl| {
                 const str = switch (tl) {
                     .lua => "lua",
@@ -74,13 +96,21 @@ pub fn linkLibrary(b: *std.Build, mod: *std.Build.Module, tolink: []const ToLink
                     .freetype => "freetype",
                     .openal => "openal",
                 };
-                mod.linkSystemLibrary(str, .{});
+                if (tl == .sdl) {
+                    mod.addObjectFile(b.path(cdir ++ "/SDL/build/libSDL3.a"));
+                    continue;
+                }
+                if (tl == .freetype and !USE_SYSTEM_FREETYPE) {
+                    mod.addObjectFile(b.path(cdir ++ "/freetype_build/build/libfreetype.a"));
+                    //mod.linkSystemLibrary("bzip2", .{});
+                    continue;
+                }
+                mod.linkSystemLibrary(str, .{ .preferred_link_mode = .static });
             }
-            //mod.linkSystemLibrary("SDL3", .{});
-            //mod.linkSystemLibrary("openal", .{});
-            mod.linkSystemLibrary("epoxy", .{});
-            //mod.linkSystemLibrary("freetype", .{});
-            mod.linkSystemLibrary("z", .{});
+            mod.addObjectFile(b.path(cdir ++ "/libepoxy/build/src/libepoxy.a"));
+            mod.addObjectFile(b.path(cdir ++ "/miniz/build/libminiz.a"));
+            //mod.linkSystemLibrary("epoxy", .{});
+            //mod.linkSystemLibrary("z", .{});
         }
     }
 }
@@ -89,7 +119,7 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
 
     const mode = b.standardOptimizeOption(.{});
-    const build_gui = b.option(bool, "gui", "Build the gui test app") orelse false;
+    const build_gui = b.option(bool, "gui", "Build the gui test app") orelse true;
 
     const bake = b.addExecutable(.{
         .name = "assetbake",
@@ -103,7 +133,7 @@ pub fn build(b: *std.Build) void {
 
     const exe = b.addExecutable(.{
         .name = "the_engine",
-        .root_source_file = if (build_gui) b.path("src/gui_app.zig") else b.path("src/main.zig"),
+        .root_source_file = if (build_gui) b.path("src/rgui_test.zig") else b.path("src/main.zig"),
         .target = target,
         .optimize = mode,
     });

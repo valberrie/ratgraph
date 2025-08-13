@@ -180,7 +180,7 @@ pub fn main() !void {
     defer draw.deinit();
 
     const TEXT_H = @trunc(20 * 1.6);
-    var font = try graph.Font.initFromBuffer(alloc, @embedFile("font/roboto.ttf"), TEXT_H, .{});
+    var font = try graph.Font.init(alloc, std.fs.cwd(), "asset/fonts/roboto.ttf", TEXT_H, .{});
     defer font.deinit();
 
     const sc = 2;

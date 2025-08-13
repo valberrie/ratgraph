@@ -4,6 +4,8 @@ pub usingnamespace @cImport({
     @cInclude("SDL3/SDL.h");
     @cInclude("epoxy/gl.h");
     @cInclude("freetype_init.h");
+
+    @cDefine("SPNG_USE_MINIZ", "");
     @cInclude("spng.h");
 
     //@cInclude("AL/al.h");

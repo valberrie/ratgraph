@@ -578,7 +578,7 @@ pub const Font = struct {
                 }
             }
         }
-        try freetypeLogErr(stderr, c.FT_Library_SetLcdFilter(ftlib, c.FT_LCD_FILTER_DEFAULT));
+        //try freetypeLogErr(stderr, c.FT_Library_SetLcdFilter(ftlib, c.FT_LCD_FILTER_DEFAULT));
 
         try freetypeLogErr(
             stderr,

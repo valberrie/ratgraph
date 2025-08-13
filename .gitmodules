@@ -2,10 +2,6 @@
 	path = c_libs/libspng
 	url = https://github.com/randy408/libspng.git
 	branch = bab9f94
-[submodule "c_libs/tree-sitter"]
-	path = c_libs/tree-sitter
-	url = https://github.com/tree-sitter/tree-sitter.git
-	branch = master
 [submodule "c_libs/stb"]
 	path = c_libs/stb
 	url = https://github.com/nothings/stb.git
@@ -13,7 +9,19 @@
 [submodule "zig_libs/zalgebra"]
 	path = zig_libs/zalgebra
     url = https://github.com/kooparse/zalgebra
-    #url = https://github.com/nmalthouse/zalgebra.git
 [submodule "c_libs/qoi"]
 	path = c_libs/qoi
 	url = https://github.com/phoboslab/qoi.git
+[submodule "c_libs/miniz"]
+	path = c_libs/miniz
+	url = https://github.com/richgel999/miniz.git
+[submodule "c_libs/libepoxy"]
+	path = c_libs/libepoxy
+	url = https://github.com/anholt/libepoxy.git
+[submodule "c_libs/SDL"]
+	path = c_libs/SDL
+	url = https://github.com/libsdl-org/SDL.git
+	branch = release-3.2.16
+[submodule "c_libs/freetype_build"]
+	path = c_libs/freetype_build
+	url = https://gitlab.freedesktop.org/freetype/freetype
