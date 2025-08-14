@@ -60,28 +60,34 @@ pub fn linkLibrary(b: *std.Build, mod: *std.Build.Module, tolink: []const ToLink
     mod.link_libc = true;
     if (mod.resolved_target) |rt| {
         if (rt.result.os.tag == .windows) {
-            //TODO the Windows build depends heavily on msys.
-            //I have no clue how windows applications are supposed to be built.
-            //distrubuting the binary requries, a setting lib path to msys/mingw64/bin, or copying the relevant dlls into the working dir.
-            //mod.addSystemIncludePath(.{ .cwd_relative = "/msys64//mingw64/include" });
-            mod.addSystemIncludePath(.{ .cwd_relative = "/mingw64/include" });
-            //mod.addSystemIncludePath(.{ .cwd_relative = "/msys64//mingw64/include/freetype2" });
-            //mod.addLibraryPath(.{ .cwd_relative = "/msys64/mingw64/lib" });
-            mod.addLibraryPath(.{ .cwd_relative = "/mingw64/lib" });
             if (USE_SYSTEM_FREETYPE) {
                 mod.addSystemIncludePath(.{ .cwd_relative = "/mingw64/include/freetype2" });
                 mod.linkSystemLibrary("freetype.dll", .{});
             } else {
-                mod.addIncludePath(b.path(cdir ++ "/freetype_build/build"));
-                mod.addObjectFile(b.path(cdir ++ "/freetype_build/build/libfreetype.a"));
+                mod.addIncludePath(b.path(cdir ++ "/freetype_build/buildwin"));
+                mod.addObjectFile(b.path(cdir ++ "/freetype_build/buildwin/libfreetype.a"));
             }
-            mod.linkSystemLibrary("epoxy", .{});
-            mod.linkSystemLibrary("mingw32", .{});
-            mod.linkSystemLibrary("SDL3.dll", .{});
-            mod.linkSystemLibrary("c", .{});
-            mod.linkSystemLibrary("opengl32", .{});
-            mod.linkSystemLibrary("openal.dll", .{});
-            mod.linkSystemLibrary("z", .{});
+
+            mod.addObjectFile(b.path(cdir ++ "/SDL/buildwin/libSDL3.a"));
+            mod.addObjectFile(b.path(cdir ++ "/SDL/buildwin/libSDL_uclibc.a"));
+            mod.addObjectFile(b.path(cdir ++ "/libepoxy/buildwin/src/libepoxy.a"));
+            mod.addObjectFile(b.path(cdir ++ "/miniz/buildwin/libminiz.a"));
+
+            //These all come from sdl/buildwin/sdl3.pc
+            mod.linkSystemLibrary("m", .{});
+            mod.linkSystemLibrary("kernel32", .{});
+            mod.linkSystemLibrary("user32", .{});
+            mod.linkSystemLibrary("gdi32", .{});
+            mod.linkSystemLibrary("winmm", .{});
+            mod.linkSystemLibrary("imm32", .{});
+            mod.linkSystemLibrary("ole32", .{});
+            mod.linkSystemLibrary("oleaut32", .{});
+            mod.linkSystemLibrary("version", .{});
+            mod.linkSystemLibrary("uuid", .{});
+            mod.linkSystemLibrary("advapi32", .{});
+            mod.linkSystemLibrary("setupapi", .{});
+            mod.linkSystemLibrary("shell32", .{});
+            mod.linkSystemLibrary("dinput", .{});
         } else {
             mod.addSystemIncludePath(.{ .cwd_relative = "/usr/include" });
 
