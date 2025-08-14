@@ -21,6 +21,7 @@ pub fn linkLibrary(b: *std.Build, mod: *std.Build.Module, tolink: []const ToLink
 
     const include_paths = [_][]const u8{
         cdir ++ "/libepoxy/include",
+        cdir ++ "/libepoxy/build/include",
         cdir ++ "/miniz/build",
         cdir ++ "/miniz",
         cdir ++ "/SDL/include",
