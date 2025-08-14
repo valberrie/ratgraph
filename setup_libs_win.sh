@@ -1,6 +1,10 @@
 #!/bin/bash
 
 BUILDDIR="buildwin"
+pushd c_libs
+export PATH=$PATH:$(pwd)
+popd
+echo $PATH
 
 pushd c_libs/freetype_build
 rm -rf $BUILDDIR

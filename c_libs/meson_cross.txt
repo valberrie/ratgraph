@@ -1,5 +1,5 @@
 [binaries]
-c = ['zig', 'cc', '-target' ,'x86_64-windows-gnu']
+c = ['ccwrap', 'x86_64-windows-gnu']
 ar = ['zig', 'ar']
 windres = ['zig', 'rc']
 
