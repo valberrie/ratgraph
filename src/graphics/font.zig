@@ -444,7 +444,6 @@ pub const Font = struct {
     }
 
     pub fn init(alloc: Alloc, dir: Dir, filename: []const u8, point_size: f32, options: InitOptions) !Self {
-        std.debug.print("A FREETYPE WAS DONE {s}\n", .{filename});
         const codepoints_i: []u21 = blk: {
             var glyph_indices = std.ArrayList(u21).init(alloc);
             try CharMapEntry.flattenList(options.codepoints_to_load, &glyph_indices);
@@ -702,8 +701,6 @@ pub const Font = struct {
         }
 
         const elapsed = timer.read();
-        const ums = elapsed / std.time.ns_per_us;
-        std.debug.print("TOOK THIS MUCH {d} us {d} {d}\n", .{ ums, ums / codepoints_i.len, codepoints_i.len });
         try log.print("Rendered {d} glyphs in {d} ms, {d} ms avg\n", .{ result.glyphs.count(), @as(f32, @floatFromInt(elapsed)) / std.time.ns_per_ms, @as(f32, @floatFromInt(elapsed)) / std.time.ns_per_ms / @as(f32, @floatFromInt(result.glyphs.count())) });
         //Each glyph takes up result.max_advance x result.line_gap + padding
         const w_c: i32 = @intFromFloat(@ceil(@sqrt(@as(f32, @floatFromInt(pack_ctx.rects.items.len)))));

@@ -170,6 +170,7 @@ pub const Window = struct {
         extra_gl_attributes: []const struct { attr: c.SDL_GLAttr, val: i32 } = &.{},
         gl_flags: []const u32 = &.{c.SDL_GL_CONTEXT_DEBUG_FLAG},
         window_flags: []const u32 = &.{},
+        enable_debug: bool = true,
     }) !Self {
         log.info("Attempting to create window: {s}", .{title});
         if (!c.SDL_Init(c.SDL_INIT_VIDEO)) {
@@ -195,8 +196,6 @@ pub const Window = struct {
 
         const win = c.SDL_CreateWindow(
             title,
-            //c.SDL_WINDOWPOS_UNDEFINED,
-            //c.SDL_WINDOWPOS_UNDEFINED,
             options.window_size.x,
             options.window_size.y,
             @as(u32, c.SDL_WINDOW_OPENGL | c.SDL_WINDOW_RESIZABLE) |
@@ -225,7 +224,6 @@ pub const Window = struct {
                 if (!c.SDL_GL_SetSwapInterval(1)) {
                     sdlLogErr();
                     log.warn("Unable to set swap interval !", .{});
-                    //return error.SetSwapInterval;
                 }
             } else {
                 return error.SetSwapInterval;
@@ -239,14 +237,13 @@ pub const Window = struct {
                 @tagName(@as(@TypeOf(options.frame_sync), @enumFromInt(set_swap))),
             });
         }
-        //TODO where should these be set instead?
-        //c.glEnable(c.GL_MULTISAMPLE);
         c.glEnable(c.GL_DEPTH_TEST);
-        //c.glEnable(c.GL_STENCIL_TEST);
-        c.glEnable(c.GL_DEBUG_OUTPUT);
-        c.glEnable(c.GL_DEBUG_OUTPUT_SYNCHRONOUS);
-        c.glDebugMessageControl(c.GL_DONT_CARE, c.GL_DONT_CARE, c.GL_DEBUG_SEVERITY_NOTIFICATION, 0, null, c.GL_FALSE);
-        c.glDebugMessageCallback(GL.messageCallback, null);
+        if (options.enable_debug) {
+            c.glEnable(c.GL_DEBUG_OUTPUT);
+            c.glEnable(c.GL_DEBUG_OUTPUT_SYNCHRONOUS);
+            c.glDebugMessageControl(c.GL_DONT_CARE, c.GL_DONT_CARE, c.GL_DEBUG_SEVERITY_NOTIFICATION, 0, null, c.GL_FALSE);
+            c.glDebugMessageCallback(GL.messageCallback, null);
+        }
 
         var ret = Self{
             .win = win,
